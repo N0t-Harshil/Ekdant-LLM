@@ -59,8 +59,14 @@
 ### 7. Training Stuck at Step 0 / Progress Bar Not Moving
 - **Symptom**: Progress bar pinned at `0/50000` for hours; GPU idle; main thread futex-waiting
 - **Cause**: Forked DataLoader worker processes inherit internal locks held by the async-prefetch/streaming threads at fork time; every worker deadlocks on its first batch fetch
-- **Fix**: drop or lower `num_workers` in `09-Code/src/ekdant/train.py::build_dataloader` (ships `num_workers=4`, `persistent_workers=True`); the `dataloader_num_workers=0` pretrain fix belongs to `src/training/pipeline.py`, which is not part of this vault
+- **Fix**: drop or lower `num_workers` in `09-Code/src/ekdant/train.py::build_dataloader` (ships `num_workers=4` for training, `workers=0` for evals, `persistent_workers=(workers>0)`); the `dataloader_num_workers=0` pretrain fix belongs to `src/training/pipeline.py`, which is not part of this vault
 - **Verify**: `09-Code/src/ekdant/train.py` logs `=== stage ... ===` then `[stage] epN loss=` lines — expect one within seconds of the first `load_examples` download completing
+
+### 7b. Hangs Silently Right Before/Inside an Eval (No Log Line, No Error)
+- **Symptom**: last log line is an epoch summary or `epN eval …`; process alive, GPU idle, no output for minutes — looks like a deadlock
+- **Cause (T19, fixed)**: `load_dataset` revalidated against the HF hub with a network HEAD on **every** call (each per-epoch eval = a network round-trip); on a dead/IPv6 route the socket sits in `SynSent` forever. Reproduced via a per-process TCP dump (syn sent to CloudFront `2600:9000…:443`)
+- **Fix (shipped)**: `data.py` defaults `HF_HUB_OFFLINE=1`/`HF_DATASETS_OFFLINE=1` at import — warm-cache loads never touch the network; the first-run download flips online once via the `_hub_offline()` fallback. `git pull` to pick it up; set `HF_HUB_OFFLINE=0` only to force hub checks
+- **Verify**: warm-cache run reaches `epN eval …` lines with no pauses (`py-spy dump --pid <pid>` on a pre-fix build shows it parked in a socket read)
 
 ### 8. Dumping Thread Stacks Without Root (`kill -USR1 <pid>`)
 - **Symptom**: Need to know where a stuck training process is blocked but have no ptrace/sudo access
@@ -120,6 +126,8 @@ Training fails
     │   │   └── Lower `num_workers` in `09-Code/src/ekdant/train.py::build_dataloader` (ships 4)
     │   ├── Dump thread stacks with `py-spy dump --pid <pid>` (no `main.py` SIGUSR1 handler here)
     │   └── Confirm the `[stage] ep0 step X/Y` lines advance (and `tok/s` > 0)
+    ├── Stuck silently right before `epN eval` (alive, no output)?
+    │   └── Pre-fix build: hub etag stall (T19) — `git pull` for the offline-first `data.py`; confirm with `py-spy dump` (parked in socket connect)
     ├── NaN loss?
     │   ├── Reduce learning rate
     │   ├── Increase gradient clipping (lower max_grad_norm)

@@ -23,6 +23,30 @@ from torch.utils.data import Dataset
 
 LETTERS = ("A", "B", "C", "D")
 
+# Datasets are downloaded once, then read from the local cache. Hub etag
+# checks on every load are a network round-trip per split — with bad
+# connectivity the request can stall indefinitely, which looks like
+# training hanging silently right before an eval (observed: SynSent to a
+# dead route). Default to offline reads; load_examples flips online for
+# exactly one attempt when the cache is empty (first run). Override with
+# HF_HUB_OFFLINE=0 ... to force online.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
+
+def _hub_offline(off: bool) -> None:
+    """Toggle hub offline mode after datasets/hub are already imported
+    (their constants are read from the environment once, at import)."""
+    val = "1" if off else "0"
+    os.environ["HF_HUB_OFFLINE"] = val
+    os.environ["HF_DATASETS_OFFLINE"] = val
+    for mod_name, attr in (("huggingface_hub.constants", "HF_HUB_OFFLINE"),
+                           ("datasets.config", "HF_DATASETS_OFFLINE")):
+        try:
+            setattr(__import__(mod_name, fromlist=[attr]), attr, off)
+        except Exception:
+            pass
+
 
 def format_prompt(question: str, options: Sequence[str]) -> str:
     q = " ".join(str(question).split())
@@ -109,11 +133,23 @@ def load_examples(name: str, split: str, limit: Optional[int] = None,
     from datasets import load_dataset
 
     if name == "medmcqa":
-        ds = load_dataset("openlifescienceai/medmcqa", split=split)
+        pkg = "openlifescienceai/medmcqa"
     elif name == "medqa":
-        ds = load_dataset("GBaker/MedQA-USMLE-4-options", split=split)
+        pkg = "GBaker/MedQA-USMLE-4-options"
     else:
         raise ValueError(f"unknown dataset {name!r}")
+
+    # Offline-first (module header): cached reads never touch the network.
+    # First run (empty cache) flips online for one attempt, then returns
+    # to offline so later per-epoch evals stay local.
+    try:
+        ds = load_dataset(pkg, split=split)
+    except Exception:
+        _hub_offline(False)
+        try:
+            ds = load_dataset(pkg, split=split)
+        finally:
+            _hub_offline(True)
 
     rows = [_normalise_row(r, name) for r in ds]
     out = [r for r in rows if r is not None]

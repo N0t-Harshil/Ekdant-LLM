@@ -24,7 +24,7 @@ from typing import Dict, List
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, Subset
 
 from ekdant.data import (
     LETTER_IDS,
@@ -57,20 +57,44 @@ def setup_dist() -> bool:
     return True
 
 
-def build_dataloader(ds, cfg, batch_size, shuffle, distributed, seed=0):
+def build_dataloader(ds, cfg, batch_size, shuffle, distributed, seed=0,
+                     workers=4):
     sampler = (DistributedSampler(ds, shuffle=shuffle, seed=seed)
                if distributed else None)
     return DataLoader(
         ds, batch_size=batch_size, shuffle=(shuffle and sampler is None),
-        sampler=sampler, num_workers=4, pin_memory=True,
+        sampler=sampler, num_workers=workers, pin_memory=True,
         drop_last=shuffle, collate_fn=partial(collate, pad_id=cfg.pad_id),
-        persistent_workers=True,
+        persistent_workers=(workers > 0),
     )
 
 
 def make_dataset(name, split, tokenizer, cfg, limit=None):
     ex = load_examples(name, split, limit=limit)
     return MCQDataset(ex, tokenizer, max_len=cfg.max_seq_len)
+
+
+def split_half(ds, seen: bool, seed: int = 17) -> Subset:
+    """Deterministic 50/50 split of a benchmark.
+
+    The ``seen`` half is the validation role: evaluated after every epoch
+    and used to select ``best.pt``.  The ``unseen`` half is the test
+    role: evaluated exactly once, at the end, on the selected checkpoint.
+    The permutation is seeded with ``--seed`` so both A/B arms use the
+    identical halves (fairness rule).
+    """
+    n = len(ds)
+    perm = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
+    half = n // 2
+    return Subset(ds, perm[:half] if seen else perm[half:])
+
+
+def merge_eval(a: Dict[str, float], b: Dict[str, float]) -> Dict[str, float]:
+    """Merge two eval results (the two halves) into the full-set number."""
+    n = int(a["n"]) + int(b["n"])
+    return {"accuracy": (a["accuracy"] * a["n"] + b["accuracy"] * b["n"]) / max(1, n),
+            "loss": (a["loss"] * a["n"] + b["loss"] * b["n"]) / max(1, n),
+            "n": n}
 
 
 def lr_at(step, total, base, warmup):
@@ -189,14 +213,14 @@ def main() -> None:
                     help="print a progress line every N optimizer steps "
                          "(0 = epoch summaries only)")
     ap.add_argument("--eval-every", type=int, default=1,
-                    help="evaluate held-out splits every N epochs, append "
-                         "accuracy to history and rewrite results.json "
-                         "incrementally, and keep best.pt on medmcqa "
-                         "(0 = final evaluation only)")
+                    help="evaluate the SEEN half of each held-out split "
+                         "every N epochs, append accuracy to history and "
+                         "rewrite results.json incrementally, and keep "
+                         "best.pt on medmcqa_seen (0 = final only)")
     ap.add_argument("--resume", action="store_true",
                     help="continue <out>/last.pt (skips finished stage/epochs)")
     ap.add_argument("--eval-only", action="store_true",
-                    help="no training; evaluate <out>/last.pt on both test sets")
+                    help="no training; run the final protocol (seen/unseen/full)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -307,7 +331,7 @@ def main() -> None:
             json.dump(cfg.to_dict(), f, indent=2)
 
     if args.eval_only and is_main:
-        log("eval-only: skipping training, running held-out tests")
+        log("eval-only: skipping training, running the final benchmark protocol")
     results = {"variant": args.variant, "use_sandbox": cfg.use_sandbox,
                "params": estimate_model_size(cfg)["total"], "history": history,
                "test": {}}
@@ -365,18 +389,19 @@ def main() -> None:
                         for tname, tsplit in TESTS:
                             tds = make_dataset(tname, tsplit, tokenizer, cfg,
                                                args.limit)
-                            tloader = build_dataloader(tds, cfg,
+                            tseen = split_half(tds, True, args.seed)
+                            tloader = build_dataloader(tseen, cfg,
                                                        args.batch_size, False,
-                                                       False, seed=args.seed)
-                            tests_now[tname] = evaluate(raw, tloader, device,
-                                                        autocast)
-                            log(f"[{stage_name}] ep{epoch} eval {tname} "
-                                f"acc={tests_now[tname]['accuracy']*100:.2f}% "
-                                f"loss={tests_now[tname]['loss']:.4f} "
-                                f"n={tests_now[tname]['n']}")
+                                                       False, seed=args.seed,
+                                                       workers=0)
+                            r = evaluate(raw, tloader, device, autocast)
+                            tests_now[f"{tname}_seen"] = r
+                            log(f"[{stage_name}] ep{epoch} eval {tname}_seen "
+                                f"acc={r['accuracy']*100:.2f}% "
+                                f"loss={r['loss']:.4f} n={r['n']}")
                         history[-1]["test"] = tests_now
                         results["test"] = tests_now
-                        cur = tests_now["medmcqa"]["accuracy"]
+                        cur = tests_now["medmcqa_seen"]["accuracy"]
                         if cur > best_acc:
                             best_acc = cur
                             torch.save({"model": raw.state_dict(),
@@ -386,20 +411,46 @@ def main() -> None:
                                         "history": history,
                                         "best_medmcqa": best_acc},
                                        os.path.join(args.out, "best.pt"))
-                            log(f"[{stage_name}] ep{epoch} new best medmcqa "
-                                f"{cur*100:.2f}% -> best.pt")
+                            log(f"[{stage_name}] ep{epoch} new best "
+                                f"medmcqa_seen {cur*100:.2f}% -> best.pt")
                         with open(os.path.join(args.out, "results.json"),
                                   "w", encoding="utf-8") as f:
                             json.dump(results, f, indent=2)
 
+    # Final protocol: select the checkpoint on the SEEN halves (that is
+    # what they are for), then touch the UNSEEN halves exactly once.
+    best_path = os.path.join(args.out, "best.pt")
+    selected = {"checkpoint": "last.pt", "selected_on": None,
+                "best_medmcqa_seen": None}
+    if os.path.exists(best_path):
+        bckpt = torch.load(best_path, map_location="cpu")
+        raw.load_state_dict(bckpt["model"])
+        selected = {"checkpoint": "best.pt", "selected_on": "medmcqa_seen",
+                    "best_medmcqa_seen": float(bckpt.get("best_medmcqa", -1.0))}
+        if is_main:
+            log("final evaluation uses best.pt (selected on medmcqa_seen="
+                f"{selected['best_medmcqa_seen']*100:.2f}%)")
+    elif is_main:
+        log("final evaluation uses last.pt (no best.pt — --eval-every 0?)")
+    results["selected"] = selected
     for name, split in TESTS:
         ds = make_dataset(name, split, tokenizer, cfg, args.limit)
-        loader = build_dataloader(ds, cfg, args.batch_size, False,
-                                  distributed, seed=args.seed)
-        r = evaluate(model, loader, device, autocast)
-        results["test"][name] = r
+        halves = {}
+        for tag, seen in (("seen", True), ("unseen", False)):
+            loader = build_dataloader(split_half(ds, seen, args.seed), cfg,
+                                      args.batch_size, False, distributed,
+                                      seed=args.seed, workers=0)
+            r = evaluate(model, loader, device, autocast)
+            results["test"][f"{name}_{tag}"] = r
+            halves[tag] = r
+            if is_main:
+                log(f"[test {name}_{tag}] acc={r['accuracy']*100:.2f}% "
+                    f"loss={r['loss']:.4f} n={r['n']}")
+        results["test"][f"{name}_full"] = merge_eval(halves["seen"],
+                                                     halves["unseen"])
         if is_main:
-            log(f"[test {name}] acc={r['accuracy']*100:.2f}% "
+            r = results["test"][f"{name}_full"]
+            log(f"[test {name}_full] acc={r['accuracy']*100:.2f}% "
                 f"loss={r['loss']:.4f} n={r['n']}")
 
     if is_main:

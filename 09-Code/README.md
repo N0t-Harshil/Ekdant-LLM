@@ -109,9 +109,9 @@ trained once on the MedMCQA sample and reused, so the two variants see the
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
 | `--log-every` | 100 | progress line every N optimizer steps: `step X/Y (%) loss lr gnorm tok/s eta` (`0` = summaries only) |
-| `--eval-every` | 1 | held-out eval every N epochs → history + incremental `results.json` + `best.pt` on MedMCQA (`0` = final eval only) |
+| `--eval-every` | 1 | **seen-half** benchmark eval every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_seen` (`0` = final eval only) |
 | `--resume` | off | continue `<out>/last.pt`; skips finished stage/epochs |
-| `--eval-only` | off | no training; evaluate `<out>/last.pt` on both test sets |
+| `--eval-only` | off | no training; re-run the final protocol (seen/unseen/full, `best.pt` if present) |
 
 Smoke test first (~2 min):
 
@@ -137,25 +137,30 @@ flags (esp. `--epochs`) as the original run. See [`../run.md`](../run.md) §4.
 runs/<variant>/
   tokenizer.json     shared vocabulary
   config.json        exact EkdantConfig used
-  last.pt            checkpoint (model state + config) at the final epoch
-  best.pt            checkpoint at the peak MedMCQA val accuracy (quote this)
-  results.json       history (loss/lr/gnorm + per-epoch held-out acc) + final test
+  last.pt            every-epoch checkpoint (resume artifact; incl. history)
+  best.pt            checkpoint at peak medmcqa_seen (final protocol scores this — quote its *_unseen)
+  results.json       history (loss/lr/gnorm + per-epoch seen-half acc)
+                     + test{medmcqa,medqa}_{seen,unseen,full} + selected{...}
 ```
 
-Compare the two `results.json` files (final eval **and** the best epoch
-seen in the curve):
+Every benchmark is split 50/50 at the run's `--seed` (**identical halves
+for both arms**): `*_seen` is monitored every epoch and selects
+`best.pt`; `*_unseen` is scored **once** at the end; `*_full` merges
+both. Compare the two `results.json` files on the unseen halves (final
+eval on the selected checkpoint **and** the seen curve in history):
 
 ```bash
 python - <<'PY'
 import json
 for v in ("baseline", "sandbox"):
     r = json.load(open(f"runs/{v}/results.json"))
-    peak = max((e.get("test", {}).get("medmcqa", {}).get("accuracy", 0.0)
+    peak = max((e.get("test", {}).get("medmcqa_seen", {}).get("accuracy", 0.0)
                 for e in r["history"]), default=0.0)
-    print(f"{v:9s} params={r['params']/1e6:.2f}M "
-          f"medmcqa={r['test']['medmcqa']['accuracy']*100:.2f}% "
-          f"peak={peak*100:.2f}% "
-          f"medqa={r['test']['medqa']['accuracy']*100:.2f}%")
+    t, s = r["test"], r["selected"]
+    print(f"{v:9s} params={r['params']/1e6:.2f}M ckpt={s['checkpoint']} "
+          f"medmcqa_unseen={t['medmcqa_unseen']['accuracy']*100:.2f}% "
+          f"peak_seen={peak*100:.2f}% "
+          f"medqa_unseen={t['medqa_unseen']['accuracy']*100:.2f}%")
 PY
 ```
 
@@ -189,5 +194,5 @@ cost of the sandbox arm (≈1.5× baseline wall-clock).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 75 tests (model/sandbox/transformer/data/schedule), CPU, ~10s
+pytest -q          # 78 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```
