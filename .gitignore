@@ -1,0 +1,10 @@
+# Obsidian app state (personal workspace)
+.obsidian/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Training outputs
+runs/

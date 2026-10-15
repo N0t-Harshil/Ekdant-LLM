@@ -1,0 +1,86 @@
+# Training Pipeline (Ekdant) — Ch. 5
+
+> Map: [README](../README.md) · Spec: [02](../02-Architecture/02_System_Architecture.md) · Builds: [26a](../04-Model-DeepDive/26a_Internal_SSM_Build.md) · [26b](../04-Model-DeepDive/26b_Dense_Transformer_for_T.md) · [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) · Config: [12](../02-Architecture/12_Configuration_Guide.md)
+
+`09-Code/src/ekdant/train.py` orchestrates Ekdant training (`python -m ekdant.train --variant sandbox|baseline`, MedMCQA → MedQA): one architecture, two losses (LM CE + spread floor), A/B pretrain only. The SFT/instruct/DPO stages in §1 are thesis design, not shipped.
+
+## 1. Thesis design spec (Ch. 5 — documented, not all runnable)
+
+Config targets `config_ekdant_xs/s/m.yaml` (one schema, three sizes): XS ≈12M / S ≈21M / M ≈46M, 1× A100 80GB. **These YAMLs are not runnable files in this vault** — they are the thesis spec. The runnable configs are `09-Code/configs/{sandbox,baseline}_50m.json` (the 50.09M/43.53M A/B), loaded by `ekdant.train`.
+
+- **Arch (`ekdant`):** XS: H=256/V=32K/d=96/N_ssm=2/N_T=3/K=4 · S: H=320/V=32K/d=128/N_ssm=4/N_T=5/K=4 · M: H=512/V=32K/d=256/N_ssm=4/N_T=6/K=4 · all: rounds=2, sandbox_steps=8, seq 2048, rope_theta 100K, tie embeddings true.
+- **Train:** 50K steps, lr 1e-4 cosine, warmup 3K, batch 4 × accum 4 (eff 16), AdamW fused, wd 0.1, clip 1.0, BF16 single-GPU (`strategy: none`).
+- **Data:** registry mode, 54 primary / 8 cats, 8-stage step plan optional (or single 50K run for thesis simplicity).
+- **Losses:** `lm_weight=1.0`, `sandbox_weight=0.1`, `sandbox_rho_min=0.05` (shipped λ differs — §3). No `head_ce` flag (dense only). No aux dict beyond the three reported monitors.
+- **Stages:** 1. **Pretrain (must):** 50K causal LM + spread floor on the full registry weighted mix. 2. **SFT (nice):** 10–100K steps, lr 5e-6, prompt-masked labels. 3. **Instruct (optional):** skip unless examiner asks. 4. **Alignment (minimal):** DPO only, on 2-layer outputs.
+- **Pydantic path:** `ModelConfig → ModelArchitectureConfig(ekdant) → EkdantConfig`; validators cover `save_steps/total_limit` and `lr/warmup` sanity.
+- **Checkpointing (thesis spec):** `model.safetensors` + `config.json` + tokenizer + `training_args.bin` under `models/ekdant/<stage>/`; resume scans `checkpoint-*`; W&B/MLflow/TensorBoard trackers. *(Not in this vault — design only.)*
+- **Scale-up (optional):** same file with hidden 10240 / d_state 4096 / layers 6 / vocab 128K / seq 4096 / FSDP full-shard + CPU offload / 1M steps. No code change.
+
+**Forward + loss (the math the thesis defends):**
+
+```
+h, compressed = ssm_storage(input_ids)      # L1 — thesis design only, not in code
+hT = transformer_stack(h)                   # T: dense windowed blocks
+y, sandbox_aux = sandbox(hT)                # L2 direct handoff
+logits = output_head(y)                     # tied single projection
+loss = lm_weight*CE(shift(logits), shift(labels)) + sandbox_weight * max(0, rho_min - rho)**2
+```
+
+The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → head** (the `ssm_storage` line is L1 — thesis design only) and its loss is CE + `lambda_sbx · relu(rho_min − spread_ratio)²` from `aux`.
+
+## 2. Shipped runner (`09-Code/src/ekdant/train.py`)
+
+**A/B, architecture-matched.** Two variants — `--variant sandbox|baseline` — share the identical backbone; the baseline is the same config with `use_sandbox: false` (50.09M vs 43.53M; delta = L2's 6.56M). Run one variant at a time.
+
+**Two stages, one invocation.** `STAGES = (("medmcqa","train"), ("medqa","train"))` — MedMCQA (182,822 train) then MedQA-USMLE (10,178 train); then `TESTS` evaluates both test splits. Data loads through `data.py::load_examples`; each example is formatted `question\nA. …\nAnswer: <letter>` and the answer-token index is cached (`answer_pos`).
+
+**Tokenizer trained once, shared vocabulary.** On first run, a BPE tokenizer (NFD+lowercase, whitespace pre-tokenizer, `vocab_size` from config, special `<pad>/<bos>/<eos>/<unk>`) is trained on ≤20K MedMCQA train samples (prompt+answer), saved to `<out>/tokenizer.json`, and **reloaded if present** — both variants therefore see the same vocabulary (required for a fair A/B). `bind_letter_ids` resolves the A/B/C/D token ids for evaluation.
+
+**CLI flags:**
+
+| flag | default | notes |
+|---|---|---|
+| `--variant` | required | `sandbox` \| `baseline` |
+| `--config` | `configs/<variant>_50m.json` | any `EkdantConfig` JSON |
+| `--out` | required | output dir (`runs/<variant>`) |
+| `--batch-size` | 24 | per GPU |
+| `--grad-accum` | 2 | effective batch = 24 × 2 × n_gpu |
+| `--lr` | 3e-4 | cosine, 200 warmup (buggy — §4) |
+| `--warmup` | 200 | steps (see §4 bug) |
+| `--epochs` | 3 | per stage |
+| `--limit` | none | cap rows per dataset (smoke) |
+| `--no-compile` | off | skip `torch.compile` |
+| `--seed` | 17 | also seeds the row sampler |
+
+**Optimization:** AdamW (wd 0.1, betas 0.9/0.95), BF16 autocast on CUDA, `GradScaler(enabled=False)` (bf16 needs no loss scaling), grad clip 1.0 at the accumulation boundary, `torch.compile` unless `--no-compile`. **DDP:** `torchrun --nproc_per_node=4 -m ekdant.train …` — `setup_dist()` reads `RANK`, NCCL, `DistributedSampler` per stage (set_epoch per epoch), `find_unused_parameters=bool(use_sandbox)`, rank-0-only logging/saving.
+
+**Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step}`) after **every epoch** (single checkpoint, no rotation); `<out>/results.json` at the end with params, per-stage history (`stage/epoch/loss/lr`) and per-dataset test metrics. No resume flag — rerun from scratch or load `last.pt` by hand.
+
+**Evaluation = letter accuracy.** `evaluate()` gathers the logits row at `answer_pos`, restricts to the 4 letter-token ids (`LETTER_IDS`), argmax vs `answer_target` — one forward per example instead of four option-continuation scorings (plus mean CE loss).
+
+## 3. Losses (shipped vs thesis — one flag difference)
+
+Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_sbx · relu(rho_min − rho)²·mean`, where `rho = spread_ratio = trajectory_variance / mean(hT²)` comes from `Sandbox._aux`, `rho_min = 0.05`.
+
+> [!warning] Weight mismatch: shipped `lambda_sbx` = **1.0** (`configs/*.json`), thesis spec `sandbox_weight` = **0.1**. The floor is a hinge (0 while healthy), so the practical effect is small — but any published run must state which λ it used. The term is a **spread floor**, never an agreement penalty `MSE(traj, consensus)` (that loss is minimized by the exact collapse it forbids — [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.2).
+
+## 4. Known issues (open — see [10_Known_Issues](../07-Management/10_Known_Issues.md))
+
+1. **LR warmup bug (real, in `train.py`).** `lr_at(step, total, base, warmup)` is called **once per epoch** with `step` incremented by 1 per epoch (`step += 1` after `train_stage`), while `total_steps = len(loader) × epochs` counts **batches**. With defaults (warmup 200, 3 epochs/stage × 2 stages), `step` only ever reaches 5 — so `step < warmup` always holds and lr = `base × (step+1)/200` ≤ 1.5% of 3e-4; the cosine phase never starts. Fix before any real run: step the schedule per **optimizer step** (`step × steps_per_epoch` or an internal counter inside the batch loop) and divide `total_steps` by `grad_accum`.
+2. **Sandbox diagnostics computed but never logged.** `ModelOutput.aux` carries `anchor_energy`, `trajectory_variance`, `spread_ratio`, `per_trajectory_retention`, `anchor_distance`, but `train_stage` ignores `out.aux` — `results.json` history has only `loss`/`lr`. No ρ trace exists for any run yet (the collapse monitor the thesis requires). Fix: accumulate `aux` scalars per epoch and append to history.
+3. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
+4. Not bugs but design gaps: no resume; diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute.
+
+## 5. Smoke test (Phase 8 substitute)
+
+```bash
+cd 09-Code && pip install -e .[dev]
+pytest -q    # 55 tests, CPU, ~10s
+python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
+```
+
+Verify: loss decreases across the `=== stage … ===` / `[stage] epN loss=` lines, `last.pt` + `results.json` written, `results.json` test accuracies are > random (25% on 4-option MCQ). Repeat with `--variant baseline` for the A/B pair. *(The thesis 8-phase harness script is absent — Phase 8 SKIPPED; the 50-step XS/O(1)-curve checks are design targets.)*
+
+## Connections
+- Builds: [26a](../04-Model-DeepDive/26a_Internal_SSM_Build.md) · [26b](../04-Model-DeepDive/26b_Dense_Transformer_for_T.md) · [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) · Data: [05](../05-Data/05_Data_Pipeline.md) · Validation: [09](09_Validation_System.md) · Debug: [13](13_Debugging_Guide.md) · Perf: [14](14_Performance_Analysis.md)

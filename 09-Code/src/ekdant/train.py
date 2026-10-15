@@ -1,0 +1,253 @@
+"""Two-stage A/B training: MedMCQA then MedQA, baseline vs sandbox.
+
+Both variants share the identical backbone.  Only the L2 sandbox layer
+differs, so any accuracy gap is attributable to the sandbox alone.
+
+Usage (single GPU):
+    python -m ekdant.train --variant sandbox  --out runs/sandbox
+    python -m ekdant.train --variant baseline --out runs/baseline
+
+Multi-GPU (one process per GPU, run one variant at a time):
+    torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox --out runs/sandbox
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import time
+from typing import Dict, List
+
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader, DistributedSampler
+
+from ekdant.data import (
+    LETTER_IDS,
+    MCQDataset,
+    Tokenizer,
+    bind_letter_ids,
+    collate,
+    format_prompt,
+    load_examples,
+)
+from ekdant.model import EkdantConfig, EkdantModel, estimate_model_size
+
+STAGES = (("medmcqa", "train"), ("medqa", "train"))
+TESTS = (("medmcqa", "test"), ("medqa", "test"))
+
+
+def log(msg: str) -> None:
+    if dist.get_rank() == 0 if dist.is_initialized() else True:
+        print(msg, flush=True)
+
+
+def setup_dist() -> bool:
+    if "RANK" not in os.environ:
+        return False
+    dist.init_process_group("nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+    return True
+
+
+def build_dataloader(ds, cfg, batch_size, shuffle, distributed, seed=0):
+    sampler = (DistributedSampler(ds, shuffle=shuffle, seed=seed)
+               if distributed else None)
+    return DataLoader(
+        ds, batch_size=batch_size, shuffle=(shuffle and sampler is None),
+        sampler=sampler, num_workers=4, pin_memory=True,
+        drop_last=shuffle, collate_fn=lambda b: collate(b, cfg.pad_id),
+        persistent_workers=True,
+    )
+
+
+def make_dataset(name, split, tokenizer, cfg, limit=None):
+    ex = load_examples(name, split, limit=limit)
+    return MCQDataset(ex, tokenizer, max_len=cfg.max_seq_len)
+
+
+def lr_at(step, total, base, warmup):
+    if step < warmup:
+        return base * (step + 1) / max(1, warmup)
+    p = (step - warmup) / max(1, total - warmup)
+    return base * 0.5 * (1.0 + math.cos(math.pi * p))
+
+
+def train_stage(model, loader, opt, sched_cfg, device, epoch, scaler, autocast):
+    model.train()
+    total, ntok, steps = 0.0, 0, 0
+    for batch in loader:
+        batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+        with autocast():
+            out = model(batch["input_ids"], labels=batch["labels"])
+            loss = out.loss / sched_cfg["accum"]
+        scaler.scale(loss).backward()
+        if (steps + 1) % sched_cfg["accum"] == 0:
+            scaler.unscale_(opt)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(opt)
+            scaler.update()
+            opt.zero_grad(set_to_none=True)
+        total += out.loss.item() * batch["input_ids"].size(0)
+        ntok += int(batch["attention_mask"].sum())
+        steps += 1
+    return total / max(1, steps), ntok
+
+
+@torch.no_grad()
+def evaluate(model, loader, device, autocast) -> Dict[str, float]:
+    model.eval()
+    correct = seen = 0
+    loss_sum = n = 0
+    for batch in loader:
+        batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+        with autocast():
+            out = model(batch["input_ids"], labels=batch["labels"])
+            logits = out.logits
+        loss_sum += out.loss.item()
+        n += 1
+        got = logits[torch.arange(len(logits), device=device), batch["answer_pos"]]
+        pred = got[:, LETTER_IDS].argmax(-1)
+        correct += int((pred == batch["answer_target"]).sum())
+        seen += len(pred)
+    return {"loss": loss_sum / max(1, n), "accuracy": correct / max(1, seen),
+            "n": seen}
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--variant", choices=["sandbox", "baseline"], required=True)
+    ap.add_argument("--config", default=None)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--batch-size", type=int, default=24)
+    ap.add_argument("--grad-accum", type=int, default=2)
+    ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--warmup", type=int, default=200)
+    ap.add_argument("--epochs", type=int, default=3)
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--no-compile", action="store_true")
+    ap.add_argument("--seed", type=int, default=17)
+    args = ap.parse_args()
+
+    torch.manual_seed(args.seed)
+    distributed = setup_dist()
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device("cuda", local_rank) if torch.cuda.is_available() \
+        else torch.device("cpu")
+    is_main = (not distributed) or dist.get_rank() == 0
+
+    cfg_path = args.config or os.path.join(
+        "configs", f"{args.variant}_50m.json")
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        cfg = EkdantConfig.from_dict(json.load(f))
+    if args.variant == "baseline":
+        cfg.use_sandbox = False
+
+    if is_main:
+        os.makedirs(args.out, exist_ok=True)
+        log(f"variant={args.variant}  use_sandbox={cfg.use_sandbox}")
+
+    tok_path = os.path.join(args.out, "tokenizer.json")
+    if os.path.exists(tok_path):
+        tokenizer = Tokenizer.load(tok_path)
+        if is_main:
+            log(f"loaded existing tokenizer ({tokenizer.vocab_size})")
+    else:
+        probe = load_examples("medmcqa", "train", limit=20000)
+        texts = [format_prompt(e.question, e.options) + f" {e.answer}"
+                 for e in probe]
+        tokenizer = Tokenizer.train(texts, cfg.vocab_size, tok_path)
+        if is_main:
+            log(f"trained tokenizer -> {tok_path} ({tokenizer.vocab_size})")
+    cfg.pad_id = tokenizer.pad_id
+    bind_letter_ids(tokenizer)
+
+    model = EkdantModel(cfg).to(device)
+    if is_main:
+        s = estimate_model_size(cfg)
+        log(f"params total={s['total']/1e6:.2f}M "
+            f"T={s['t']/1e6:.2f}M L2={s['sandbox']/1e6:.2f}M")
+    if distributed:
+        model = DDP(model, device_ids=[local_rank],
+                    find_unused_parameters=bool(cfg.use_sandbox))
+    raw = model.module if distributed else model
+
+    if not args.no_compile and hasattr(torch, "compile") and device.type == "cuda":
+        try:
+            model = torch.compile(model)
+            if is_main:
+                log("torch.compile enabled")
+        except Exception as exc:
+            if is_main:
+                log(f"compile skipped: {exc}")
+
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr,
+                            weight_decay=0.1, betas=(0.9, 0.95))
+    use_amp = device.type == "cuda"
+    autocast = (lambda: torch.autocast("cuda", dtype=torch.bfloat16)) \
+        if use_amp else (lambda: torch.autocast("cpu", enabled=False))
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    sched = {"accum": args.grad_accum}
+
+    if is_main:
+        with open(os.path.join(args.out, "config.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump(cfg.to_dict(), f, indent=2)
+
+    history = []
+    step = 0
+    for stage_name, split in STAGES:
+        ds = make_dataset(stage_name, split, tokenizer, cfg, args.limit)
+        loader = build_dataloader(ds, cfg, args.batch_size, True,
+                                  distributed, seed=args.seed)
+        if is_main:
+            log(f"\n=== stage {stage_name}  n={len(ds)} ===")
+        steps_per_epoch = max(1, len(loader))
+        total_steps = steps_per_epoch * args.epochs
+        for epoch in range(args.epochs):
+            if isinstance(loader.sampler, DistributedSampler):
+                loader.sampler.set_epoch(epoch)
+            t0 = time.time()
+            lr = lr_at(step, total_steps, args.lr, args.warmup)
+            for g in opt.param_groups:
+                g["lr"] = lr
+            avg, ntok = train_stage(model, loader, opt, sched, device,
+                                    epoch, scaler, autocast)
+            step += 1
+            if is_main:
+                log(f"[{stage_name}] ep{epoch} loss={avg:.4f} "
+                    f"tok/s={ntok/max(1,time.time()-t0):.0f} lr={lr:.2e}")
+                history.append({"stage": stage_name, "epoch": epoch,
+                                "loss": avg, "lr": lr})
+            if is_main:
+                torch.save({"model": raw.state_dict(), "cfg": cfg.to_dict(),
+                            "step": step},
+                           os.path.join(args.out, "last.pt"))
+
+    results = {"variant": args.variant, "use_sandbox": cfg.use_sandbox,
+               "params": estimate_model_size(cfg)["total"], "history": history,
+               "test": {}}
+    for name, split in TESTS:
+        ds = make_dataset(name, split, tokenizer, cfg, args.limit)
+        loader = build_dataloader(ds, cfg, args.batch_size, False,
+                                  distributed, seed=args.seed)
+        r = evaluate(model, loader, device, autocast)
+        results["test"][name] = r
+        if is_main:
+            log(f"[test {name}] acc={r['accuracy']*100:.2f}% "
+                f"loss={r['loss']:.4f} n={r['n']}")
+
+    if is_main:
+        with open(os.path.join(args.out, "results.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+        log(f"\nwrote {args.out}/results.json")
+    if distributed:
+        dist.destroy_process_group()
+
+
+if __name__ == "__main__":
+    main()
