@@ -62,6 +62,13 @@ python -c "import ekdant; print('ok')"
   a python you are not running).
 - PyTorch is preinstalled on most Kaggle images; `pip install -e .` reuses
   it (the `torch>=2.2` requirement is already satisfied).
+- **`ImportError: pyarrow requires NumPy 2.0 or newer, found 1.26.4`** —
+  conda/Kaggle pins numpy 1.x while fresh pip pulls pyarrow ≥21 (numpy-2
+  only). Downgrade pyarrow instead of touching numpy (safer for the rest of
+  the conda stack): `pip install "pyarrow<21"`.
+- **Kaggle T4/P100 = 16 GB VRAM** — the default batch 24 assumes ~30–40 GB.
+  Run `--batch-size 6 --grad-accum 8` (effective batch 48, same as the
+  24×2 default), and `--no-compile` if compile is slow or crashes.
 - No-install fallback (skip pip entirely, from `09-Code/`):
 
 ```bash
@@ -255,6 +262,8 @@ runs/<variant>/
 | OOM | lower `--batch-size`, raise `--grad-accum` to keep effective batch constant. |
 | `torch.compile` crash/slow first epoch | `--no-compile`. |
 | first run is slow | HF is downloading MedMCQA/MedQA into its cache — one-time. |
+| `pyarrow requires NumPy 2.0` | Kaggle/conda: `pip install "pyarrow<21"` (do **not** upgrade numpy on a conda image — it breaks prebuilt pandas/scipy). |
+| OOM on 16 GB GPU (Kaggle T4) | default batch 24 needs ~30–40 GB; use `--batch-size 6 --grad-accum 8` (effective batch unchanged). |
 | CPU-only machine | smoke/eval-only work (`--no-compile`); full training needs CUDA. |
 | both arms fair? | same flags, same seed, separate `--out`; copy tokenizer for guaranteed identical vocab. |
 | dataset schema | loader handles current HF schemas: MedMCQA `opa..opd` + `cop` (0..3), MedQA `options` dict + `answer_idx` (`tests/test_data.py` locks this in). |
