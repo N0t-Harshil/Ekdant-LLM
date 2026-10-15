@@ -96,7 +96,7 @@ graph TB
 
 The runnable workflow lives in `09-Code/` (the L2-only build; `pip install -e .` first). From `09-Code/`:
 
-- **Unit tests:** `pytest -q` — 55 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py` (forward shapes, A/B config match, gradient flow, spread floor).
+- **Unit tests:** `pytest -q` — 65 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas). Ops runbook: [`run.md`](../run.md).
 - **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` (MedMCQA → MedQA in one invocation).
 - **Train (multi-GPU):** `torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox --out runs/sandbox` (one variant at a time). Configs: `configs/sandbox_50m.json`, `configs/baseline_50m.json` (identical architecture; only `use_sandbox` differs).
 

@@ -18,6 +18,7 @@ import json
 import math
 import os
 import time
+from functools import partial
 from typing import Dict, List
 
 import torch
@@ -59,7 +60,7 @@ def build_dataloader(ds, cfg, batch_size, shuffle, distributed, seed=0):
     return DataLoader(
         ds, batch_size=batch_size, shuffle=(shuffle and sampler is None),
         sampler=sampler, num_workers=4, pin_memory=True,
-        drop_last=shuffle, collate_fn=lambda b: collate(b, cfg.pad_id),
+        drop_last=shuffle, collate_fn=partial(collate, pad_id=cfg.pad_id),
         persistent_workers=True,
     )
 
@@ -130,6 +131,10 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--no-compile", action="store_true")
     ap.add_argument("--seed", type=int, default=17)
+    ap.add_argument("--resume", action="store_true",
+                    help="continue <out>/last.pt (skips finished stage/epochs)")
+    ap.add_argument("--eval-only", action="store_true",
+                    help="no training; evaluate <out>/last.pt on both test sets")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -139,10 +144,18 @@ def main() -> None:
         else torch.device("cpu")
     is_main = (not distributed) or dist.get_rank() == 0
 
-    cfg_path = args.config or os.path.join(
-        "configs", f"{args.variant}_50m.json")
-    with open(cfg_path, "r", encoding="utf-8") as f:
-        cfg = EkdantConfig.from_dict(json.load(f))
+    resume_mode = args.resume or args.eval_only
+    run_cfg = os.path.join(args.out, "config.json")
+    if resume_mode and os.path.exists(run_cfg):
+        with open(run_cfg, "r", encoding="utf-8") as f:
+            cfg = EkdantConfig.from_dict(json.load(f))
+        if is_main:
+            log(f"config from {run_cfg} (exact config the run started with)")
+    else:
+        cfg_path = args.config or os.path.join(
+            "configs", f"{args.variant}_50m.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = EkdantConfig.from_dict(json.load(f))
     if args.variant == "baseline":
         cfg.use_sandbox = False
 
@@ -151,6 +164,10 @@ def main() -> None:
         log(f"variant={args.variant}  use_sandbox={cfg.use_sandbox}")
 
     tok_path = os.path.join(args.out, "tokenizer.json")
+    if not os.path.exists(tok_path) and args.eval_only:
+        log(f"error: {tok_path} not found — an eval-only run needs an "
+            f"existing --out directory from a finished/paused training run")
+        raise SystemExit(1)
     if os.path.exists(tok_path):
         tokenizer = Tokenizer.load(tok_path)
         if is_main:
@@ -166,6 +183,21 @@ def main() -> None:
     bind_letter_ids(tokenizer)
 
     model = EkdantModel(cfg).to(device)
+    start_pair, step, history = 0, 0, []
+    if resume_mode:
+        ckpt_path = os.path.join(args.out, "last.pt")
+        if not os.path.exists(ckpt_path):
+            log(f"error: {ckpt_path} not found — nothing to resume/evaluate")
+            raise SystemExit(1)
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+        model.load_state_dict(ckpt["model"])
+        step = int(ckpt.get("step", 0))
+        start_pair = int(ckpt.get("completed", 0))
+        history = list(ckpt.get("history", []))
+        if is_main:
+            verb = "eval-only: loaded" if args.eval_only else "resumed"
+            log(f"{verb} {ckpt_path}  completed_pairs={start_pair} "
+                f"step={step}")
     if is_main:
         s = estimate_model_size(cfg)
         log(f"params total={s['total']/1e6:.2f}M "
@@ -197,35 +229,46 @@ def main() -> None:
                   encoding="utf-8") as f:
             json.dump(cfg.to_dict(), f, indent=2)
 
-    history = []
-    step = 0
-    for stage_name, split in STAGES:
-        ds = make_dataset(stage_name, split, tokenizer, cfg, args.limit)
-        loader = build_dataloader(ds, cfg, args.batch_size, True,
-                                  distributed, seed=args.seed)
-        if is_main:
-            log(f"\n=== stage {stage_name}  n={len(ds)} ===")
-        steps_per_epoch = max(1, len(loader))
-        total_steps = steps_per_epoch * args.epochs
-        for epoch in range(args.epochs):
-            if isinstance(loader.sampler, DistributedSampler):
-                loader.sampler.set_epoch(epoch)
-            t0 = time.time()
-            lr = lr_at(step, total_steps, args.lr, args.warmup)
-            for g in opt.param_groups:
-                g["lr"] = lr
-            avg, ntok = train_stage(model, loader, opt, sched, device,
-                                    epoch, scaler, autocast)
-            step += 1
+    if args.eval_only and is_main:
+        log("eval-only: skipping training, running held-out tests")
+    if not args.eval_only:
+        for si, (stage_name, split) in enumerate(STAGES):
+            first_epoch = 0
+            while si * args.epochs + first_epoch < start_pair:
+                first_epoch += 1
+            if first_epoch >= args.epochs:
+                if is_main:
+                    log(f"stage {stage_name}: already complete, skipping")
+                continue
+            ds = make_dataset(stage_name, split, tokenizer, cfg, args.limit)
+            loader = build_dataloader(ds, cfg, args.batch_size, True,
+                                      distributed, seed=args.seed)
             if is_main:
-                log(f"[{stage_name}] ep{epoch} loss={avg:.4f} "
-                    f"tok/s={ntok/max(1,time.time()-t0):.0f} lr={lr:.2e}")
-                history.append({"stage": stage_name, "epoch": epoch,
-                                "loss": avg, "lr": lr})
-            if is_main:
-                torch.save({"model": raw.state_dict(), "cfg": cfg.to_dict(),
-                            "step": step},
-                           os.path.join(args.out, "last.pt"))
+                log(f"\n=== stage {stage_name}  n={len(ds)} "
+                    f"(epoch {first_epoch}+) ===")
+            steps_per_epoch = max(1, len(loader))
+            total_steps = steps_per_epoch * args.epochs
+            for epoch in range(first_epoch, args.epochs):
+                if isinstance(loader.sampler, DistributedSampler):
+                    loader.sampler.set_epoch(epoch)
+                t0 = time.time()
+                lr = lr_at(step, total_steps, args.lr, args.warmup)
+                for g in opt.param_groups:
+                    g["lr"] = lr
+                avg, ntok = train_stage(model, loader, opt, sched, device,
+                                        epoch, scaler, autocast)
+                step += 1
+                completed = si * args.epochs + epoch + 1
+                if is_main:
+                    log(f"[{stage_name}] ep{epoch} loss={avg:.4f} "
+                        f"tok/s={ntok/max(1,time.time()-t0):.0f} lr={lr:.2e}")
+                    history.append({"stage": stage_name, "epoch": epoch,
+                                    "loss": avg, "lr": lr})
+                    torch.save({"model": raw.state_dict(),
+                                "cfg": cfg.to_dict(),
+                                "step": step, "completed": completed,
+                                "history": history},
+                               os.path.join(args.out, "last.pt"))
 
     results = {"variant": args.variant, "use_sandbox": cfg.use_sandbox,
                "params": estimate_model_size(cfg)["total"], "history": history,

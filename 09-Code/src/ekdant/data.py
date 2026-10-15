@@ -42,10 +42,13 @@ def normalise_options(raw) -> List[str]:
 def letter_from_answer(answer, options: Sequence[str]) -> str:
     if isinstance(answer, str) and answer.strip().upper() in LETTERS:
         return answer.strip().upper()
+    if isinstance(answer, bool):
+        return "A"
     if isinstance(answer, int):
-        return LETTERS[answer]
+        return LETTERS[answer] if 0 <= answer < len(LETTERS) else "A"
     if isinstance(answer, str) and answer.strip().isdigit():
-        return LETTERS[int(answer.strip())]
+        n = int(answer.strip())
+        return LETTERS[n] if 0 <= n < len(LETTERS) else "A"
     text = str(answer).strip()
     for i, opt in enumerate(options):
         if text == str(opt).strip():
@@ -61,16 +64,26 @@ class MCQExample:
 
 
 def _normalise_row(row: Dict, source: str) -> Optional[MCQExample]:
-    try:
-        opts = normalise_options(row["options"])
-    except (KeyError, TypeError):
+    if "options" in row:
+        # MedQA (GBaker/MedQA-USMLE-4-options): options dict + answer_idx
+        try:
+            opts = normalise_options(row["options"])
+        except TypeError:
+            return None
+        ans_raw = row.get("answer_idx", row.get("answer"))
+    elif all(k in row for k in ("opa", "opb", "opc", "opd")):
+        # MedMCQA (openlifescienceai/medmcqa): flat opa..opd, cop = 0..3
+        opts = [str(row[k]) for k in ("opa", "opb", "opc", "opd")]
+        ans_raw = row.get("cop")
+    else:
         return None
     if len(opts) != 4 or any(not o.strip() for o in opts):
         return None
-    ans_raw = row.get("answer_idx", row.get("answer"))
     if ans_raw is None:
         return None
     letter = letter_from_answer(ans_raw, opts)
+    if letter not in LETTERS:
+        return None
     q = str(row.get("question", "")).strip()
     if len(q) < 12:
         return None

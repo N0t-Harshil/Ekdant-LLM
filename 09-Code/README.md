@@ -61,6 +61,9 @@ pip install -e .
 Requires PyTorch 2.x + CUDA 12.x. No `mamba-ssm`, `flash-attn`, `triton` or
 `causal-conv1d` — every kernel is pure PyTorch, so it runs on any CUDA build.
 
+Full operations runbook (train / resume / test / benchmark, both arms):
+[`../run.md`](../run.md).
+
 ## Train
 
 Run **one variant at a time** (they use the full node).
@@ -91,12 +94,26 @@ trained once on the MedMCQA sample and reused, so the two variants see the
 | `--epochs` | 3 | per stage |
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
+| `--resume` | off | continue `<out>/last.pt`; skips finished stage/epochs |
+| `--eval-only` | off | no training; evaluate `<out>/last.pt` on both test sets |
 
 Smoke test first (~2 min):
 
 ```bash
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
+
+### Resume / re-evaluate
+
+```bash
+python -m ekdant.train --variant sandbox --out runs/sandbox --resume        # after interruption
+python -m ekdant.train --variant sandbox --out runs/sandbox --eval-only    # re-score checkpoint
+```
+
+`--resume` restores weights, step, epoch/stage position, and history from
+`last.pt`; the tokenizer and the exact `config.json` in `--out` are reused.
+Optimizer moments restart cold (small loss bump expected). Keep the same
+flags (esp. `--epochs`) as the original run. See [`../run.md`](../run.md) §4.
 
 ## Outputs
 
@@ -144,5 +161,5 @@ room to raise `--batch-size`. The sandbox's K=4 trajectories add a
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 55 tests, CPU, ~30s
+pytest -q          # 65 tests (model/sandbox/transformer/data), CPU, ~10s
 ```

@@ -1,6 +1,6 @@
 # Training Pipeline (Ekdant) — Ch. 5
 
-> Map: [README](../README.md) · Spec: [02](../02-Architecture/02_System_Architecture.md) · Builds: [26a](../04-Model-DeepDive/26a_Internal_SSM_Build.md) · [26b](../04-Model-DeepDive/26b_Dense_Transformer_for_T.md) · [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) · Config: [12](../02-Architecture/12_Configuration_Guide.md)
+> Map: [README](../README.md) · Runbook: [run.md](../run.md) · Spec: [02](../02-Architecture/02_System_Architecture.md) · Builds: [26a](../04-Model-DeepDive/26a_Internal_SSM_Build.md) · [26b](../04-Model-DeepDive/26b_Dense_Transformer_for_T.md) · [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) · Config: [12](../02-Architecture/12_Configuration_Guide.md)
 
 `09-Code/src/ekdant/train.py` orchestrates Ekdant training (`python -m ekdant.train --variant sandbox|baseline`, MedMCQA → MedQA): one architecture, two losses (LM CE + spread floor), A/B pretrain only. The SFT/instruct/DPO stages in §1 are thesis design, not shipped.
 
@@ -52,10 +52,14 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 | `--limit` | none | cap rows per dataset (smoke) |
 | `--no-compile` | off | skip `torch.compile` |
 | `--seed` | 17 | also seeds the row sampler |
+| `--resume` | off | continue `<out>/last.pt`; skips finished (stage, epoch) pairs |
+| `--eval-only` | off | no training; evaluate `<out>/last.pt` on both test sets |
 
 **Optimization:** AdamW (wd 0.1, betas 0.9/0.95), BF16 autocast on CUDA, `GradScaler(enabled=False)` (bf16 needs no loss scaling), grad clip 1.0 at the accumulation boundary, `torch.compile` unless `--no-compile`. **DDP:** `torchrun --nproc_per_node=4 -m ekdant.train …` — `setup_dist()` reads `RANK`, NCCL, `DistributedSampler` per stage (set_epoch per epoch), `find_unused_parameters=bool(use_sandbox)`, rank-0-only logging/saving.
 
-**Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step}`) after **every epoch** (single checkpoint, no rotation); `<out>/results.json` at the end with params, per-stage history (`stage/epoch/loss/lr`) and per-dataset test metrics. No resume flag — rerun from scratch or load `last.pt` by hand.
+**Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step, completed, history}`) after **every epoch** (single checkpoint, no rotation); `<out>/results.json` at the end with params, per-stage history (`stage/epoch/loss/lr`) and per-dataset test metrics.
+
+**Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = stage_index × epochs + epoch + 1`), and reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`); optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the two held-out test sets from an existing run dir. Keep `--variant`/`--out`/`--epochs` identical to the original run. Details: [run.md](../run.md) §4.
 
 **Evaluation = letter accuracy.** `evaluate()` gathers the logits row at `answer_pos`, restricts to the 4 letter-token ids (`LETTER_IDS`), argmax vs `answer_target` — one forward per example instead of four option-continuation scorings (plus mean CE loss).
 
@@ -70,17 +74,17 @@ Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_s
 1. **LR warmup bug (real, in `train.py`).** `lr_at(step, total, base, warmup)` is called **once per epoch** with `step` incremented by 1 per epoch (`step += 1` after `train_stage`), while `total_steps = len(loader) × epochs` counts **batches**. With defaults (warmup 200, 3 epochs/stage × 2 stages), `step` only ever reaches 5 — so `step < warmup` always holds and lr = `base × (step+1)/200` ≤ 1.5% of 3e-4; the cosine phase never starts. Fix before any real run: step the schedule per **optimizer step** (`step × steps_per_epoch` or an internal counter inside the batch loop) and divide `total_steps` by `grad_accum`.
 2. **Sandbox diagnostics computed but never logged.** `ModelOutput.aux` carries `anchor_energy`, `trajectory_variance`, `spread_ratio`, `per_trajectory_retention`, `anchor_distance`, but `train_stage` ignores `out.aux` — `results.json` history has only `loss`/`lr`. No ρ trace exists for any run yet (the collapse monitor the thesis requires). Fix: accumulate `aux` scalars per epoch and append to history.
 3. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
-4. Not bugs but design gaps: no resume; diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute.
+4. Not bugs but design gaps: diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute. *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
 
 ## 5. Smoke test (Phase 8 substitute)
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 55 tests, CPU, ~10s
+pytest -q    # 65 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 
-Verify: loss decreases across the `=== stage … ===` / `[stage] epN loss=` lines, `last.pt` + `results.json` written, `results.json` test accuracies are > random (25% on 4-option MCQ). Repeat with `--variant baseline` for the A/B pair. *(The thesis 8-phase harness script is absent — Phase 8 SKIPPED; the 50-step XS/O(1)-curve checks are design targets.)*
+Verified on CPU (limit 64, 1 epoch): **both arms** run train → resume → eval-only end-to-end; all four output files written. Full procedure incl. benchmark comparison + reporting rules (C8): [run.md](../run.md). *(The thesis 8-phase harness script is absent — Phase 8 SKIPPED; the 50-step XS/O(1)-curve checks are design targets.)*
 
 ## Connections
 - Builds: [26a](../04-Model-DeepDive/26a_Internal_SSM_Build.md) · [26b](../04-Model-DeepDive/26b_Dense_Transformer_for_T.md) · [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) · Data: [05](../05-Data/05_Data_Pipeline.md) · Validation: [09](09_Validation_System.md) · Debug: [13](13_Debugging_Guide.md) · Perf: [14](14_Performance_Analysis.md)

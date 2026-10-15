@@ -86,7 +86,7 @@
 1. `cd 09-Code && pip install -e .[dev]`
 2. Check dataset access with `python -m ekdant.train --variant sandbox --limit 50` (set `HF_TOKEN` if a source is gated)
 3. Full validation: the 8-phase harness script is absent here (Phase 8 SKIPPED) — use the smoke run for now
-4. Run specific test: `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py`)
+4. Run specific test: `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py`)
 
 ### Troubleshooting Flowcharts
 

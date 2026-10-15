@@ -2,7 +2,7 @@
 
 ## Critical (must finish for thesis defense)
 
-- **Build Ekdant L1+T+L2 + 10-step loss-decrease test** — **PARTIALLY DONE:** T+L2 built and shipped L2-only at `09-Code/src/ekdant/{model,transformer_stack,sandbox,output_head,data,train}.py`; 55 tests pass in `09-Code/tests/{test_model,test_sandbox,test_transformer}.py` (forward shapes, grads through T+L2, loss decrease). **Remains:** L1 (`ssm_storage`) integration into `model.py` — not in the code (L1 stays in the vault/thesis design docs for now); the full L1+T+L2 grad/loss check lands with it.
+- **Build Ekdant L1+T+L2 + 10-step loss-decrease test** — **PARTIALLY DONE:** T+L2 built and shipped L2-only at `09-Code/src/ekdant/{model,transformer_stack,sandbox,output_head,data,train}.py`; 65 tests pass in `09-Code/tests/{test_model,test_sandbox,test_transformer,test_data}.py` (forward shapes, grads through T+L2, loss decrease, data-schema regression). **Remains:** L1 (`ssm_storage`) integration into `model.py` — not in the code (L1 stays in the vault/thesis design docs for now); the full L1+T+L2 grad/loss check lands with it.
 - **Internal-only L1+T+L2** — **mostly done for the shipped package:** pure-PyTorch scan/debate, zero third-party kernels (no `mamba-ssm`/`flash-attn`/`triton`), allowlist enforced by import-guard tests (`test_model_has_no_blocked_imports`, `test_no_blocked_imports_in_ekdant_package`); L1 half pending (see above), per [23](../02-Architecture/02_System_Architecture.md).
 - **O(1) memory proof** — same `compressed[B,3·d_state]` triple shape + flat peak memory for T=512/2048/4096. Table in thesis. **Blocked on L1** (no `ssm_storage` in the code yet).
 - **Sandbox ablation** - K=1 vs. 4 vs. 8 and rounds 0 vs. 2 on the XS/S-runnable set (perplexity, ARC-easy/HellaSwag/LAMBADA, synthetic known-answer multi-step). GSM8K/HumanEval are ==scaling-held-out== — at 12–46M params they sit at the floor and cannot decide the claim ([29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.3). If K=1 ties, report it honestly.
@@ -17,7 +17,7 @@
 
 - SFT mini-run (DPO optional), 5-benchmark eval (HumanEval/GSM8K/MMLU/HellaSwag/ARC), packing-quality numbers, eval-vs-baseline table (Transformer tiny at equal params if time).
 - Tidy the tree so the examiner sees only thesis files (`09-Code/src/ekdant/` 7 modules — `model`, `transformer_stack`, `sandbox`, `output_head`, `data`, `train`, `__init__` — runnable configs, `papers/`, vault).
-- CI: `pytest` on PR in `09-Code/` (the 55 shipped model/sandbox/transformer tests; data tests are not in this vault).
+- CI: `pytest` on PR in `09-Code/` (65 shipped model/sandbox/transformer/data tests).
 
 ## Medium (if time)
 

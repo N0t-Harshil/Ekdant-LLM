@@ -7,7 +7,7 @@
 **Model code (`09-Code/`, L2-only, implemented):**
 - ✅ `09-Code/src/ekdant/`: `model.py`, `transformer_stack.py`, `sandbox.py`, `output_head.py`, `train.py`, `data.py` — pure PyTorch. Forward is L2-only: embed → T (windowed dense) → L2 (sandbox) → head. L1 SSM storage remains a thesis/vault design, not code.
 - ✅ `09-Code/configs/sandbox_50m.json` + `baseline_50m.json` — architecture-matched A/B pair (identical N_T=12, H=512, ~50M-class backbone; only `use_sandbox` differs; 50.09M vs 43.53M — the 6.56M delta is L2 itself).
-- ✅ `09-Code/tests/`: **55 unit tests passing** (`test_model.py`, `test_sandbox.py`, `test_transformer.py`).
+- ✅ `09-Code/tests/`: **65 unit tests passing** (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`). Both A/B arms smoke-verified end-to-end on CPU (train → resume → eval-only); ops runbook at `run.md`.
 - 🔨 50-step smoke + training runs (MedMCQA → MedQA) — **not done yet**; run via `python -m ekdant.train --variant sandbox|baseline --out runs/<v>` (or torchrun).
 - L1: **design-only** — vault/thesis docs; no `ssm_storage.py` in the code.
 
@@ -25,7 +25,7 @@
 
 ## 2. Readiness score — 7.1/10 (thesis-ready scaffold)
 
-> Ready to run; not yet defended. **Ready:** data, docs corpus, config skeleton, validation harness, research vault (66 papers), 3-stage spec, model code (L2+T in `09-Code/`, 55 unit tests passing, architecture-matched A/B configs). **To do:** training runs (smoke → MedMCQA → MedQA), 3 ablations, eval table, Ch. 6 results; fix LR-schedule bug + log sandbox diagnostics; resolve L2 size overage; L1 storage remains design-only.
+> Ready to run; not yet defended. **Ready:** data, docs corpus, config skeleton, validation harness, research vault (66 papers), 3-stage spec, model code (L2+T in `09-Code/`, 65 unit tests passing, architecture-matched A/B configs, both arms smoke-verified: train/resume/eval-only). **To do:** training runs (smoke done → full MedMCQA → MedQA), 3 ablations, eval table, Ch. 6 results; fix LR-schedule bug + log sandbox diagnostics; resolve L2 size overage; L1 storage remains design-only.
 
 | Category | Score (thesis) | Rationale |
 |----------|----------------|-----------|

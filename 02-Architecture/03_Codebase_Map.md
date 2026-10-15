@@ -16,7 +16,7 @@ Runnable code lives at `09-Code/src/ekdant/` — a 7-module package. Current for
 | `data.py` | MedMCQA/MedQA MCQ pipeline (prompt template, letter-token eval) |
 | `__init__.py` | Re-exports |
 
-Plus: `tests/` (`test_model.py`, `test_sandbox.py`, `test_transformer.py` — 55 tests, all green), `configs/` (`sandbox_50m.json`, `baseline_50m.json` — identical architecture, only `use_sandbox` differs), `pyproject.toml`, `pytest.ini`, `README.md`. No `main.py`, no `scripts/`, no YAML size configs in this vault. Full shipped signatures: [API_Reference.md](API_Reference.md).
+Plus: `tests/` (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py` — 65 tests, all green), `configs/` (`sandbox_50m.json`, `baseline_50m.json` — identical architecture, only `use_sandbox` differs), `pyproject.toml`, `pytest.ini`, `README.md`. No `main.py`, no `scripts/`, no YAML size configs in this vault. Full shipped signatures: [API_Reference.md](API_Reference.md). Ops runbook (train/resume/test/benchmark): [`run.md`](../run.md).
 
 > L1 (`ssm_storage.py`, selective SSM) was **removed from the code** — it exists as thesis design in `26a`, `21`, and `02 §3`, not in the current package.
 

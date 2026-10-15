@@ -22,15 +22,17 @@ Specialized reasoning model (T dense Transformer + L2 sandbox; L1 SSM designed i
 | [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, 8-phase validation, debugging, performance | Ch. 5/6 |
 | [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T15), defense-ordered future work | Ch. 7 |
 | [08-Thesis](08-Thesis/thesis.md) | thesis.md + thesis.tex/pdf + [glossary](08-Thesis/GLOSSARY.md) | Draft |
-| [09-Code](09-Code/README.md) | **L2-only training code** — pure PyTorch, 55 tests, A/B configs | Build |
+| [09-Code](09-Code/README.md) | **L2-only training code** — pure PyTorch, 65 tests, A/B configs | Build |
 | [papers/](papers/00_Papers_Index.md) | 66 PDFs (all thesis-cited) + indexes | Sources |
 
 ## Day-1 (new collaborator)
 
+**Full runbook — train, resume, test, benchmark both models: [run.md](run.md).**
+
 ```bash
 cd 09-Code
 pip install -e .[dev]
-pytest -q                    # 55 tests, CPU, ~10s
+pytest -q                    # 65 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```
 
@@ -44,7 +46,7 @@ Debugging: see [13_Debugging_Guide](06-Training-Eval/13_Debugging_Guide.md). Iss
 
 | Done | Not done |
 |---|---|
-| ✅ L2+T code, 55 green tests, A/B configs (sandbox 50.09M vs baseline 43.53M — only `use_sandbox` differs) | ❌ L1 integration |
+| ✅ L2+T code, 65 green tests, A/B configs (sandbox 50.09M vs baseline 43.53M — only `use_sandbox` differs); both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration |
 | ✅ Thesis 26pp, 65 refs, 4 proofs, 0 build errors | ❌ Training runs (smoke/50K/ablations) |
 | ✅ 66-paper library, all cited | ❌ Ch. 6 result tables `[PENDING]` |
 | ✅ 4 design defects found + proven + fixed | ❌ L2 size open item (6.56M measured vs 2.8M thesis) |
