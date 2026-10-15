@@ -337,7 +337,7 @@ are new parameters, and that increase is the honest cost of the correction.
 | Done | Not done |
 |---|---|
 | ✅ Full thesis document: 26 pages, 7 figures, 65 references, 4 proofs, 0 build errors, 0 broken refs | ❌ Model source code: L2-only (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
-| ✅ Model code + **65 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready | ❌ No training run, no benchmark numbers |
+| ✅ Model code + **67 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready | ❌ No benchmark numbers yet (real training runs started; eval metric bug T17 fixed) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
 | ✅ Cost-matched protocol fixed *before* any run | ❌ Open code items: LR-schedule warmup bug, sandbox diagnostics not logged |
@@ -386,7 +386,7 @@ Implemented in `09-Code/src/ekdant/` — pure PyTorch: `model.py`, `transformer_
 architecture-matched A/B configs (`configs/sandbox_50m.json` vs `baseline_50m.json`,
 differing only in `use_sandbox`). It is **L2-only**: forward is embed → T (windowed
 dense) → L2 (sandbox) → head; the L1 SSM storage remains designed in the vault/thesis,
-not coded. **No training runs yet** — known open items: the `train.py` LR schedule
+not coded. **No benchmark numbers published yet** (real training runs started; known open items: the `train.py` LR schedule
 never finishes warmup, and sandbox diagnostics are computed but not logged.
 
 **Q: What is the M3 write-back for?**

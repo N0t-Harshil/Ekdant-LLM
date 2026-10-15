@@ -2,7 +2,7 @@
 
 > Map: [README](../README.md) · Train: [07](07_Training_Pipeline.md) · Build: [26b](../04-Model-DeepDive/26b_Dense_Transformer_for_T.md) · [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) · Prior-art constraints: [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3
 
-All numbers below are from `estimate_model_size` / direct param counts on the shipped A/B configs (`09-Code/configs/{sandbox,baseline}_50m.json`, H=512, V=32768, N_T=12, W=512, K=4, R=2, S=8). Inference-state and compute figures are ==analytic projections==, not measurements — no training run exists yet.
+All numbers below are from `estimate_model_size` / direct param counts on the shipped A/B configs (`09-Code/configs/{sandbox,baseline}_50m.json`, H=512, V=32768, N_T=12, W=512, K=4, R=2, S=8). Inference-state and compute figures are ==analytic projections==, not measurements — no benchmark run has been published yet (real training runs have begun; first MedMCQA/MedQA numbers pending both arms).
 
 ## 1. Parameter table (measured)
 

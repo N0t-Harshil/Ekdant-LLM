@@ -174,6 +174,7 @@ class MCQDataset(Dataset):
                 "answer_pos": len(ids_p),
                 "answer_id": ids_a[0],
                 "letter": ex.answer,
+                "letter_idx": LETTERS.index(ex.answer),
             })
 
     def __len__(self) -> int:
@@ -194,7 +195,7 @@ def collate(batch: List[Dict], pad_id: int = 0) -> Dict[str, torch.Tensor]:
         ids[i, :n] = torch.tensor(b["input_ids"], dtype=torch.long)
         mask[i, :n] = 1
         pos[i] = b["answer_pos"]
-        tgt[i] = b["answer_id"]
+        tgt[i] = b["letter_idx"]  # index into LETTERS (0..3), not a vocab id
     labels = ids.clone()
     labels[~mask.bool()] = -100
     return {"input_ids": ids, "attention_mask": mask, "labels": labels,
@@ -204,7 +205,8 @@ def collate(batch: List[Dict], pad_id: int = 0) -> Dict[str, torch.Tensor]:
 @torch.no_grad()
 def answer_accuracy(model, batch: Dict, n_options: int = 4) -> float:
     logits = model(batch["input_ids"], return_aux=False).logits
-    gathered = logits[torch.arange(len(logits)), batch["answer_pos"]]
+    # logits[t] predicts token t+1, so the answer at index p is scored at p-1
+    gathered = logits[torch.arange(len(logits)), batch["answer_pos"] - 1]
     letter_ids = LETTER_IDS[:n_options]
     pred = gathered[:, letter_ids].argmax(-1)
     return (pred == batch["answer_target"]).float().mean().item()

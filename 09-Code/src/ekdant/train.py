@@ -110,7 +110,9 @@ def evaluate(model, loader, device, autocast) -> Dict[str, float]:
             logits = out.logits
         loss_sum += out.loss.item()
         n += 1
-        got = logits[torch.arange(len(logits), device=device), batch["answer_pos"]]
+        # logits[t] predicts token t+1 -> score the answer at p via logits[p-1]
+        got = logits[torch.arange(len(logits), device=device),
+                     batch["answer_pos"] - 1]
         pred = got[:, LETTER_IDS].argmax(-1)
         correct += int((pred == batch["answer_target"]).sum())
         seen += len(pred)

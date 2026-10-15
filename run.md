@@ -2,7 +2,7 @@
 
 How to **start training, resume, test, and benchmark** both models. Every
 command here was executed and verified (CPU smoke: 64 rows, 1 epoch, both
-arms; full unit suite: 65 passed). All commands run from `09-Code/` unless
+arms; full unit suite: 67 passed). All commands run from `09-Code/` unless
 stated otherwise.
 
 ## 0. What you are running
@@ -100,8 +100,10 @@ python -m ekdant.train --variant sandbox  --out /tmp/sbx  --limit 64 --epochs 1 
 python -m ekdant.train --variant baseline --out /tmp/base --limit 64 --epochs 1 --batch-size 4 --no-compile
 ```
 
-(0% test accuracy on a smoke run is expected — 64 rows × 1 epoch trains
-nothing; the point is the pipeline, files, and resume paths work.)
+(Low or near-zero test accuracy on a smoke run is normal — 64 rows × 1 epoch
+trains almost nothing, so the model sits near chance. The point of a smoke
+run is the pipeline, files, and resume paths. What is *not* normal is a
+locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 
 ### What one invocation does
 
@@ -182,7 +184,7 @@ Semantics: checkpoints are saved after every epoch, tagged
 ```bash
 cd 09-Code
 pip install -e .[dev]
-python -m pytest            # 65 tests
+python -m pytest            # 67 tests
 ```
 
 Covers: config/param accounting, T block (causal+window mask exactness,
@@ -209,9 +211,10 @@ fails with `tokenizer.json not found` / `last.pt not found`.
 
 ## 6. Benchmarking
 
-**Metric:** held-out **letter-accuracy** — at the recorded answer position,
-argmax over the A/B/C/D token logits (not free-form generation), on
-MedMCQA test (6,150) and MedQA test (1,273).
+**Metric:** held-out **letter-accuracy** — the logits at the answer position
+(`answer_pos - 1`, the position that predicts the answer), argmax over the
+A/B/C/D token logits vs the letter **index** (0–3), on MedMCQA test (6,150)
+and MedQA test (1,273). Not free-form generation.
 
 ### Full procedure
 
@@ -265,6 +268,7 @@ runs/<variant>/
 | `torch.compile` crash/slow first epoch | `--no-compile`. |
 | first run is slow | HF is downloading MedMCQA/MedQA into its cache — one-time. |
 | `pyarrow requires NumPy 2.0` | Kaggle/conda: `pip install "datasets==3.6.0" "pyarrow<21"` (do **not** upgrade numpy on a conda image — it breaks prebuilt pandas/scipy; pyarrow alone is not enough — datasets 5.x demands pyarrow ≥24). |
+| **accuracy locked at 0.00%** on a real run | was metric bug **T17** (fixed): `answer_target` held a vocab id while `pred` is a letter index, and eval read `answer_pos` instead of `answer_pos-1`. CE loss looked healthy throughout. If you see exactly 0.00% on thousands of examples, you are on a pre-fix build — `git pull`. Near-zero on a *smoke* run is fine (chance). |
 | OOM on 16 GB GPU (Kaggle T4) | default batch 24 needs ~30–40 GB; use `--batch-size 6 --grad-accum 8` (effective batch unchanged). |
 | `torch.amp has no attribute GradScaler` | torch < 2.3 (Kaggle ships 2.2) — **fixed in code**: scaler construction falls back to `torch.cuda.amp.GradScaler`; pull latest. On T4/P100 (no bf16) the runner also auto-falls back to fp16 autocast + loss scaling and logs it. |
 | CPU-only machine | smoke/eval-only work (`--no-compile`); full training needs CUDA. |
@@ -275,7 +279,7 @@ runs/<variant>/
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-python -m pytest                                        # 65 unit tests
+python -m pytest                                        # 67 unit tests
 # full A/B (one arm at a time)
 torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox  --out runs/sandbox
 torchrun --nproc_per_node=4 -m ekdant.train --variant baseline --out runs/baseline
