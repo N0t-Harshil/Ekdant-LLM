@@ -58,6 +58,20 @@ cd 09-Code
 pip install -e .
 ```
 
+> [!important]
+> The trailing **`.` matters** — `pip install -e .` (with the dot) tells pip
+> "install the package in this folder". `pip install -e` alone fails with
+> `-e option requires 1 argument`, nothing gets installed, and
+> `python -m ekdant.train` then dies with
+> `ModuleNotFoundError: No module named 'ekdant'`. Verify the install:
+> `python -c "import ekdant; print('ok')"`.
+
+No-install fallback (works without pip; from `09-Code/`):
+
+```bash
+PYTHONPATH=src python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
+```
+
 Requires PyTorch 2.x + CUDA 12.x. No `mamba-ssm`, `flash-attn`, `triton` or
 `causal-conv1d` — every kernel is pure PyTorch, so it runs on any CUDA build.
 

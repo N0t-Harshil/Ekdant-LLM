@@ -31,7 +31,8 @@ Specialized reasoning model (T dense Transformer + L2 sandbox; L1 SSM designed i
 
 ```bash
 cd 09-Code
-pip install -e .[dev]
+pip install -e .[dev]     # note: trailing dot is required
+python -c "import ekdant; print('ok')"
 pytest -q                    # 65 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```

@@ -38,7 +38,34 @@ No `mamba-ssm`, `flash-attn`, `triton`, `causal-conv1d` — pure PyTorch.
 cd 09-Code
 pip install -e .          # package: python -m ekdant.train works
 pip install -e .[dev]     # + pytest for the test suite
+python -c "import ekdant; print('ok')"   # sanity check — must print ok
+```
+
+> [!important]
+> `-e .` needs the **trailing dot**. `pip install -e` fails with
+> `-e option requires 1 argument`, so nothing is installed and
+> `python -m ekdant.train` raises
+> `ModuleNotFoundError: No module named 'ekdant'`. If you see that error:
+> you skipped the dot — re-run `pip install -e .` (from inside `09-Code/`).
+
+### Linux / Kaggle / WSL notes
+
+```bash
+git clone git@github.com:N0t-Harshil/Ekdant-LLM.git   # or the https URL
+cd Ekdant-LLM/09-Code
+pip install -e .        # uses the conda/venv python on PATH — that is the one that must print ok
 python -c "import ekdant; print('ok')"
+```
+
+- Keep `pip` and `python` from the **same environment** (on conda/Kaggle:
+  `/opt/conda/bin/pip` + `/opt/conda/bin/python`; a system pip installs into
+  a python you are not running).
+- PyTorch is preinstalled on most Kaggle images; `pip install -e .` reuses
+  it (the `torch>=2.2` requirement is already satisfied).
+- No-install fallback (skip pip entirely, from `09-Code/`):
+
+```bash
+PYTHONPATH=src python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 
 ## 3. Start training (both models)
