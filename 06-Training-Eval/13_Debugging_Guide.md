@@ -74,7 +74,7 @@
 
 ### Where Logs Are Stored
 - Console: stdout/stderr (always visible)
-- File: the shipped trainer writes to `--out` (`runs/<variant>/results.json`, `last.pt`) — `cfg.output.log_dir`/`logs/` belongs to the thesis pretrain pipeline, not in this vault
+- File: the shipped trainer writes to `--out` (`runs/<variant>/results.json`, `last.pt`, `best.pt`) — `cfg.output.log_dir`/`logs/` belongs to the thesis pretrain pipeline, not in this vault
 - Experiment tracker: none in the shipped A/B trainer (wandb/mlflow/tensorboard via `cfg.tracking` is thesis-pipeline design)
 
 ### How to Reproduce Issues
@@ -115,11 +115,11 @@ Dataset Load Error
 ```
 Training fails
     ├── Stuck at step 0 / progress bar not moving?
-    │   ├── No `=== stage ... ===` / `[stage] epN loss=` print after the dataset download? (`ekdant.train` ships no heartbeat line)
+    │   ├── No `=== stage ... ===` header after the dataset download? (`ekdant.train` prints stage header + `[stage] ep0 step X/Y …` heartbeat every `--log-every` steps)
     │   ├── If stuck on first batch: forked DataLoader worker deadlock (locks inherited at fork)
     │   │   └── Lower `num_workers` in `09-Code/src/ekdant/train.py::build_dataloader` (ships 4)
     │   ├── Dump thread stacks with `py-spy dump --pid <pid>` (no `main.py` SIGUSR1 handler here)
-    │   └── Confirm the `[stage] epN loss=` line advances
+    │   └── Confirm the `[stage] ep0 step X/Y` lines advance (and `tok/s` > 0)
     ├── NaN loss?
     │   ├── Reduce learning rate
     │   ├── Increase gradient clipping (lower max_grad_norm)

@@ -109,6 +109,7 @@ trained once on the MedMCQA sample and reused, so the two variants see the
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
 | `--log-every` | 100 | progress line every N optimizer steps: `step X/Y (%) loss lr gnorm tok/s eta` (`0` = summaries only) |
+| `--eval-every` | 1 | held-out eval every N epochs → history + incremental `results.json` + `best.pt` on MedMCQA (`0` = final eval only) |
 | `--resume` | off | continue `<out>/last.pt`; skips finished stage/epochs |
 | `--eval-only` | off | no training; evaluate `<out>/last.pt` on both test sets |
 
@@ -136,19 +137,24 @@ flags (esp. `--epochs`) as the original run. See [`../run.md`](../run.md) §4.
 runs/<variant>/
   tokenizer.json     shared vocabulary
   config.json        exact EkdantConfig used
-  last.pt            checkpoint (model state + config)
-  results.json       history + per-dataset test accuracy
+  last.pt            checkpoint (model state + config) at the final epoch
+  best.pt            checkpoint at the peak MedMCQA val accuracy (quote this)
+  results.json       history (loss/lr/gnorm + per-epoch held-out acc) + final test
 ```
 
-Compare the two `results.json` files:
+Compare the two `results.json` files (final eval **and** the best epoch
+seen in the curve):
 
 ```bash
 python - <<'PY'
 import json
 for v in ("baseline", "sandbox"):
     r = json.load(open(f"runs/{v}/results.json"))
+    peak = max((e.get("test", {}).get("medmcqa", {}).get("accuracy", 0.0)
+                for e in r["history"]), default=0.0)
     print(f"{v:9s} params={r['params']/1e6:.2f}M "
           f"medmcqa={r['test']['medmcqa']['accuracy']*100:.2f}% "
+          f"peak={peak*100:.2f}% "
           f"medqa={r['test']['medqa']['accuracy']*100:.2f}%")
 PY
 ```

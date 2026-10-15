@@ -52,6 +52,7 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 | `--limit` | none | cap rows per dataset (smoke) |
 | `--no-compile` | off | skip `torch.compile` |
 | `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
+| `--eval-every` | 1 | held-out eval every N epochs → history + incremental `results.json` + `best.pt` on MedMCQA (`0` = final eval only) |
 | `--seed` | 17 | also seeds the row sampler |
 | `--resume` | off | continue `<out>/last.pt`; skips finished (stage, epoch) pairs |
 | `--eval-only` | off | no training; evaluate `<out>/last.pt` on both test sets |
@@ -61,7 +62,7 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 **Live telemetry (`--log-every`, default 100):** every N optimizer steps the runner prints
 `[stage] ep0 step 1200/3809 (32%) loss=.. lr=.. gnorm=.. tok/s=.. eta=..` — step/total and % of the *stage* budget (the "how far gone" number), an EMA of CE, the current schedule LR, the **pre-clip global grad norm** (clip threshold 1.0; sustained ≫1 = clipping every step, collapse toward 0 = stalled), throughput, and stage ETA. Each epoch closes with a summary (`done loss=… gnorm=… lr_end=… tok/s=… time=…`) whose loss is the true sample-mean CE (comparable to eval loss). Full glossary: [run.md](../run.md) §3 "Watching training progress".
 
-**Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step, completed, opt_step, history}`) after **every epoch** (single checkpoint, no rotation); `<out>/results.json` at the end with params, per-stage history (`stage/epoch/loss/lr/gnorm` — the training curve, not just final numbers) and per-dataset test metrics.
+**Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step, completed, opt_step, history, best_medmcqa}`) after **every epoch** (single checkpoint, no rotation); with `--eval-every 1` each epoch also runs both held-out splits (rank 0 on the unwrapped module — DDP-safe), appends `history[..].test = {medmcqa, medqa}` (accuracy/loss/n), rewrites `results.json` incrementally (curve survives a crash), and saves `<out>/best.pt` on a new MedMCQA-validation best — the checkpoint to quote after a long run. Final `results.json` carries the fresh end-of-training evaluation.
 
 **Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = stage_index × epochs + epoch + 1`), and reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`); optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the two held-out splits (MedMCQA validation, MedQA test) from an existing run dir. Keep `--variant`/`--out`/`--epochs` identical to the original run. Details: [run.md](../run.md) §4.
 

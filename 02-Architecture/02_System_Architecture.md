@@ -122,7 +122,7 @@ graph TB
 (1) +6.56M params, (2) 4× projection work per token, (3) 2 debate rounds
 + 8 descent steps — to produce *one* consensus vector per position that
 replaces `hT` before the head. If the final numbers tie (they do at 12K
-and are being re-tested at 20K steps), the claim under test is whether
+and are being re-tested at 40 epochs / ~161K steps), the claim under test is whether
 any of that machinery ever beats the plain backbone at this scale.
 
 **Why this design:** single-path chain-of-thought is the control; sampling K paths and voting (self-consistency) is the matched-budget baseline; in-graph debate plus latent energy refinement is the tested improvement — with the published critique that debate often ties voting at equal cost built into the evaluation rules rather than hidden. Sources: `20`, PDFs `papers/Sandbox_Reasoning/C1`, `C2`, `C3`, `C8`, `C11`.
@@ -154,7 +154,7 @@ graph TB
 The runnable workflow lives in `09-Code/` (the L2-only build; `pip install -e .` first). From `09-Code/`:
 
 - **Unit tests:** `pytest -q` — 75 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py`, `tests/test_schedule.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas, LR schedule). Ops runbook: [`run.md`](../run.md).
-- **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` (MedMCQA → MedQA in one invocation). Live telemetry every `--log-every` (default 100) optimizer steps — step/total, % of stage, EMA loss, LR, grad norm, tok/s, ETA — plus per-epoch summaries and `history[loss,lr,gnorm]` in `results.json`. Recommended decisive run: **20K steps = `--epochs 5 --batch-size 6 --grad-accum 8`** (≈13 h + 18 h on a T4; scale table and progress-line glossary in [`run.md`](../run.md) §3).
+- **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` (MedMCQA → MedQA in one invocation). Live telemetry every `--log-every` (default 100) optimizer steps — step/total, % of stage, EMA loss, LR, grad norm, tok/s, ETA — plus per-epoch summaries, a per-epoch held-out eval with `best.pt` tracking (`--eval-every`), and `history[loss,lr,gnorm,test]` in `results.json`. **Campaign run: `--epochs 40 --batch-size 6 --grad-accum 8`** — ~161K optimizer steps, ~10 days on a T4 (per-arm scale table, eval semantics, and progress-line glossary in [`run.md`](../run.md) §3).
 - **Train (multi-GPU):** `torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox --out runs/sandbox` (one variant at a time). Configs: `configs/sandbox_50m.json`, `configs/baseline_50m.json` (identical architecture; only `use_sandbox` differs; both seq 2048).
 
 Thesis-scale tooling referenced elsewhere in this vault (`main.py`, `scripts/verify_datasets.py`, `scripts/production_validation.py`, `config_ekdant_xs/s/m.yaml`, `tests/test_ekdant.py`) is documented spec only — not present in this repository.

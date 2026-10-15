@@ -28,7 +28,7 @@ Run **one variant at a time** — each uses the full node.
 | `datasets` (HF) | auto-downloads both datasets on first run |
 | internet (first run) | MedMCQA ≈ 183k rows + MedQA ≈ 10k rows land in the HF cache (few GB) |
 | disk | + ~0.5 GB per run dir (tokenizer + checkpoint) |
-| GPU (full run) | 1× A100 80GB fits batch 24 / seq 2048 / bf16; 16GB (T4): use the 20K recipe's `--batch-size 6 --grad-accum 8` (§3) |
+| GPU (full run) | 1× A100 80GB fits batch 24 / seq 2048 / bf16; 16GB (T4): use the campaign recipe's `--batch-size 6 --grad-accum 8` (§3) |
 
 No `mamba-ssm`, `flash-attn`, `triton`, `causal-conv1d` — pure PyTorch.
 
@@ -95,35 +95,51 @@ python -m ekdant.train --variant sandbox  --out runs/sandbox
 python -m ekdant.train --variant baseline --out runs/baseline
 ```
 
-### Recommended long run — the 20K-step A/B (T4, seq 2048)
+### Recommended long run — the 40-epoch campaign (T4, seq 2048)
 
-The validated recipe for a decisive comparison. **~20,000 optimizer steps
-total** (5 epochs × 3,809 MedMCQA steps + 5 × 213 MedQA steps at
-`--batch-size 6 --grad-accum 8`), seq 2048 (shipped configs), correct
-per-stage cosine schedule, full telemetry (§ "Watching training progress"):
+**Decision: 40 epochs per stage.** At `--batch-size 6 --grad-accum 8`
+(effective batch 48) each epoch is a full pass over the fixed data —
+3,809 MedMCQA + 213 MedQA optimizer steps = **4,022 steps/epoch**, so
+40 epochs ≈ **161,000 optimizer steps** total (8× the earlier 20K
+proposal). Steps per epoch cannot be raised without shrinking the
+effective batch (not recommended: same data, lr 3e-4 tuned at 48,
+doubles wall-clock) — total steps grow by training longer, which is
+what this recipe does.
 
 ```bash
 cd 09-Code
-nohup python -m ekdant.train --variant baseline --out runs/baseline_20k \
-  --batch-size 6 --grad-accum 8 --epochs 5 > baseline_20k.log 2>&1 &
-tail -f baseline_20k.log            # watch live; Ctrl-c stops watching only
+nohup python -m ekdant.train --variant baseline --out runs/baseline_40ep \
+  --batch-size 6 --grad-accum 8 --epochs 40 > baseline_40ep.log 2>&1 &
+tail -f baseline_40ep.log            # watch live; Ctrl-c stops watching only
 
-# after it writes results.json, same command for the sandbox arm:
-nohup python -m ekdant.train --variant sandbox --out runs/sandbox_20k \
-  --batch-size 6 --grad-accum 8 --epochs 5 > sandbox_20k.log 2>&1 &
+# after it writes results.json (≈4.3 days), same command for the sandbox arm:
+nohup python -m ekdant.train --variant sandbox --out runs/sandbox_40ep \
+  --batch-size 6 --grad-accum 8 --epochs 40 > sandbox_40ep.log 2>&1 &
 ```
 
-Budget on a T4: baseline ≈ 13 h, sandbox ≈ 18 h (~31 h sequential).
-Epoch checkpoints + `nohup` make it resume-safe (add `--resume` after a
-pod restart). Scale guide (everything stays linear in epochs at this
-batch):
+Budget on a T4 (measured from the 3-epoch campaign): baseline ≈ **4.3
+days**, sandbox ≈ **6 days** — **~10 days sequential**. If your slot is
+strictly one week, `--epochs 28` ≈ 7 days; 40 is the default here
+because the longer curve is what lets you see the peak and overfitting
+turn (see eval below). Epoch checkpoints + `nohup` make it resume-safe
+(add `--resume` after a pod restart). Scale guide:
 
 | `--epochs` | optimizer steps | T4 wall-clock (both arms) | note |
 |---|---|---|---|
 | 3 | ~12K | ~19 h | the recorded pipeline campaign (`runs/*_full`) |
-| **5** | **~20K** | **~31 h** | **recommended — the 20K range** |
+| 5 | ~20K | ~31 h | the earlier 20K proposal |
 | 14 | ~50K | ~76 h | thesis recipe (50K steps) |
-| 50 | ~200K | ~12 days | beyond the recipe; overfitting risk, not recommended |
+| 28 | ~113K | ~7 days | one-week-slot variant |
+| **40** | **~161K** | **~10 days** | **the campaign — chosen for the long curve** |
+
+**Per-epoch held-out eval (`--eval-every`, default 1):** a long run must
+tell you *when* it peaks, so after every epoch the runner evaluates both
+held-out splits, appends the accuracies into `history[..].test`, rewrites
+`results.json` (the curve survives even a crash), and saves `best.pt`
+whenever MedMCQA validation accuracy improves. Final `last.pt` = last
+epoch; `best.pt` = peak MedMCQA — **quote `best.pt` numbers in the
+thesis**, and use the curve to spot overfitting (val accuracy falling
+while train loss still falls).
 
 ### Watching training progress
 
@@ -133,6 +149,9 @@ progress line; `tail -f <out>.log` shows the run advancing live:
 ```
 [medmcqa] ep0 step 1200/3809 (32%) loss=4.0217 lr=2.91e-4 gnorm=1.32 tok/s=11812 eta=1h23m45s
 [medmcqa] ep0 done loss=3.7104 gnorm=1.41 lr_end=2.30e-4 tok/s=11860 time=2h29m10s
+[medmcqa] ep0 eval medmcqa acc=31.42% loss=3.3910 n=4183
+[medmcqa] ep0 eval medqa acc=24.67% loss=3.4005 n=1273
+[medmcqa] ep0 new best medmcqa 31.42% -> best.pt
 ```
 
 How to read it:
@@ -146,6 +165,7 @@ How to read it:
 | `tok/s` | throughput — drops when batches are long (2048-token rows) or the GPU is contended |
 | `eta` | projected time to finish the **stage** from the current rate |
 | `ep0 done …` | epoch summary: true sample-mean CE (comparable to eval loss), mean gnorm, LR at epoch end, wall time |
+| `ep0 eval …` / `new best …` | held-out accuracy + loss after the epoch (`--eval-every 1`); `new best … -> best.pt` means `best.pt` was refreshed — `best.pt` is the peak-MedMCQA checkpoint to quote |
 
 Epoch history (loss / lr / **gnorm** per epoch) is stored in
 `last.pt → history` and written into `results.json`, so every run keeps
@@ -182,11 +202,14 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 3. Stage 1: **MedMCQA train** (182,822 rows) — `--epochs` epochs.
 4. Stage 2: **MedQA train** (10,178 rows) — `--epochs` epochs.
 5. After **every epoch** saves `<out>/last.pt` (weights + step + completed
-   counter + history + config).
-6. After training: evaluates both held-out splits (MedMCQA
-   **validation** 4,183 — the public MedMCQA test set ships `cop=-1`,
-   unlabelled, so validation is the standard eval split (bug T18) — and
-   MedQA test 1,273) by letter-accuracy and writes
+   counter + opt step + history + best-medmcqa + config), evaluates both
+   held-out splits (`--eval-every 1`), appends the accuracies to the
+   epoch's history entry, rewrites `<out>/results.json` (crash-safe
+   curve), and refreshes `<out>/best.pt` on a new MedMCQA best.
+6. After training: a **final** evaluation of both held-out splits
+   (MedMCQA **validation** 4,183 — the public MedMCQA test set ships
+   `cop=-1`, unlabelled, so validation is the standard eval split (bug
+   T18) — and MedQA test 1,273) by letter-accuracy, written to
    `<out>/results.json`.
 
 ### Flags
@@ -205,6 +228,7 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 | `--seed` | 17 | torch seed + tokenizer sample + data sampling |
 | `--no-compile` | off | skip `torch.compile` (use if compile crashes or first-run overhead hurts) |
 | `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
+| `--eval-every` | 1 | held-out eval every N epochs → history + incremental `results.json` + `best.pt` on MedMCQA (`0` = final eval only) |
 | `--resume` | off | continue an interrupted run (§4) |
 | `--eval-only` | off | skip training; evaluate existing checkpoint (§6/§7) |
 
@@ -224,8 +248,10 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --resume
 |---|---|
 | model weights | loaded into the fresh model before DDP/compile |
 | optimizer-step counter `step` | continues the global count |
+| per-stage LR counter `opt_step` | continues inside the current stage's cosine cycle |
 | completed (stage, epoch) pairs | already-finished pairs are **skipped** |
-| loss/LR history | appended, not restarted |
+| loss/LR/gnorm/eval history | appended, not restarted |
+| `best_medmcqa` | `best.pt` tracking continues from the recorded best |
 
 | restored automatically from `<out>/` | note |
 |---|---|
@@ -344,8 +370,9 @@ forward. `--limit` runs are pipeline checks, never publishable results.
 runs/<variant>/
   tokenizer.json   shared BPE vocab (reused on resume)
   config.json      exact EkdantConfig used (authoritative on resume)
-  last.pt          {model, cfg, step, completed, history} — saved every epoch
-  results.json     {variant, use_sandbox, params, history[stage,epoch,loss,lr,gnorm], test{medmcqa,medqa}}
+  last.pt          {model, cfg, step, completed, opt_step, history, best_medmcqa} — every epoch
+  best.pt          same payload at the peak MedMCQA validation accuracy — the checkpoint to quote
+  results.json     {variant, use_sandbox, params, history[stage,epoch,loss,lr,gnorm,test{medmcqa,medqa}], test{medmcqa,medqa}}
 ```
 
 ## 8. Known issues & troubleshooting

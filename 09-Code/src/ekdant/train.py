@@ -188,6 +188,11 @@ def main() -> None:
     ap.add_argument("--log-every", type=int, default=100,
                     help="print a progress line every N optimizer steps "
                          "(0 = epoch summaries only)")
+    ap.add_argument("--eval-every", type=int, default=1,
+                    help="evaluate held-out splits every N epochs, append "
+                         "accuracy to history and rewrite results.json "
+                         "incrementally, and keep best.pt on medmcqa "
+                         "(0 = final evaluation only)")
     ap.add_argument("--resume", action="store_true",
                     help="continue <out>/last.pt (skips finished stage/epochs)")
     ap.add_argument("--eval-only", action="store_true",
@@ -242,6 +247,7 @@ def main() -> None:
     model = EkdantModel(cfg).to(device)
     start_pair, step, history = 0, 0, []
     opt_step = 0
+    best_acc = -1.0
     if resume_mode:
         ckpt_path = os.path.join(args.out, "last.pt")
         if not os.path.exists(ckpt_path):
@@ -253,6 +259,7 @@ def main() -> None:
         start_pair = int(ckpt.get("completed", 0))
         history = list(ckpt.get("history", []))
         opt_step = int(ckpt.get("opt_step", 0))
+        best_acc = float(ckpt.get("best_medmcqa", -1.0))
         if is_main:
             verb = "eval-only: loaded" if args.eval_only else "resumed"
             log(f"{verb} {ckpt_path}  completed_pairs={start_pair} "
@@ -301,6 +308,9 @@ def main() -> None:
 
     if args.eval_only and is_main:
         log("eval-only: skipping training, running held-out tests")
+    results = {"variant": args.variant, "use_sandbox": cfg.use_sandbox,
+               "params": estimate_model_size(cfg)["total"], "history": history,
+               "test": {}}
     if not args.eval_only:
         for si, (stage_name, split) in enumerate(STAGES):
             first_epoch = 0
@@ -345,12 +355,43 @@ def main() -> None:
                     torch.save({"model": raw.state_dict(),
                                 "cfg": cfg.to_dict(),
                                 "step": step, "completed": completed,
-                                "opt_step": opt_step, "history": history},
+                                "opt_step": opt_step, "history": history,
+                                "best_medmcqa": best_acc},
                                os.path.join(args.out, "last.pt"))
+                    if args.eval_every > 0 and (
+                            (epoch + 1) % args.eval_every == 0
+                            or epoch + 1 == args.epochs):
+                        tests_now = {}
+                        for tname, tsplit in TESTS:
+                            tds = make_dataset(tname, tsplit, tokenizer, cfg,
+                                               args.limit)
+                            tloader = build_dataloader(tds, cfg,
+                                                       args.batch_size, False,
+                                                       False, seed=args.seed)
+                            tests_now[tname] = evaluate(raw, tloader, device,
+                                                        autocast)
+                            log(f"[{stage_name}] ep{epoch} eval {tname} "
+                                f"acc={tests_now[tname]['accuracy']*100:.2f}% "
+                                f"loss={tests_now[tname]['loss']:.4f} "
+                                f"n={tests_now[tname]['n']}")
+                        history[-1]["test"] = tests_now
+                        results["test"] = tests_now
+                        cur = tests_now["medmcqa"]["accuracy"]
+                        if cur > best_acc:
+                            best_acc = cur
+                            torch.save({"model": raw.state_dict(),
+                                        "cfg": cfg.to_dict(),
+                                        "step": step, "completed": completed,
+                                        "opt_step": opt_step,
+                                        "history": history,
+                                        "best_medmcqa": best_acc},
+                                       os.path.join(args.out, "best.pt"))
+                            log(f"[{stage_name}] ep{epoch} new best medmcqa "
+                                f"{cur*100:.2f}% -> best.pt")
+                        with open(os.path.join(args.out, "results.json"),
+                                  "w", encoding="utf-8") as f:
+                            json.dump(results, f, indent=2)
 
-    results = {"variant": args.variant, "use_sandbox": cfg.use_sandbox,
-               "params": estimate_model_size(cfg)["total"], "history": history,
-               "test": {}}
     for name, split in TESTS:
         ds = make_dataset(name, split, tokenizer, cfg, args.limit)
         loader = build_dataloader(ds, cfg, args.batch_size, False,
