@@ -47,6 +47,14 @@ python -c "import ekdant; print('ok')"   # sanity check — must print ok
 > `python -m ekdant.train` raises
 > `ModuleNotFoundError: No module named 'ekdant'`. If you see that error:
 > you skipped the dot — re-run `pip install -e .` (from inside `09-Code/`).
+>
+> `pyproject.toml` pins `datasets>=2.19,<5` + `pyarrow>=12,<21` so a bare
+> `pip install -e .` resolves a combo that works on both numpy 1.x
+> (conda/Jupyter images) and numpy 2.x. An **older** clone without these
+> pins will pull datasets 5.x / pyarrow 26 and crash with
+> `pyarrow requires NumPy 2.0` — `git pull`, then re-run
+> `pip install -e .` (it will downgrade them), or repair manually:
+> `pip install "datasets==3.6.0" "pyarrow<21"`.
 
 ### Linux / Kaggle / WSL notes
 
@@ -63,11 +71,12 @@ python -c "import ekdant; print('ok')"
 - PyTorch is preinstalled on most Kaggle images; `pip install -e .` reuses
   it (the `torch>=2.2` requirement is already satisfied).
 - **`ImportError: pyarrow requires NumPy 2.0 or newer, found 1.26.4`** —
-  conda/Kaggle pins numpy 1.x, but fresh pip pulls pyarrow ≥21 (numpy-2
-  only) and datasets 5.x (pyarrow ≥24). Downgrade **both** to a
-  resolver-consistent pair instead of touching numpy (safer for the rest of
-  the conda stack): `pip install "datasets==3.6.0" "pyarrow<21"` — our code
-  only needs `load_dataset` (stable since datasets 2.19).
+  conda/Jupyter pins numpy 1.x, but unpinned installs pull pyarrow ≥21
+  (numpy-2 only) via datasets 5.x. **Fixed at the source**: `pyproject.toml`
+  now caps `datasets<5` + `pyarrow<21`, so `git pull && pip install -e .`
+  self-repairs. Manual repair for older clones:
+  `pip install "datasets==3.6.0" "pyarrow<21"` (do **not** upgrade numpy on
+  a conda image — it breaks prebuilt pandas/scipy).
 - **Kaggle T4/P100 = 16 GB VRAM** — the default batch 24 assumes ~30–40 GB.
   Run `--batch-size 6 --grad-accum 8` (effective batch 48, same as the
   24×2 default), and `--no-compile` if compile is slow or crashes.
@@ -267,7 +276,7 @@ runs/<variant>/
 | OOM | lower `--batch-size`, raise `--grad-accum` to keep effective batch constant. |
 | `torch.compile` crash/slow first epoch | `--no-compile`. |
 | first run is slow | HF is downloading MedMCQA/MedQA into its cache — one-time. |
-| `pyarrow requires NumPy 2.0` | Kaggle/conda: `pip install "datasets==3.6.0" "pyarrow<21"` (do **not** upgrade numpy on a conda image — it breaks prebuilt pandas/scipy; pyarrow alone is not enough — datasets 5.x demands pyarrow ≥24). |
+| `pyarrow requires NumPy 2.0` | Jupyter/conda + unpinned clone pulled datasets 5.x/pyarrow 26 against numpy 1.x. **Fixed at source** (pyproject caps `datasets<5`, `pyarrow<21`) — `git pull && pip install -e .` self-repairs; manual: `pip install "datasets==3.6.0" "pyarrow<21"`. Never upgrade numpy on a conda image. |
 | **accuracy locked at 0.00%** on a real run | was metric bug **T17** (fixed): `answer_target` held a vocab id while `pred` is a letter index, and eval read `answer_pos` instead of `answer_pos-1`. CE loss looked healthy throughout. If you see exactly 0.00% on thousands of examples, you are on a pre-fix build — `git pull`. Near-zero on a *smoke* run is fine (chance). |
 | OOM on 16 GB GPU (Kaggle T4) | default batch 24 needs ~30–40 GB; use `--batch-size 6 --grad-accum 8` (effective batch unchanged). |
 | `torch.amp has no attribute GradScaler` | torch < 2.3 (Kaggle ships 2.2) — **fixed in code**: scaler construction falls back to `torch.cuda.amp.GradScaler`; pull latest. On T4/P100 (no bf16) the runner also auto-falls back to fp16 autocast + loss scaling and logs it. |

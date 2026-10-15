@@ -9,7 +9,11 @@ description = "Ekdant: a windowed transformer backbone with a diverse sandbox re
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.2",
-    "datasets>=2.19",
+    # datasets 5.x demands pyarrow>=24, which requires numpy>=2 and breaks
+    # conda/Jupyter images pinned to numpy 1.x. Cap both so a bare
+    # `pip install -e .` resolves a combo that works on numpy 1.x and 2.x.
+    "datasets>=2.19,<5",
+    "pyarrow>=12,<21",
     "tokenizers>=0.19",
 ]
 
