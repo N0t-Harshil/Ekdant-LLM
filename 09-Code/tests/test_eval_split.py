@@ -1,40 +1,39 @@
-"""Split-half benchmark protocol: seen = validation role, unseen = test.
+"""Sequential 60/40 benchmark protocol.
 
-The seen half drives per-epoch monitoring and best.pt selection; the
-unseen half is evaluated exactly once, at the end. The permutation is
-seeded by --seed so both A/B arms use identical halves.
+Phase 1 trains on all of MedQA; phase 2 fine-tunes on the head partition
+of MedMCQA train (MCQA_FT_FRAC = 60%); the complementary 40% tail is the
+final benchmark and is never trained on. The single permutation is seeded
+by --seed, so both A/B arms get the identical partition (fairness rule).
+The untouched MedMCQA validation split (full, not partitioned) is the
+checkpoint-selection set: best.pt vs last.pt are compared on it at the end.
 """
 
-from ekdant.train import merge_eval, split_half
+from ekdant.train import MCQA_FT_FRAC, split_frac
 
 
-def test_split_half_partitions_disjointly_and_deterministically():
+def test_split_frac_partitions_disjointly_and_deterministically():
     ds = list(range(10))
-    seen = split_half(ds, True, seed=17)
-    unseen = split_half(ds, False, seed=17)
-    assert sorted(list(seen) + list(unseen)) == list(range(10))
-    assert set(seen).isdisjoint(set(unseen))
-    assert len(seen) == len(unseen) == 5
-    # same seed -> identical halves (both A/B arms must match)
-    assert list(split_half(ds, True, seed=17)) == list(seen)
-    assert list(split_half(ds, False, seed=17)) == list(unseen)
-    # a different seed yields a different split
-    assert list(split_half(ds, True, seed=99)) != list(seen)
+    head, tail = split_frac(ds, 0.6, seed=17)
+    assert sorted(list(head) + list(tail)) == list(range(10))
+    assert set(head).isdisjoint(set(tail))
+    assert len(head) == 6 and len(tail) == 4
+    # same seed -> identical partition (both A/B arms must match)
+    assert list(split_frac(ds, 0.6, seed=17)[0]) == list(head)
+    assert list(split_frac(ds, 0.6, seed=17)[1]) == list(tail)
+    # a different seed yields a different partition
+    assert list(split_frac(ds, 0.6, seed=99)[0]) != list(head)
 
 
-def test_split_half_handles_odd_sizes():
-    ds = list(range(11))
-    seen = split_half(ds, True, 17)
-    unseen = split_half(ds, False, 17)
-    assert len(seen) == 5
-    assert len(unseen) == 6
-    assert sorted(list(seen) + list(unseen)) == list(range(11))
+def test_split_frac_sizes_truncate_down():
+    for n, want_head, want_tail in ((7, 4, 3), (11, 6, 5), (1000, 600, 400)):
+        head, tail = split_frac(list(range(n)), 0.6, seed=17)
+        assert len(head) == want_head
+        assert len(tail) == want_tail
+        assert sorted(list(head) + list(tail)) == list(range(n))
 
 
-def test_merge_eval_weights_by_n():
-    a = {"accuracy": 0.5, "loss": 2.0, "n": 3}
-    b = {"accuracy": 1.0, "loss": 1.0, "n": 1}
-    m = merge_eval(a, b)
-    assert m["n"] == 4
-    assert abs(m["accuracy"] - (0.5 * 3 + 1.0 * 1) / 4) < 1e-9
-    assert abs(m["loss"] - (2.0 * 3 + 1.0 * 1) / 4) < 1e-9
+def test_split_frac_fractions_and_protocol_constant():
+    # the protocol is locked: 60% fine-tune / 40% benchmark
+    assert MCQA_FT_FRAC == 0.6
+    head, tail = split_frac(list(range(5)), MCQA_FT_FRAC, seed=17)
+    assert len(head) == 3 and len(tail) == 2

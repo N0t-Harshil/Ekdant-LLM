@@ -1,4 +1,18 @@
-"""Two-stage A/B training: MedMCQA then MedQA, baseline vs sandbox.
+"""Sequential A/B training: MedQA first, then a MedMCQA 60/40 fine-tune.
+
+Phases (one invocation, strictly in order — never trained jointly):
+
+    phase 1   train on the FULL MedQA train split (10,178),
+              then test on MedQA test -> results["phase1"]["medqa"]
+    phase 2   fine-tune on 60% of MedMCQA train (MCQA_FT_FRAC, seeded
+              permutation — both A/B arms get the identical partition)
+    final     benchmark the complementary 40% of MedMCQA exactly once
+              (never trained on) + MedQA test again (retention) +
+              the untouched MedMCQA validation score
+
+Checkpoint selection: best.pt tracks the untouched MedMCQA validation
+during phase 2; at the end the better of best.pt vs last.pt (same
+validation) is loaded and runs the final benchmark.
 
 Both variants share the identical backbone.  Only the L2 sandbox layer
 differs, so any accuracy gap is attributable to the sandbox alone.
@@ -37,11 +51,20 @@ from ekdant.data import (
 )
 from ekdant.model import EkdantConfig, EkdantModel, estimate_model_size
 
-STAGES = (("medmcqa", "train"), ("medqa", "train"))
+# Sequential protocol — phases in order, never trained jointly:
+#   phase 1: full MedQA train, then the MedQA test result is recorded
+#   phase 2: fine-tune on 60% of MedMCQA train (MCQA_FT_FRAC)
+#   final:   benchmark the complementary 40% exactly once (it is never
+#            trained on), + MedQA test again for retention
+# The 60/40 partition comes from a --seed-locked permutation, so both
+# A/B arms train on identical data and benchmark the identical holdout
+# (fairness rule).
+STAGES = (("medqa", "train"), ("medmcqa_ft", "train"))
+MCQA_FT_FRAC = 0.6
 # MedMCQA's public test split ships cop=-1 (unlabelled) — bug T18 made the
-# metric degenerate to "A-prediction rate". Standard practice: eval on the
-# labelled validation split (4,183 rows).
-TESTS = (("medmcqa", "validation"), ("medqa", "test"))
+# metric degenerate to "A-prediction rate". The labelled validation split
+# (4,183 rows) is never trained on and serves as the untouched
+# checkpoint-selection set (best.pt / final better-of selection).
 
 
 def log(msg: str) -> None:
@@ -74,27 +97,30 @@ def make_dataset(name, split, tokenizer, cfg, limit=None):
     return MCQDataset(ex, tokenizer, max_len=cfg.max_seq_len)
 
 
-def split_half(ds, seen: bool, seed: int = 17) -> Subset:
-    """Deterministic 50/50 split of a benchmark.
+def split_frac(ds, frac: float, seed: int = 17):
+    """Seed-locked (head, tail) partition of a dataset.
 
-    The ``seen`` half is the validation role: evaluated after every epoch
-    and used to select ``best.pt``.  The ``unseen`` half is the test
-    role: evaluated exactly once, at the end, on the selected checkpoint.
-    The permutation is seeded with ``--seed`` so both A/B arms use the
-    identical halves (fairness rule).
+    ``head`` = ``int(len * frac)`` rows (the training role), ``tail`` = the
+    complement (the benchmark role — never trained on). One permutation,
+    seeded with ``--seed``: both A/B arms get the identical partition
+    (fairness rule).
     """
     n = len(ds)
     perm = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
-    half = n // 2
-    return Subset(ds, perm[:half] if seen else perm[half:])
+    cut = int(n * frac)
+    return Subset(ds, perm[:cut]), Subset(ds, perm[cut:])
 
 
-def merge_eval(a: Dict[str, float], b: Dict[str, float]) -> Dict[str, float]:
-    """Merge two eval results (the two halves) into the full-set number."""
-    n = int(a["n"]) + int(b["n"])
-    return {"accuracy": (a["accuracy"] * a["n"] + b["accuracy"] * b["n"]) / max(1, n),
-            "loss": (a["loss"] * a["n"] + b["loss"] * b["n"]) / max(1, n),
-            "n": n}
+def load_stage(name, split, tokenizer, cfg, limit=None, seed=17):
+    """Dataset for a stage. ``medmcqa_ft`` = the 60% fine-tune partition
+    of the MedMCQA train split (the complementary 40% stays untouched
+    until the final benchmark)."""
+    ds = make_dataset("medmcqa" if name == "medmcqa_ft" else name,
+                      split, tokenizer, cfg, limit)
+    if name == "medmcqa_ft":
+        head, _tail = split_frac(ds, MCQA_FT_FRAC, seed)
+        return head
+    return ds
 
 
 def lr_at(step, total, base, warmup):
@@ -213,14 +239,15 @@ def main() -> None:
                     help="print a progress line every N optimizer steps "
                          "(0 = epoch summaries only)")
     ap.add_argument("--eval-every", type=int, default=1,
-                    help="evaluate the SEEN half of each held-out split "
-                         "every N epochs, append accuracy to history and "
-                         "rewrite results.json incrementally, and keep "
-                         "best.pt on medmcqa_seen (0 = final only)")
+                    help="during the MedMCQA fine-tune phase, evaluate the "
+                         "untouched MedMCQA validation set every N epochs "
+                         "→ history + incremental results.json + best.pt "
+                         "on medmcqa_val (0 = final only)")
     ap.add_argument("--resume", action="store_true",
                     help="continue <out>/last.pt (skips finished stage/epochs)")
     ap.add_argument("--eval-only", action="store_true",
-                    help="no training; run the final protocol (seen/unseen/full)")
+                    help="no training; run the final protocol "
+                         "(better-of selection + benchmark)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -335,6 +362,41 @@ def main() -> None:
     results = {"variant": args.variant, "use_sandbox": cfg.use_sandbox,
                "params": estimate_model_size(cfg)["total"], "history": history,
                "test": {}}
+    if resume_mode:
+        # keep the phase-1 record across resume / eval-only rewrites
+        prev_path = os.path.join(args.out, "results.json")
+        if os.path.exists(prev_path):
+            try:
+                with open(prev_path, "r", encoding="utf-8") as f:
+                    prev = json.load(f)
+                if isinstance(prev.get("phase1"), dict):
+                    results["phase1"] = prev["phase1"]
+            except Exception:
+                pass
+
+    def _write_results() -> None:
+        if is_main:
+            with open(os.path.join(args.out, "results.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(results, f, indent=2)
+
+    def eval_phase1() -> None:
+        """Phase-1 record: MedQA test right after MedQA training (before
+        the MedMCQA fine-tune). Runs once; crash-safe via results.json."""
+        if args.eval_only or not is_main:
+            return
+        if results.get("phase1", {}).get("medqa"):
+            return
+        tds = make_dataset("medqa", "test", tokenizer, cfg, args.limit)
+        tloader = build_dataloader(tds, cfg, args.batch_size, False, False,
+                                   seed=args.seed, workers=0)
+        r = evaluate(raw, tloader, device, autocast)
+        results["phase1"] = {"medqa": r}
+        log(f"[phase1 test medqa] acc={r['accuracy']*100:.2f}% "
+            f"loss={r['loss']:.4f} n={r['n']}  "
+            f"(after MedQA training, before MedMCQA fine-tune)")
+        _write_results()
+
     if not args.eval_only:
         for si, (stage_name, split) in enumerate(STAGES):
             first_epoch = 0
@@ -343,8 +405,11 @@ def main() -> None:
             if first_epoch >= args.epochs:
                 if is_main:
                     log(f"stage {stage_name}: already complete, skipping")
+                if si == 0:
+                    eval_phase1()
                 continue
-            ds = make_dataset(stage_name, split, tokenizer, cfg, args.limit)
+            ds = load_stage(stage_name, split, tokenizer, cfg, args.limit,
+                            seed=args.seed)
             loader = build_dataloader(ds, cfg, args.batch_size, True,
                                       distributed, seed=args.seed)
             steps_per_epoch = max(1, len(loader))
@@ -382,26 +447,25 @@ def main() -> None:
                                 "opt_step": opt_step, "history": history,
                                 "best_medmcqa": best_acc},
                                os.path.join(args.out, "last.pt"))
-                    if args.eval_every > 0 and (
-                            (epoch + 1) % args.eval_every == 0
-                            or epoch + 1 == args.epochs):
-                        tests_now = {}
-                        for tname, tsplit in TESTS:
-                            tds = make_dataset(tname, tsplit, tokenizer, cfg,
-                                               args.limit)
-                            tseen = split_half(tds, True, args.seed)
-                            tloader = build_dataloader(tseen, cfg,
-                                                       args.batch_size, False,
-                                                       False, seed=args.seed,
-                                                       workers=0)
-                            r = evaluate(raw, tloader, device, autocast)
-                            tests_now[f"{tname}_seen"] = r
-                            log(f"[{stage_name}] ep{epoch} eval {tname}_seen "
-                                f"acc={r['accuracy']*100:.2f}% "
-                                f"loss={r['loss']:.4f} n={r['n']}")
-                        history[-1]["test"] = tests_now
-                        results["test"] = tests_now
-                        cur = tests_now["medmcqa_seen"]["accuracy"]
+                    if (args.eval_every > 0
+                            and stage_name == "medmcqa_ft"
+                            and ((epoch + 1) % args.eval_every == 0
+                                 or epoch + 1 == args.epochs)):
+                        # Selection set: the untouched MedMCQA validation
+                        # split.  The 40% benchmark partition is scored
+                        # exactly once, at the end.
+                        vds = make_dataset("medmcqa", "validation",
+                                           tokenizer, cfg, args.limit)
+                        vloader = build_dataloader(vds, cfg, args.batch_size,
+                                                   False, False,
+                                                   seed=args.seed, workers=0)
+                        r = evaluate(raw, vloader, device, autocast)
+                        history[-1]["test"] = {"medmcqa_val": r}
+                        results["test"] = {"medmcqa_val": r}
+                        log(f"[{stage_name}] ep{epoch} eval medmcqa_val "
+                            f"acc={r['accuracy']*100:.2f}% "
+                            f"loss={r['loss']:.4f} n={r['n']}")
+                        cur = r["accuracy"]
                         if cur > best_acc:
                             best_acc = cur
                             torch.save({"model": raw.state_dict(),
@@ -412,51 +476,68 @@ def main() -> None:
                                         "best_medmcqa": best_acc},
                                        os.path.join(args.out, "best.pt"))
                             log(f"[{stage_name}] ep{epoch} new best "
-                                f"medmcqa_seen {cur*100:.2f}% -> best.pt")
-                        with open(os.path.join(args.out, "results.json"),
-                                  "w", encoding="utf-8") as f:
-                            json.dump(results, f, indent=2)
+                                f"medmcqa_val {cur*100:.2f}% -> best.pt")
+                        _write_results()
+            if si == 0:
+                eval_phase1()
 
-    # Final protocol: select the checkpoint on the SEEN halves (that is
-    # what they are for), then touch the UNSEEN halves exactly once.
+    # Final protocol: checkpoint selection = better of best.pt vs last.pt
+    # on the untouched MedMCQA validation ("change the best with last if
+    # it is good"), then score the never-trained-on 40% benchmark
+    # partition exactly once, plus MedQA test again (retention).
+    val_ds = make_dataset("medmcqa", "validation", tokenizer, cfg, args.limit)
+    val_loader = build_dataloader(val_ds, cfg, args.batch_size, False, False,
+                                  seed=args.seed, workers=0)
+    scores = {"last.pt": evaluate(raw, val_loader, device, autocast)}
+    last_state = {k: v.detach().cpu().clone()
+                  for k, v in raw.state_dict().items()}
     best_path = os.path.join(args.out, "best.pt")
-    selected = {"checkpoint": "last.pt", "selected_on": None,
-                "best_medmcqa_seen": None}
+    bckpt = None
     if os.path.exists(best_path):
         bckpt = torch.load(best_path, map_location="cpu")
         raw.load_state_dict(bckpt["model"])
-        selected = {"checkpoint": "best.pt", "selected_on": "medmcqa_seen",
-                    "best_medmcqa_seen": float(bckpt.get("best_medmcqa", -1.0))}
-        if is_main:
-            log("final evaluation uses best.pt (selected on medmcqa_seen="
-                f"{selected['best_medmcqa_seen']*100:.2f}%)")
-    elif is_main:
-        log("final evaluation uses last.pt (no best.pt — --eval-every 0?)")
+        scores["best.pt"] = evaluate(raw, val_loader, device, autocast)
+    if is_main:
+        parts = "  ".join(f"{k}={v['accuracy']*100:.2f}%"
+                          for k, v in scores.items())
+        log(f"selection on medmcqa_val: {parts}")
+    # keep best.pt unless last.pt is strictly better on the selection set
+    chosen = "best.pt" if bckpt is not None else "last.pt"
+    if bckpt is not None and \
+            scores["last.pt"]["accuracy"] > scores["best.pt"]["accuracy"]:
+        chosen = "last.pt"
+    raw.load_state_dict(bckpt["model"] if chosen == "best.pt" else last_state)
+    selected = {"checkpoint": chosen, "selected_on": "medmcqa_val",
+                "best_val_accuracy":
+                    scores.get("best.pt", {}).get("accuracy"),
+                "last_val_accuracy": scores["last.pt"]["accuracy"]}
+    if is_main:
+        log(f"final benchmark uses {chosen} (medmcqa_val "
+            f"{scores[chosen]['accuracy']*100:.2f}%)")
+        if args.eval_only and "medqa" not in results.get("phase1", {}):
+            log("note: phase-1 MedQA-test result not in results.json "
+                "(only a training run records it)")
     results["selected"] = selected
-    for name, split in TESTS:
-        ds = make_dataset(name, split, tokenizer, cfg, args.limit)
-        halves = {}
-        for tag, seen in (("seen", True), ("unseen", False)):
-            loader = build_dataloader(split_half(ds, seen, args.seed), cfg,
-                                      args.batch_size, False, distributed,
-                                      seed=args.seed, workers=0)
-            r = evaluate(model, loader, device, autocast)
-            results["test"][f"{name}_{tag}"] = r
-            halves[tag] = r
-            if is_main:
-                log(f"[test {name}_{tag}] acc={r['accuracy']*100:.2f}% "
-                    f"loss={r['loss']:.4f} n={r['n']}")
-        results["test"][f"{name}_full"] = merge_eval(halves["seen"],
-                                                     halves["unseen"])
+    results["test"]["medmcqa_val"] = scores[chosen]
+    eval_phase1()  # no-op when already recorded / for eval-only
+
+    # The benchmark: 40% of MedMCQA train, never trained on — scored once.
+    mcqa_full = make_dataset("medmcqa", "train", tokenizer, cfg, args.limit)
+    _, bench = split_frac(mcqa_full, MCQA_FT_FRAC, args.seed)
+    finals = [("medmcqa_bench", bench),
+              ("medqa", make_dataset("medqa", "test", tokenizer, cfg,
+                                     args.limit))]
+    for name, ds_ in finals:
+        loader = build_dataloader(ds_, cfg, args.batch_size, False, False,
+                                  seed=args.seed, workers=0)
+        r = evaluate(raw, loader, device, autocast)
+        results["test"][name] = r
         if is_main:
-            r = results["test"][f"{name}_full"]
-            log(f"[test {name}_full] acc={r['accuracy']*100:.2f}% "
+            log(f"[test {name}] acc={r['accuracy']*100:.2f}% "
                 f"loss={r['loss']:.4f} n={r['n']}")
 
     if is_main:
-        with open(os.path.join(args.out, "results.json"), "w",
-                  encoding="utf-8") as f:
-            json.dump(results, f, indent=2)
+        _write_results()
         log(f"\nwrote {args.out}/results.json")
     if distributed:
         dist.destroy_process_group()

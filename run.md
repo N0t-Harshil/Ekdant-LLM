@@ -2,7 +2,7 @@
 
 How to **start training, resume, test, and benchmark** both models. Every
 command here was executed and verified (CPU smoke: 64 rows, 1 epoch, both
-arms; full unit suite: 67 passed). All commands run from `09-Code/` unless
+arms; full unit suite: 78 passed). All commands run from `09-Code/` unless
 stated otherwise.
 
 ## 0. What you are running
@@ -99,16 +99,28 @@ python -m ekdant.train --variant baseline --out runs/baseline
 
 ### Recommended long run — the 100-epoch campaign (T4)
 
-**Decision: 100 epochs per stage, entire training data, split-half
-benchmarks.** At `--batch-size 6 --grad-accum 8` (effective batch 48)
-each epoch is a full pass over the **entire** training split —
-182,496 labelled MedMCQA + 10,178 MedQA, no `--limit`, nothing
-held back from training (the 326 unlabelled `cop=-1` train rows carry
-no answer and are the only rows dropped) — giving 3,802 + 212 =
-**4,014 steps/epoch**, so 100 epochs = **401,400 optimizer steps**
-(~401K). Steps per epoch cannot be raised without shrinking the
-effective batch (same data, lr 3e-4 tuned at 48) — total steps grow by
-training longer, which is what this recipe does.
+**Decision: 100 epochs per phase, sequential protocol.** One invocation
+runs the two phases **in order, never trained jointly** (at
+`--batch-size 6 --grad-accum 8`, effective batch 48):
+
+1. **Phase 1 — MedQA:** train on the **full** MedQA train split
+   (10,178 rows → 212 opt/epoch), then record the **MedQA test**
+   result (`phase1` in `results.json`).
+2. **Phase 2 — MedMCQA fine-tune:** fine-tune on **60% of MedMCQA
+   train** (109,497 of 182,496 labelled rows → 2,282 opt/epoch; the
+   326 unlabelled `cop=-1` rows carry no answer and are the only rows
+   dropped at load). The 60/40 partition is a `--seed`-derived
+   permutation (`split_frac()` in `train.py`, locked by a test) —
+   **identical for both A/B arms**.
+3. **Final benchmark:** score **the complementary 40% of MedMCQA**
+   (72,999 rows — never trained on) exactly once, plus MedQA test
+   again (retention after the fine-tune) and the selection-set
+   validation score.
+
+100 epochs × (212 + 2,282) = **249,400 optimizer steps** total. Steps
+per epoch cannot be raised without shrinking the effective batch (same
+data, lr 3e-4 tuned at 48) — total steps grow by training longer, which
+is what this recipe does.
 
 ```bash
 cd 09-Code
@@ -116,7 +128,7 @@ nohup python -m ekdant.train --variant baseline --out runs/baseline_100ep \
   --batch-size 6 --grad-accum 8 --epochs 100 > baseline_100ep.log 2>&1 &
 tail -f baseline_100ep.log            # watch live; Ctrl-c stops watching only
 
-# after it writes results.json (≈17.5 h), same command for the sandbox arm:
+# after it writes results.json (≈11.5 h), same command for the sandbox arm:
 nohup python -m ekdant.train --variant sandbox --out runs/sandbox_100ep \
   --batch-size 6 --grad-accum 8 --epochs 100 > sandbox_100ep.log 2>&1 &
 ```
@@ -124,56 +136,58 @@ nohup python -m ekdant.train --variant sandbox --out runs/sandbox_100ep \
 **Measured budget (live telemetry, baseline arm):** the collator pads
 batches to *batch max* (`data.py::collate`) and MedMCQA/MedQA prompts
 are only ~40–80 tokens — `max_seq_len` 2048 is a truncation cap, never
-padded to — so a 16 GB T4 sustains **≈6.3 optimizer steps/s ≈ 10 min
-per MedMCQA epoch** (fp16 fallback on T4, ~11.9K real tok/s). Baseline
-arm ≈ **17.5 h** (stage 1 ≈ 16.7 h + stage 2 ≈ 55 min + evals).
-Sandbox arm does K=4 trajectories + debate + descent per token — expect
-roughly 1.5× (read its first ETA line) ≈ **26 h**. Full campaign
-**≈ 1.8 days sequential**. Epoch checkpoints + `nohup` make it
-resume-safe (add `--resume` after a pod restart). Scale guide
-(projected from the measured 6.3 steps/s; sandbox ≈ 1.5× baseline):
+padded to — so a 16 GB T4 sustains **≈6.3 optimizer steps/s ≈ 48 min
+per MedMCQA fine-tune epoch** (fp16 fallback on T4, ~11.9K real tok/s).
+Baseline arm ≈ **11.5 h** (phase 1 ≈ 56 min + phase 2 ≈ 10 h + 100
+validation evals ≈ 35 min + final evals). Sandbox arm does K=4
+trajectories + debate + descent per token — expect roughly 1.5× (read
+its first ETA line) ≈ **17 h**. Full campaign **≈ 1.2 days sequential**.
+Epoch checkpoints + `nohup` make it resume-safe (add `--resume` after a
+pod restart). Scale guide (projected from the measured 6.3 steps/s;
+sandbox ≈ 1.5× baseline; steps = epochs × 2,494):
 
 | `--epochs` | optimizer steps | T4 wall-clock (both arms) | note |
 |---|---|---|---|
-| 3 | ~12K | ~1.5 h | the historical pipeline campaign (`runs/*_full`) |
-| 5 | ~20K | ~1.7 h | the earlier 20K proposal |
-| 14 | ~56K | ~4.5 h | thesis-class (~50K steps) |
-| 40 | ~161K | ~19 h | earlier campaign draft |
-| **100** | **~401K** | **~44 h (b ≈17.5 h, sbx ≈26 h)** | **the campaign — long curve + split-half benchmark** |
+| 3 | ~7.5K | ~1 h | quick protocol check |
+| 14 | ~35K | ~4 h | thesis-class (~50K steps at 20 ep) |
+| 40 | ~100K | ~12 h | earlier campaign draft |
+| **100** | **~249K** | **~28 h (b ≈11.5 h, sbx ≈17 h)** | **the campaign — sequential MedQA→MedMCQA 60/40** |
 
 > **Reading epoch-0 ETA lines:** the first lines are inflated because
 > `torch.compile` warmup (~150 s, step-100 `tok/s`=1.1K vs 11.8K steady)
 > gets averaged in — your ETA will keep falling (69 h → 37 h → … → 9.7 h
-> at step 2000) and converge to ≈6.6 h per stage-1 epoch-0 segment. The
-> window resets every epoch, so from ep1 on the first line is accurate.
-> A falling ETA is warmup washout, not a misconfiguration.
+> at step 2000) and converge. The window resets every epoch, so from
+> ep1 on the first line is accurate. A falling ETA is warmup washout,
+> not a misconfiguration. Phase 1's ETA counts only the 212 steps/epoch
+> MedQA stage — it is *not* a bug that phase 1 is fast.
 
-### Benchmark protocol: train on everything, split the benchmarks in half
+### Benchmark protocol: MedQA → test → MedMCQA 60% fine-tune → 40% benchmark
 
-Every held-out benchmark (MedMCQA validation 4,183; MedQA test 1,273) is
-partitioned **50/50 by a `--seed`-derived permutation** (`split_half()` in
-`train.py` — identical halves for both A/B arms, locked by a test):
+The model is **trained and tested on MedQA first**, then **fine-tuned
+on 60% of MedMCQA**, and only then benchmarked on **the rest** — the
+protocol you asked for, in one invocation, strictly sequential:
 
-| key | role | when the model sees it |
-|---|---|---|
-| `*_seen` (first half) | **validation** — per-epoch monitoring + `best.pt` selection | after every epoch (`--eval-every`) |
-| `*_unseen` (second half) | **test** — the number you quote | **exactly once**, at the end, on the selected `best.pt` |
-| `*_full` (both merged) | whole-benchmark score, comparable to pre-split runs | once at the end |
+| key | data | role | when the model sees it |
+|---|---|---|---|
+| `phase1.medqa` | MedQA test 1,273 | **phase-1 test** (trained on all of MedQA) | once, right after phase 1 |
+| `medmcqa_val` | MedMCQA validation 4,183 (untouched by training) | **checkpoint selection** — `best.pt` tracking + final better-of | every epoch of phase 2 (`--eval-every`), then at selection |
+| `medmcqa_bench` | **40% of MedMCQA train** (72,999 rows) | **the benchmark** — the number you quote | **exactly once**, at the end, on the selected checkpoint |
+| `medqa` | MedQA test 1,273 | **retention** after the fine-tune | once at the end (compare against `phase1.medqa`) |
 
-**Per-epoch eval (`--eval-every`, default 1):** after every epoch the
-runner scores the *seen* halves only, appends them into
-`history[..].test`, rewrites `results.json` (the curve survives a crash),
-and saves `best.pt` whenever `medmcqa_seen` improves. At the end it
-**loads `best.pt`** (selected on `medmcqa_seen`), then evaluates seen,
-unseen, and full for both benchmarks in one final pass — `results.json`
-also records `selected: {checkpoint, selected_on, best_medmcqa_seen}`.
-`last.pt` stays as the final-epoch artifact for resume. The *unseen*
-half is therefore touched exactly once per run; the thesis quotes
-`medmcqa_unseen` / `medqa_unseen` from `best.pt`, and uses the seen
-curve to spot overfitting (seen accuracy falling while train loss still
-falls). Note: every per-epoch eval loads data from the local HF cache
-offline (module default in `data.py` — hub etag checks are skipped, so
-evals can never stall on the network).
+**Selection (`best.pt` vs `last.pt` — "change the best with last if it
+is good"):** during phase 2, `best.pt` is refreshed whenever the
+untouched validation accuracy improves (the 40% benchmark is never
+looked at during training). At the end the runner **evaluates both
+`best.pt` and `last.pt` on `medmcqa_val` and loads whichever is better**
+(ties keep `best.pt`); `results.json` records
+`selected: {checkpoint, selected_on: "medmcqa_val", best_val_accuracy,
+last_val_accuracy}` — **quote `medmcqa_bench` from the selected
+checkpoint**, and quote `phase1.medqa` vs final `medqa` as the
+forgetting comparison. The fairness rule does the rest: same `--seed`
+→ the identical 60/40 partition and the identical benchmark rows for
+both arms. Note: every per-epoch eval loads data from the local HF
+cache offline (module default in `data.py` — hub etag checks are
+skipped, so evals can never stall on the network).
 
 ### Watching training progress
 
@@ -181,28 +195,39 @@ Every `--log-every` optimizer steps (default 100) the run prints a
 progress line; `tail -f <out>.log` shows the run advancing live:
 
 ```
-[medmcqa] ep0 step 1200/3802 (32%) loss=4.0217 lr=2.91e-4 gnorm=1.32 tok/s=11812 eta=1h23m45s
-[medmcqa] ep0 done loss=3.7104 gnorm=1.41 lr_end=2.30e-4 tok/s=11860 time=2h29m10s
-[medmcqa] ep0 eval medmcqa_seen acc=31.42% loss=3.3910 n=2091
-[medmcqa] ep0 eval medqa_seen acc=24.67% loss=3.4005 n=636
-[medmcqa] ep0 new best medmcqa_seen 31.42% -> best.pt
+=== stage medqa  n=10178 (epoch 0+) | 212 opt/epoch x 100 epochs = 21200 steps, lr 0.0003 cosine, warmup 200 ===
+[medqa] ep0 step 100/212 (47%) loss=5.1042 lr=2.85e-4 gnorm=1.14 tok/s=11850 eta=0m19s
+[medqa] ep0 done loss=4.6110 gnorm=1.22 lr_end=2.30e-4 tok/s=11860 time=0m34s
+[phase1 test medqa] acc=31.20% loss=2.8744 n=1273  (after MedQA training, before MedMCQA fine-tune)
+=== stage medmcqa_ft  n=109497 (epoch 0+) | 2282 opt/epoch x 100 epochs = 228200 steps, lr 0.0003 cosine, warmup 200 ===
+[medmcqa_ft] ep0 step 1200/2282 (53%) loss=3.2105 lr=2.91e-4 gnorm=1.32 tok/s=11812 eta=9m36s
+[medmcqa_ft] ep0 done loss=2.9114 gnorm=1.41 lr_end=2.30e-4 tok/s=11860 time=48m10s
+[medmcqa_ft] ep0 eval medmcqa_val acc=31.42% loss=3.3910 n=4183
+[medmcqa_ft] ep0 new best medmcqa_val 31.42% -> best.pt
+selection on medmcqa_val: last.pt=34.01%  best.pt=34.52%
+final benchmark uses best.pt (medmcqa_val 34.52%)
+[test medmcqa_bench] acc=33.90% loss=3.1022 n=72999
+[test medqa] acc=30.80% loss=3.0114 n=1273
 ```
 
-(Per-epoch evals report the **seen** halves only; the unseen halves
-appear once at the end as `[test medmcqa_unseen] …` lines.)
+(The phase-1 result appears once, between the phases; the 40%
+benchmark (`[test medmcqa_bench]`) appears **only once, at the very
+end**.)
 
 How to read it:
 
 | field | meaning / healthy signal |
 |---|---|
-| `step 1200/3802 (32%)` | optimizer steps into the stage and % of the **stage** budget — this is your "how far gone" number |
+| `step 1200/2282 (53%)` | optimizer steps into the phase and % of the **phase** budget — this is your "how far gone" number |
 | `loss` | EMA of CE per token — should fall every epoch; a flat line at init lr≈0 means a schedule bug (§8) |
-| `lr` | current learning rate — rises through warmup (default 200 steps) then cosine-decays to ~0 at the stage end |
+| `lr` | current learning rate — rises through warmup (default 200 steps) then cosine-decays to ~0 at the phase end (each phase gets its own cycle) |
 | `gnorm` | global grad norm **before** clipping at 1.0 — sustained ≫1 means the clip is active every step; a sudden collapse toward 0 means training has stalled; expect ~0.5–3 in steady state |
 | `tok/s` | throughput — drops when batches are long (2048-token rows) or the GPU is contended |
-| `eta` | projected time to finish the **stage** from the current rate |
+| `eta` | projected time to finish the **phase** from the current rate |
+| `[phase1 test medqa] …` | the phase-1 result (MedQA test, recorded once after phase 1, before the fine-tune) — compare it to the final `[test medqa]` for forgetting |
 | `ep0 done …` | epoch summary: true sample-mean CE (comparable to eval loss), mean gnorm, LR at epoch end, wall time |
-| `ep0 eval …` / `new best …` | **seen-half** accuracy + loss after the epoch (`--eval-every 1`); `new best medmcqa_seen … -> best.pt` means `best.pt` was refreshed — `best.pt` is selected on `medmcqa_seen` and carries the unseen results to quote |
+| `eval medmcqa_val …` / `new best …` | phase-2 selection eval (untouched MedMCQA validation, `--eval-every 1`); `new best … -> best.pt` means `best.pt` was refreshed on the selection set — the 40% benchmark is never evaluated here |
+| `selection on medmcqa_val: …` | the final better-of comparison: both checkpoints' validation accuracy, then `final benchmark uses <ckpt>` names the winner (ties keep `best.pt`) |
 
 Epoch history (loss / lr / **gnorm** per epoch) is stored in
 `last.pt → history` and written into `results.json`, so every run keeps
@@ -236,21 +261,32 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
    arms see the same sample with the same seed, so the vocabularies match;
    for a guaranteed-identical vocab, copy `runs/sandbox/tokenizer.json`
    into `runs/baseline/` before launching baseline.
-3. Stage 1: **MedMCQA train** — 182,496 rows kept (182,822 raw minus 326 unlabelled `cop=-1` rows, dropped by the T18 rule; the stage header prints the real `n=`) — `--epochs` epochs.
-4. Stage 2: **MedQA train** (10,178 rows) — `--epochs` epochs.
-5. After **every epoch** saves `<out>/last.pt` (weights + step + completed
-   counter + opt step + history + best-seen + config), evaluates the two
-   **seen** benchmark halves (`--eval-every 1`), appends the accuracies to
-   the epoch's history entry, rewrites `<out>/results.json` (crash-safe
-   curve), and refreshes `<out>/best.pt` on a new `medmcqa_seen` best.
-6. After training: **loads `best.pt`** (selected on `medmcqa_seen`) and
-   runs the final evaluation — both benchmark halves plus the merged full
-   split, per dataset (MedMCQA **validation** 4,183 half-split: the public
-   MedMCQA test set ships `cop=-1`, unlabelled, so validation is the
-   standard eval split (bug T18) — and MedQA test 1,273), by
-   letter-accuracy — written to `<out>/results.json` under
-   `{medmcqa,medqa}_{seen,unseen,full}` + `selected`. The **unseen half
-   is scored exactly once**, here.
+3. **Phase 1 — MedQA:** trains on the **full** MedQA train split
+   (10,178 rows — header prints the real `n=`) for `--epochs` epochs,
+   then records the **MedQA test** result once into
+   `results["phase1"]["medqa"]`.
+4. **Phase 2 — MedMCQA fine-tune:** trains on the **60% fine-tune
+   partition** of MedMCQA train (109,497 of 182,496 labelled rows —
+   182,822 raw minus the 326 unlabelled `cop=-1` rows, dropped by the
+   T18 rule) for `--epochs` epochs. The partition is the head of a
+   `--seed` permutation (`split_frac`, `MCQA_FT_FRAC = 0.6`) — the
+   identical rows for both arms; the complementary 40% is never trained
+   on.
+5. During **every phase-2 epoch** (`--eval-every 1`): saves
+   `<out>/last.pt` (weights + step + completed counter + opt step +
+   history + best-val + config), evaluates the **untouched MedMCQA
+   validation** split (4,183 — the public test set ships `cop=-1`,
+   unlabelled, T18), appends it to the epoch's history entry, rewrites
+   `<out>/results.json` (crash-safe), and refreshes `<out>/best.pt` on
+   a new `medmcqa_val` best. Phase 1 has no per-epoch eval.
+6. After training: **selects the checkpoint** — evaluates both
+   `best.pt` and `last.pt` on `medmcqa_val` and loads the better one
+   (ties keep `best.pt`; logged as `selection on medmcqa_val: …`), then
+   runs the final evaluation by letter-accuracy: the **40% benchmark
+   partition** (`medmcqa_bench`, scored exactly once), MedQA test
+   (retention), and the selection-set score — written to
+   `<out>/results.json` under `test{medmcqa_bench, medmcqa_val, medqa}`
+   + `phase1` + `selected`.
 
 ### Flags
 
@@ -263,14 +299,14 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 | `--grad-accum` | 2 | effective batch = batch × accum × n_gpu (=192 on 4 GPUs) |
 | `--lr` | 3e-4 | cosine schedule, `--warmup` steps |
 | `--warmup` | 200 | warmup **optimizer steps**, then cosine (LR fix, §8) |
-| `--epochs` | 3 | epochs **per stage** (MedMCQA and MedQA each) |
+| `--epochs` | 3 | epochs **per phase** (MedQA phase 1 and MedMCQA fine-tune phase 2 each) |
 | `--limit` | none | cap rows per dataset (smoke/debug only) |
-| `--seed` | 17 | torch seed + tokenizer sample + data sampling |
+| `--seed` | 17 | torch seed + tokenizer sample + data sampling + **the 60/40 partition** (identical for both arms) |
 | `--no-compile` | off | skip `torch.compile` (use if compile crashes or first-run overhead hurts) |
 | `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
-| `--eval-every` | 1 | **seen-half** eval every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_seen` (`0` = final eval only) |
+| `--eval-every` | 1 | during phase 2: evaluate the **untouched MedMCQA validation** every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_val` (`0` = no per-epoch eval; final selection falls back to `last.pt`) |
 | `--resume` | off | continue an interrupted run (§4) |
-| `--eval-only` | off | skip training; evaluate existing checkpoint (§6/§7) |
+| `--eval-only` | off | skip training; run the final protocol (selection + benchmark) (§5/§7) |
 
 **Fairness rule:** keep every flag identical between the two arms (only
 `--variant` and `--out` change). Any other difference invalidates the A/B.
@@ -288,15 +324,16 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --resume
 |---|---|
 | model weights | loaded into the fresh model before DDP/compile |
 | optimizer-step counter `step` | continues the global count |
-| per-stage LR counter `opt_step` | continues inside the current stage's cosine cycle |
+| per-phase LR counter `opt_step` | continues inside the current phase's cosine cycle |
 | completed (stage, epoch) pairs | already-finished pairs are **skipped** |
 | loss/LR/gnorm/eval history | appended, not restarted |
-| `best_medmcqa_seen` | `best.pt` tracking continues from the recorded best |
+| `best_medmcqa` | `best.pt` (validation-based) tracking continues from the recorded best |
 
 | restored automatically from `<out>/` | note |
 |---|---|
 | `tokenizer.json` | reused, never retrained — vocab cannot drift |
 | `config.json` | **exact config the run started with** takes precedence over `configs/` |
+| `results.json` → `phase1` | the phase-1 MedQA-test record survives a resume/eval-only rewrite |
 
 Not restored (unavoidable with `torch.save` per epoch): AdamW moments
 (optimizer restarts cold) — expect a small loss bump on the first resumed
@@ -326,8 +363,9 @@ no-leakage, GQA mapping, RoPE, shapes), L2 sandbox (K trajectories,
 debate rounds, descent, collapse floor, aux keys), end-to-end forward/loss
 decrease for both variants, the data layer (MedMCQA `opa..opd`/`cop`
 0-indexed schema, MedQA `options`+`answer_idx` schema, rejection rules),
-and the **benchmark split** (`test_eval_split.py`: seeded half-split is
-deterministic/disjoint, seen+unseen merge back to the full eval).
+and the **60/40 protocol partition** (`test_eval_split.py`: the seeded
+`split_frac` partition is deterministic, disjoint, complete, and locked
+to `MCQA_FT_FRAC = 0.6`).
 
 ### Held-out eval (no training)
 
@@ -337,9 +375,10 @@ python -m ekdant.train --variant baseline --out runs/baseline --eval-only --no-c
 ```
 
 Loads `last.pt` + `tokenizer.json` from `--out`, skips training, then
-runs the **same final protocol as a normal run**: prefer `best.pt` if it
-exists, score seen + unseen + merged full halves of both benchmarks,
-rewrite `results.json`. Use it to re-score a checkpoint on a
+runs the **same final protocol as a normal run**: evaluate `best.pt` vs
+`last.pt` on `medmcqa_val`, load the better, score the 40% benchmark
+partition + MedQA test, rewrite `results.json` (a recorded `phase1` from
+`results.json` is preserved). Use it to re-score a checkpoint on a
 different machine, or to re-run the benchmark after a `--resume` finish
 (every training invocation already evaluates at the end — `--eval-only` is
 for re-evaluation without training).
@@ -351,22 +390,25 @@ fails with `tokenizer.json not found` / `last.pt not found`.
 
 **Metric:** held-out **letter-accuracy** — the logits at the answer position
 (`answer_pos - 1`, the position that predicts the answer), argmax over the
-A/B/C/D token logits vs the letter **index** (0–3), on MedMCQA validation
-(4,183: 2,091/2,092 seen|unseen) and MedQA test (1,273: 636/637).
+A/B/C/D token logits vs the letter **index** (0–3), on the **40% benchmark
+partition of MedMCQA train** (72,999 rows), MedQA test (1,273), and the
+untouched MedMCQA validation (4,183, selection set only).
 MedMCQA's public test split has `cop = -1`
 for every row (no released labels), so it must never be scored — see bug
 T18. Not free-form generation.
 
-**Which key to quote:** `*_unseen` (the half never monitored during
-training, scored once at the end on `best.pt`) is the defensible test
-number; `*_seen` documents the selection curve; `*_full` is the whole
-benchmark (comparable to pre-split runs, but its *unseen portion* was
-part of model selection — say so if you use it).
+**Which key to quote:** `test.medmcqa_bench` (rows never trained on,
+scored once at the end on the selected checkpoint) is the defensible test
+number; `phase1.medqa` vs final `test.medqa` is the forgetting comparison
+(MedQA before vs after the MedMCQA fine-tune); `test.medmcqa_val` is the
+selection metric (never quote it as a result — it chose the checkpoint);
+`selected` says which checkpoint ran the benchmark.
 
 ### Full procedure
 
 ```bash
-# 1. train both arms (identical flags, separate dirs)
+# 1. train both arms (identical flags — incl. --seed, which locks the
+#    60/40 partition — separate dirs)
 python -m ekdant.train --variant sandbox  --out runs/sandbox  --epochs 100
 python -m ekdant.train --variant baseline --out runs/baseline --epochs 100
 
@@ -376,16 +418,17 @@ import json
 for v in ("baseline", "sandbox"):
     r = json.load(open(f"runs/{v}/results.json"))
     t, s = r["test"], r["selected"]
+    p1 = r.get("phase1", {}).get("medqa", {}).get("accuracy")
     print(f"{v:9s} params={r['params']/1e6:.2f}M ckpt={s['checkpoint']}  "
-          f"medmcqa_unseen={t['medmcqa_unseen']['accuracy']*100:.2f}%  "
-          f"medqa_unseen={t['medqa_unseen']['accuracy']*100:.2f}%  "
-          f"(full: {t['medmcqa_full']['accuracy']*100:.2f}% / "
-          f"{t['medqa_full']['accuracy']*100:.2f}%)")
+          f"bench(medmcqa40)={t['medmcqa_bench']['accuracy']*100:.2f}%  "
+          f"medqa phase1={(p1 or 0)*100:.2f}% -> final="
+          f"{t['medqa']['accuracy']*100:.2f}%")
 PY
 ```
 
 Produces one line per arm; any accuracy gap is attributable to L2 alone
-(architecture-matched, same `--seed` → same benchmark halves).
+(architecture-matched, same `--seed` → identical 60/40 partition and
+identical benchmark rows).
 
 ### Interpreting your numbers (reference magnitudes)
 
@@ -398,9 +441,12 @@ complete run looks like":
 | baseline | 43.53M | 33.31% | 25.69% |
 | sandbox | 50.09M | 32.01% | 26.08% |
 
-*(Pre-split reference numbers: these 3-epoch runs predate the seen/unseen
-protocol, so they equal today's `*_full` keys — compare like with like,
-never an `*_unseen` against these.)*
+*(Pre-protocol reference numbers: these 3-epoch runs predate the
+sequential 60/40 protocol — they trained jointly (MedMCQA→MedQA) and
+their "MedMCQA val" column is the full validation split, comparable
+today to `test.medmcqa_val`; there is **no** old counterpart to
+`test.medmcqa_bench`. Never compare an old joint-run number against a
+new `medmcqa_bench`.)*
 
 **No significant difference between arms** at this scale (MedMCQA gap 1.3
 pts, noise σ≈0.7%; MedQA pinned at chance 25% — stage 2 is only ~638
@@ -429,11 +475,17 @@ runs/<variant>/
   tokenizer.json   shared BPE vocab (reused on resume)
   config.json      exact EkdantConfig used (authoritative on resume)
   last.pt          {model, cfg, step, completed, opt_step, history, best_medmcqa} — every epoch (resume artifact)
-  best.pt          same payload at the peak medmcqa_seen accuracy — selection checkpoint; final protocol scores this one
-  results.json     {variant, use_sandbox, params, history[stage,epoch,loss,lr,gnorm,test{medmcqa_seen,medqa_seen}],
-                    test{medmcqa_seen, medmcqa_unseen, medmcqa_full, medqa_seen, medqa_unseen, medqa_full},
-                    selected{checkpoint, selected_on, best_medmcqa_seen}}
+  best.pt          same payload at the peak medmcqa_val accuracy (phase 2) — candidate checkpoint
+  results.json     {variant, use_sandbox, params,
+                    history[stage,epoch,loss,lr,gnorm,test{medmcqa_val} (phase-2 epochs)],
+                    phase1{medqa},            ← MedQA test right after phase 1
+                    test{medmcqa_bench, medmcqa_val, medqa},
+                    selected{checkpoint: best.pt|last.pt, selected_on: medmcqa_val,
+                             best_val_accuracy, last_val_accuracy}}
 ```
+
+The final protocol loads whichever checkpoint `selected.checkpoint`
+names — that is the checkpoint the `medmcqa_bench` number belongs to.
 
 ## 8. Known issues & troubleshooting
 

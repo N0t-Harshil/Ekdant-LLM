@@ -337,7 +337,7 @@ are new parameters, and that increase is the honest cost of the correction.
 | Done | Not done |
 |---|---|
 | ✅ Full thesis document: 26 pages, 7 figures, 65 references, 4 proofs, 0 build errors, 0 broken refs | ❌ Model source code: L2-only (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
-| ✅ Model code + **78 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch split-half campaign prepared** (whole train data, unseen halves scored once on `best.pt`) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
+| ✅ Model code + **78 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on MedQA → seed-locked 60% MedMCQA fine-tune → untouched 40% benchmark, better-of checkpoint selection) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
 | ✅ Cost-matched protocol fixed *before* any run | ❌ Open code item: sandbox diagnostics not logged to `results.json` (LR-schedule warmup bug FIXED) |

@@ -12,7 +12,7 @@ Runnable code lives at `09-Code/src/ekdant/` — a 7-module package. Current for
 | `transformer_stack.py` | T: N dense blocks — windowed GQA + SwiGLU (A/B: N_T=12) |
 | `sandbox.py` | L2: K trajectories, cross-read debate, anchored descent, consensus + aux (`anchor_energy`, `trajectory_variance`, `spread_ratio`) |
 | `output_head.py` | Head: single tied `hidden → vocab` projection |
-| `train.py` | Entry point: `python -m ekdant.train --variant sandbox|baseline` (MedMCQA → MedQA) |
+| `train.py` | Entry point: `python -m ekdant.train --variant sandbox|baseline` (sequential: MedQA → MedMCQA 60/40 fine-tune → 40% benchmark) |
 | `data.py` | MedMCQA/MedQA MCQ pipeline (prompt template, letter-token eval) |
 | `__init__.py` | Re-exports |
 
