@@ -6,7 +6,7 @@
   "n_kv_heads": 2,
   "window": 512,
   "ffn_hidden": 1024,
-  "max_seq_len": 1024,
+  "max_seq_len": 2048,
   "pad_id": 0,
   "use_sandbox": true,
   "n_sandbox": 4,

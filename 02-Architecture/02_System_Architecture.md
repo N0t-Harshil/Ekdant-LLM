@@ -117,7 +117,7 @@ input_ids [B,T]
 loss = CE(shift(logits), shift(labels)) + sandbox_weight · max(0, rho_min − spread_ratio)²
 ```
 
-Shipped (L2-only, what runs today): the same pipeline minus the L1 row — `embed → T (N_T=12) → L2 → head`, seq 1024, configs `09-Code/configs/*.json`.
+Shipped (L2-only, what runs today): the same pipeline minus the L1 row — `embed → T (N_T=12) → L2 → head`, seq 2048 (shipped-config value, matching the thesis spec; the `EkdantConfig` dataclass default remains 1024), configs `09-Code/configs/*.json`.
 
 Generate mode (design): carry L1 fixed state + T window KV (≤512 entries) + run the sandbox per generated token; sample with temperature/top-k/top-p.
 

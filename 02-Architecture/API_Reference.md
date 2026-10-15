@@ -14,7 +14,7 @@
 | `n_heads` / `n_kv_heads` | 8 / 2 | GQA split (`dim % n_heads`, `n_heads % n_kv_heads` enforced) |
 | `window` | 512 | attention window W (KV bounded by W, never T) |
 | `ffn_hidden` | 1024 | SwiGLU inner width |
-| `max_seq_len` | 1024 | dataset packing length |
+| `max_seq_len` | 2048 | dataset packing length (shipped configs) |
 | `pad_id` | 0 | pad token (overwritten from the trained tokenizer at runtime) |
 | `use_sandbox` | true | **the only A/B switch** |
 | `n_sandbox` | 4 | K trajectories |
@@ -81,7 +81,7 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 | `MCQExample` | dataclass: `question`, `options`, `answer` |
 | `load_examples(name, split, limit=None, seed=17)` | `name ∈ {"medmcqa", "medqa"}` → `List[MCQExample]` |
 | `Tokenizer` | `train(texts, vocab_size, path, min_freq=2)`, `load(path)`, `encode(text, add_eos=True)`; exposes `vocab_size/bos_id/eos_id/pad_id` |
-| `MCQDataset(examples, tokenizer, max_len=1024)` | rows `{input_ids, answer_pos, answer_id, letter}`; drops over-length rows |
+| `MCQDataset(examples, tokenizer, max_len=2048)` | rows `{input_ids, answer_pos, answer_id, letter}`; drops over-length rows |
 | `collate(batch, pad_id=0)` | `{input_ids, attention_mask, labels (−100 on pad), answer_pos, answer_target}` |
 | `bind_letter_ids(tokenizer)` / `LETTER_IDS` | resolves the A–D token ids for letter-token eval |
 | `answer_accuracy(model, batch, n_options=4)` | argmax over letter ids at `answer_pos` |

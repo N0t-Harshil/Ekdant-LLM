@@ -15,7 +15,7 @@ Two JSONs, identical architecture — **only `use_sandbox` differs** (sandbox 50
 | `n_kv_heads` | 2 | 2 | KV heads (GQA 8:2) |
 | `window` | 512 | 512 | attention window W; KV bounded by W, never T |
 | `ffn_hidden` | 1024 | 1024 | SwiGLU inner width (2×dim) |
-| `max_seq_len` | 1024 | 1024 | dataset packing length (MCQ rows longer than this are dropped) |
+| `max_seq_len` | 2048 | 2048 | dataset packing length (MCQ rows longer than this are dropped); matches the thesis 2048 spec |
 | `pad_id` | 0 | 0 | pad token id — overwritten at runtime from the trained tokenizer |
 | `use_sandbox` | **true** | **false** | **the only A/B difference** |
 | `n_sandbox` | 4 | 4 | K trajectories (inactive in baseline) |
