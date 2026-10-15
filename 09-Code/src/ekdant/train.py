@@ -74,22 +74,32 @@ def make_dataset(name, split, tokenizer, cfg, limit=None):
 
 
 def lr_at(step, total, base, warmup):
+    """LR for an optimizer step: linear warmup, then cosine to 0."""
     if step < warmup:
         return base * (step + 1) / max(1, warmup)
-    p = (step - warmup) / max(1, total - warmup)
+    p = min(1.0, max(0.0, (step - warmup) / max(1, total - warmup)))
     return base * 0.5 * (1.0 + math.cos(math.pi * p))
 
 
-def train_stage(model, loader, opt, sched_cfg, device, epoch, scaler, autocast):
+def train_stage(model, loader, opt, device, epoch, scaler, autocast,
+                opt_step, total_opt, base_lr, warmup, accum):
+    """One epoch. LR is set per optimizer step, not per epoch (the old
+    per-epoch counter made warmup never complete — fixed; see run.md §8)."""
     model.train()
     total, ntok, steps = 0.0, 0, 0
+    last_lr = opt.param_groups[0]["lr"]
     for batch in loader:
         batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
         with autocast():
             out = model(batch["input_ids"], labels=batch["labels"])
-            loss = out.loss / sched_cfg["accum"]
+            loss = out.loss / accum
         scaler.scale(loss).backward()
-        if (steps + 1) % sched_cfg["accum"] == 0:
+        if (steps + 1) % accum == 0:
+            lr = lr_at(opt_step, total_opt, base_lr, warmup)
+            for g in opt.param_groups:
+                g["lr"] = lr
+            last_lr = lr
+            opt_step += 1
             scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             scaler.step(opt)
@@ -98,7 +108,7 @@ def train_stage(model, loader, opt, sched_cfg, device, epoch, scaler, autocast):
         total += out.loss.item() * batch["input_ids"].size(0)
         ntok += int(batch["attention_mask"].sum())
         steps += 1
-    return total / max(1, steps), ntok
+    return total / max(1, steps), ntok, opt_step, last_lr
 
 
 @torch.no_grad()
@@ -189,6 +199,7 @@ def main() -> None:
 
     model = EkdantModel(cfg).to(device)
     start_pair, step, history = 0, 0, []
+    opt_step = 0
     if resume_mode:
         ckpt_path = os.path.join(args.out, "last.pt")
         if not os.path.exists(ckpt_path):
@@ -199,10 +210,11 @@ def main() -> None:
         step = int(ckpt.get("step", 0))
         start_pair = int(ckpt.get("completed", 0))
         history = list(ckpt.get("history", []))
+        opt_step = int(ckpt.get("opt_step", 0))
         if is_main:
             verb = "eval-only: loaded" if args.eval_only else "resumed"
             log(f"{verb} {ckpt_path}  completed_pairs={start_pair} "
-                f"step={step}")
+                f"step={step} opt_step={opt_step}")
     if is_main:
         s = estimate_model_size(cfg)
         log(f"params total={s['total']/1e6:.2f}M "
@@ -239,7 +251,6 @@ def main() -> None:
         scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
     else:  # torch < 2.3 (Kaggle images ship 2.2)
         scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
-    sched = {"accum": args.grad_accum}
 
     if is_main:
         with open(os.path.join(args.out, "config.json"), "w",
@@ -264,27 +275,26 @@ def main() -> None:
                 log(f"\n=== stage {stage_name}  n={len(ds)} "
                     f"(epoch {first_epoch}+) ===")
             steps_per_epoch = max(1, len(loader))
-            total_steps = steps_per_epoch * args.epochs
+            opt_per_epoch = max(1, math.ceil(steps_per_epoch / args.grad_accum))
+            total_opt = opt_per_epoch * args.epochs
             for epoch in range(first_epoch, args.epochs):
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(epoch)
                 t0 = time.time()
-                lr = lr_at(step, total_steps, args.lr, args.warmup)
-                for g in opt.param_groups:
-                    g["lr"] = lr
-                avg, ntok = train_stage(model, loader, opt, sched, device,
-                                        epoch, scaler, autocast)
+                avg, ntok, opt_step, last_lr = train_stage(
+                    model, loader, opt, device, epoch, scaler, autocast,
+                    opt_step, total_opt, args.lr, args.warmup, args.grad_accum)
                 step += 1
                 completed = si * args.epochs + epoch + 1
                 if is_main:
                     log(f"[{stage_name}] ep{epoch} loss={avg:.4f} "
-                        f"tok/s={ntok/max(1,time.time()-t0):.0f} lr={lr:.2e}")
+                        f"tok/s={ntok/max(1,time.time()-t0):.0f} lr={last_lr:.2e}")
                     history.append({"stage": stage_name, "epoch": epoch,
-                                    "loss": avg, "lr": lr})
+                                    "loss": avg, "lr": last_lr})
                     torch.save({"model": raw.state_dict(),
                                 "cfg": cfg.to_dict(),
                                 "step": step, "completed": completed,
-                                "history": history},
+                                "opt_step": opt_step, "history": history},
                                os.path.join(args.out, "last.pt"))
 
     results = {"variant": args.variant, "use_sandbox": cfg.use_sandbox,

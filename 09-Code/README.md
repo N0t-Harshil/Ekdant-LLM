@@ -104,7 +104,7 @@ trained once on the MedMCQA sample and reused, so the two variants see the
 |---|---|---|
 | `--batch-size` | 24 | per GPU |
 | `--grad-accum` | 2 | effective batch = 24 × 2 × n_gpu |
-| `--lr` | 3e-4 | cosine, 200 warmup |
+| `--lr` | 3e-4 | cosine, `--warmup` optimizer steps |
 | `--epochs` | 3 | per stage |
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |

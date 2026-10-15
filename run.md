@@ -143,7 +143,7 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 | `--batch-size` | 24 | **per GPU** |
 | `--grad-accum` | 2 | effective batch = batch × accum × n_gpu (=192 on 4 GPUs) |
 | `--lr` | 3e-4 | cosine schedule, `--warmup` steps |
-| `--warmup` | 200 | warmup steps (see known LR bug, §8) |
+| `--warmup` | 200 | warmup **optimizer steps**, then cosine (LR fix, §8) |
 | `--epochs` | 3 | epochs **per stage** (MedMCQA and MedQA each) |
 | `--limit` | none | cap rows per dataset (smoke/debug only) |
 | `--seed` | 17 | torch seed + tokenizer sample + data sampling |
@@ -288,7 +288,7 @@ runs/<variant>/
 
 | symptom / item | detail |
 |---|---|
-| **LR stuck tiny** | known bug: `lr_at()` counts per-epoch steps against an optimizer-step budget, so a default 3-epoch run never exits warmup (e.g. lr≈1.5e-6 on MedMCQA ep0). Fix in train.py before publishing results; work around with `--warmup 1` for smoke runs. |
+| **LR stuck tiny** | **FIXED** (optimizer-step semantics): the old `lr_at()` was called once per *epoch* with a *batch* budget, so a default 3-epoch run never left warmup (lr≈1.5e-6). LR is now set per optimizer step inside the batch loop, the cosine total is `ceil(steps/accum) × epochs`, the schedule is clamped past `total`, and `opt_step` is checkpointed for exact resume. Runs from before the fix used `--warmup 1` as a workaround — don't compare their lr curve to a fixed-schedule run. |
 | L2 = 6.56M vs thesis 2.8M | debate uses full H×H cross-projections, untied across rounds; decide (slim/tie L2, or update thesis table) before publishing. Does not affect the A/B — baseline simply omits L2. |
 | sandbox diagnostics not logged | `anchor_energy` / `trajectory_variance` / `spread_ratio` are computed in `aux` but not written into `results.json`; pull them from a manual forward if you need the ρ trace. A pinned-at-floor ρ (<0.05) means trajectory collapse — itself a result. |
 | OOM | lower `--batch-size`, raise `--grad-accum` to keep effective batch constant. |

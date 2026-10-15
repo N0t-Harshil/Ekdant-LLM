@@ -46,8 +46,8 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 | `--out` | required | output dir (`runs/<variant>`) |
 | `--batch-size` | 24 | per GPU |
 | `--grad-accum` | 2 | effective batch = 24 × 2 × n_gpu |
-| `--lr` | 3e-4 | cosine, 200 warmup (buggy — §4) |
-| `--warmup` | 200 | steps (see §4 bug) |
+| `--lr` | 3e-4 | cosine, 200 warmup optimizer steps (fixed) |
+| `--warmup` | 200 | optimizer steps (fixed, §4) |
 | `--epochs` | 3 | per stage |
 | `--limit` | none | cap rows per dataset (smoke) |
 | `--no-compile` | off | skip `torch.compile` |
@@ -71,7 +71,7 @@ Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_s
 
 ## 4. Known issues (open — see [10_Known_Issues](../07-Management/10_Known_Issues.md))
 
-1. **LR warmup bug (real, in `train.py`).** `lr_at(step, total, base, warmup)` is called **once per epoch** with `step` incremented by 1 per epoch (`step += 1` after `train_stage`), while `total_steps = len(loader) × epochs` counts **batches**. With defaults (warmup 200, 3 epochs/stage × 2 stages), `step` only ever reaches 5 — so `step < warmup` always holds and lr = `base × (step+1)/200` ≤ 1.5% of 3e-4; the cosine phase never starts. Fix before any real run: step the schedule per **optimizer step** (`step × steps_per_epoch` or an internal counter inside the batch loop) and divide `total_steps` by `grad_accum`.
+1. **LR warmup bug — FIXED.** `lr_at(step, total, base, warmup)` used to be called **once per epoch** with `step` incremented by 1 per epoch, while `total_steps` counted **batches** — so with defaults `step` only ever reached 5, `step < warmup` always held, and lr stayed ≤ 1.5% of 3e-4 with the cosine phase never starting. **Now:** LR is set per **optimizer step** inside the batch loop, `total_opt = ceil(len(loader)/grad_accum) × epochs`, the cosine term is clamped to `p ∈ [0,1]` so lr cannot swing back up past `total`, and `opt_step` is saved in `last.pt` for exact-schedule resume. Regression tests: `tests/test_schedule.py`.
 2. **Sandbox diagnostics computed but never logged.** `ModelOutput.aux` carries `anchor_energy`, `trajectory_variance`, `spread_ratio`, `per_trajectory_retention`, `anchor_distance`, but `train_stage` ignores `out.aux` — `results.json` history has only `loss`/`lr`. No ρ trace exists for any run yet (the collapse monitor the thesis requires). Fix: accumulate `aux` scalars per epoch and append to history.
 3. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
 4. Not bugs but design gaps: diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute. *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*

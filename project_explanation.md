@@ -340,7 +340,7 @@ are new parameters, and that increase is the honest cost of the correction.
 | ✅ Model code + **70 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready | ❌ No publishable numbers yet (both A/B arms trained on T4; metric bugs T17/T18 fixed — MedMCQA re-eval on the validation split pending) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
-| ✅ Cost-matched protocol fixed *before* any run | ❌ Open code items: LR-schedule warmup bug, sandbox diagnostics not logged |
+| ✅ Cost-matched protocol fixed *before* any run | ❌ Open code item: sandbox diagnostics not logged to `results.json` (LR-schedule warmup bug FIXED) |
 
 ---
 
@@ -382,12 +382,14 @@ them. L2 spends them on hypothesis diversity instead — the sandbox *is* the mi
 **Q: Where is the code?**
 Implemented in `09-Code/src/ekdant/` — pure PyTorch: `model.py`, `transformer_stack.py`,
 `sandbox.py`, `output_head.py`, `train.py`, `data.py`, with **55 passing unit tests**
-(`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`) and
+(`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`,
+`test_data.py`, `test_schedule.py`) and
 architecture-matched A/B configs (`configs/sandbox_50m.json` vs `baseline_50m.json`,
 differing only in `use_sandbox`). It is **L2-only**: forward is embed → T (windowed
 dense) → L2 (sandbox) → head; the L1 SSM storage remains designed in the vault/thesis,
-not coded. **No benchmark numbers published yet** (real training runs started; known open items: the `train.py` LR schedule
-never finishes warmup, and sandbox diagnostics are computed but not logged.
+not coded. **No publishable benchmark numbers yet** — a 1-epoch × 60k pipeline check is
+in (MedMCQA val baseline 29.90% vs sandbox 27.96%, chance 25%; MedQA ≈ chance). Known open item: sandbox diagnostics are computed but not logged. The
+`train.py` LR warmup bug is **fixed**.
 
 **Q: What is the M3 write-back for?**
 So reasoning leaves a trace in memory. It is the only edge between L1 and L2,

@@ -8,7 +8,7 @@
 - ✅ `09-Code/src/ekdant/`: `model.py`, `transformer_stack.py`, `sandbox.py`, `output_head.py`, `train.py`, `data.py` — pure PyTorch. Forward is L2-only: embed → T (windowed dense) → L2 (sandbox) → head. L1 SSM storage remains a thesis/vault design, not code.
 - ✅ `09-Code/configs/sandbox_50m.json` + `baseline_50m.json` — architecture-matched A/B pair (identical N_T=12, H=512, ~50M-class backbone; only `use_sandbox` differs; 50.09M vs 43.53M — the 6.56M delta is L2 itself).
 - ✅ `09-Code/tests/`: **70 unit tests passing** (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`). Both A/B arms smoke-verified end-to-end on CPU (train → resume → eval-only); ops runbook at `run.md`.
-- 🔨 Real training runs — both A/B arms trained on a T4 (1 epoch × MedMCQA 60k + MedQA, `--warmup 1` LR workaround). MedQA test stands (real labels): baseline 24.43%, sandbox 25.06% (both ≈ chance at this scale). MedMCQA numbers from those runs are **invalid** (bug T18: public test split unlabelled, metric measured A-prediction rate) — after the fix (`--eval-only` on the validation split), re-score both checkpoints. Run via `python -m ekdant.train --variant sandbox|baseline --out runs/<v>` (ops runbook: `run.md`).
+- 🔨 Real training runs — both A/B arms trained on a T4 (1 epoch × MedMCQA 60k + MedQA). Re-scored after the T18 fix on the **labelled validation split**: MedMCQA baseline **29.90%** vs sandbox **27.96%** (n=4,170; chance 25%); MedQA baseline 24.35% vs sandbox 25.06% (both ≈ chance — stage 2 is only ~212 optimizer steps). Pipeline-validated, not thesis numbers (1 epoch, 60k subset, single seed). Full 3-epoch runs next (the LR bug is fixed, so the full run now uses a correct cosine schedule). Run via `python -m ekdant.train --variant sandbox|baseline --out runs/<v>` (ops runbook: `run.md`).
 - L1: **design-only** — vault/thesis docs; no `ssm_storage.py` in the code.
 
 **Data pipeline + infra (completed, keep):** registry (54+4, 8 cats), streaming+fallbacks, quality+dedup+contamination, AST+function sampling, packing+WeightedMixedDataset, boilerplate removal, health/sanity, corpus audit, 18 doc scrapers, template-URL hardening, CUDA/PostgreSQL/cuDNN/Linux-kernel fixes, Pydantic schema + migration, tokenizer loading, distributed single-GPU + FSDP path, experiment tracker, 8-phase validation harness, reproducibility utils.
@@ -43,9 +43,9 @@
 
 ## 3. Gaps before defense (in order)
 
-1. Fix `train.py` LR schedule (per-epoch steps vs optimizer steps — warmup never completes) + log sandbox diagnostics (HIGH).
+1. Log sandbox diagnostics (`anchor_energy` / `trajectory_variance` / `spread_ratio`) into `results.json` (HIGH). ~~LR-schedule warmup bug~~ **FIXED** — LR now set per optimizer step, `opt_step` checkpointed (`tests/test_schedule.py`).
 2. L2 parameter overage: measured 6.56M vs 2.8M thesis estimate (HIGH).
-3. Training runs: both A/B arms trained on T4 (MedQA ≈ chance as expected at 1 epoch); MedMCQA held-out scoring invalidated by bug T18 (fixed — re-eval pending) + full 3-epoch runs + 3 ablations still open (HIGH).
+3. Training runs: both A/B arms trained (1 epoch × 60k; MedMCQA val 29.90% vs 27.96% — barely above chance, pipeline check only). Full 3-epoch runs + 3 ablations still open (HIGH). ~~MedMCQA scoring~~ validated on the labelled val split after T18 fix.
 4. Full validation PASS + 3 checkpoints (HIGH).
 5. Ch. 6 results tables (`[PENDING]`) + 5-benchmark eval + baseline comparison (MEDIUM).
 6. L1 (`ssm_storage`) integration into `model.py` — currently design-only; unlocks the O(1) proof + L1→T→L2 handoff asserts (HIGH).
