@@ -246,6 +246,16 @@ PY
 Produces one line per arm; any accuracy gap is attributable to L2 alone
 (architecture-matched).
 
+### Interpreting your numbers (reference magnitudes)
+
+From the first pipeline-validation run (`--epochs 1 --limit 60000 --warmup 1`,
+baseline arm, T4): **MedMCQA test 58.46%** (chance 25%) — the metric and the
+training loop are working end-to-end. **MedQA test 24.43% (≈chance) is
+expected** at this scale: stage 2 sees only 10,178 rows ≈ 212 optimizer steps
+(CE drops to ~2.9, i.e. it learns the text distribution, not the answers).
+More MedQA epochs is the lever; `--limit` runs are pipeline checks, never
+publishable results (see reporting rules below).
+
 ### Reporting rules (thesis cost rule C8)
 
 Publish **with every number**: total params, training tokens × K (the
