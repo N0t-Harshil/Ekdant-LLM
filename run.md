@@ -28,7 +28,7 @@ Run **one variant at a time** — each uses the full node.
 | `datasets` (HF) | auto-downloads both datasets on first run |
 | internet (first run) | MedMCQA ≈ 183k rows + MedQA ≈ 10k rows land in the HF cache (few GB) |
 | disk | + ~0.5 GB per run dir (tokenizer + checkpoint) |
-| GPU (full run) | 1× A100 80GB fits batch 24 / seq 2048 / bf16; 16GB (T4): use the campaign recipe's `--batch-size 6 --grad-accum 8` (§3) |
+| GPU (full run) | batches pad to batch max (MCQ prompts ≈ 40–80 tokens), so memory stays far below the 2048 cap — measured 6.3 opt steps/s at batch 6×8 on a 16 GB T4; `max_seq_len` 2048 is only the truncation limit |
 
 No `mamba-ssm`, `flash-attn`, `triton`, `causal-conv1d` — pure PyTorch.
 
@@ -77,9 +77,11 @@ python -c "import ekdant; print('ok')"
   self-repairs. Manual repair for older clones:
   `pip install "datasets==3.6.0" "pyarrow<21"` (do **not** upgrade numpy on
   a conda image — it breaks prebuilt pandas/scipy).
-- **Kaggle T4/P100 = 16 GB VRAM** — the default batch 24 assumes ~30–40 GB.
-  Run `--batch-size 6 --grad-accum 8` (effective batch 48, same as the
-  24×2 default), and `--no-compile` if compile is slow or crashes.
+- **Kaggle T4/P100 = 16 GB VRAM** — MCQ batches pad to batch max (~50
+  tokens), so memory is modest; the campaign runs `--batch-size 6
+  --grad-accum 8` (effective batch 48, same as the 24×2 default) at a
+  measured 6.3 opt steps/s. Use `--no-compile` if compile is slow or
+  crashes, and shrink the batch only if a long-input batch OOMs.
 - No-install fallback (skip pip entirely, from `09-Code/`):
 
 ```bash
@@ -99,12 +101,11 @@ python -m ekdant.train --variant baseline --out runs/baseline
 
 **Decision: 40 epochs per stage.** At `--batch-size 6 --grad-accum 8`
 (effective batch 48) each epoch is a full pass over the fixed data —
-3,809 MedMCQA + 213 MedQA optimizer steps = **4,022 steps/epoch**, so
-40 epochs ≈ **161,000 optimizer steps** total (8× the earlier 20K
+3,802 MedMCQA + 212 MedQA optimizer steps = **4,014 steps/epoch**, so
+40 epochs = **160,560 optimizer steps** total (~161K, 8× the earlier 20K
 proposal). Steps per epoch cannot be raised without shrinking the
-effective batch (not recommended: same data, lr 3e-4 tuned at 48,
-doubles wall-clock) — total steps grow by training longer, which is
-what this recipe does.
+effective batch (not recommended: same data, lr 3e-4 tuned at 48) —
+total steps grow by training longer, which is what this recipe does.
 
 ```bash
 cd 09-Code
@@ -112,25 +113,38 @@ nohup python -m ekdant.train --variant baseline --out runs/baseline_40ep \
   --batch-size 6 --grad-accum 8 --epochs 40 > baseline_40ep.log 2>&1 &
 tail -f baseline_40ep.log            # watch live; Ctrl-c stops watching only
 
-# after it writes results.json (≈4.3 days), same command for the sandbox arm:
+# after it writes results.json (≈7.5 h), same command for the sandbox arm:
 nohup python -m ekdant.train --variant sandbox --out runs/sandbox_40ep \
   --batch-size 6 --grad-accum 8 --epochs 40 > sandbox_40ep.log 2>&1 &
 ```
 
-Budget on a T4 (measured from the 3-epoch campaign): baseline ≈ **4.3
-days**, sandbox ≈ **6 days** — **~10 days sequential**. If your slot is
-strictly one week, `--epochs 28` ≈ 7 days; 40 is the default here
-because the longer curve is what lets you see the peak and overfitting
-turn (see eval below). Epoch checkpoints + `nohup` make it resume-safe
-(add `--resume` after a pod restart). Scale guide:
+**Measured budget (live telemetry, baseline arm):** the collator pads
+batches to *batch max* (`data.py::collate`) and MedMCQA/MedQA prompts
+are only ~40–80 tokens — `max_seq_len` 2048 is a truncation cap, never
+padded to — so a 16 GB T4 sustains **≈6.3 optimizer steps/s ≈ 10 min
+per MedMCQA epoch** (fp16 fallback on T4, ~11.9K real tok/s). Baseline
+arm: stage 1 ≈ 6.7 h + stage 2 ≈ 22 min + per-epoch evals ≈ **~7.5 h**.
+Sandbox arm does K=4 trajectories + debate + descent per token — expect
+roughly 1.5× (read its first ETA line) ≈ **10–12 h**. Full campaign
+**≈ 1 day**, not the ~10 days earlier estimated from a
+seq-2048-padding assumption. Epoch checkpoints + `nohup` make it
+resume-safe (add `--resume` after a pod restart). Scale guide
+(projected from the measured 6.3 steps/s; sandbox ≈ 1.5× baseline):
 
 | `--epochs` | optimizer steps | T4 wall-clock (both arms) | note |
 |---|---|---|---|
-| 3 | ~12K | ~19 h | the recorded pipeline campaign (`runs/*_full`) |
-| 5 | ~20K | ~31 h | the earlier 20K proposal |
-| 14 | ~50K | ~76 h | thesis recipe (50K steps) |
-| 28 | ~113K | ~7 days | one-week-slot variant |
-| **40** | **~161K** | **~10 days** | **the campaign — chosen for the long curve** |
+| 3 | ~12K | ~1.5 h | the historical pipeline campaign (`runs/*_full`) |
+| 5 | ~20K | ~1.7 h | the earlier 20K proposal |
+| 14 | ~56K | ~4.5 h | thesis-class (~50K steps) |
+| 28 | ~112K | ~9 h | — |
+| **40** | **~160.6K** | **~19 h (b ≈7.5 h, sbx ≈11 h)** | **the campaign — chosen for the long curve** |
+
+> **Reading epoch-0 ETA lines:** the first lines are inflated because
+> `torch.compile` warmup (~150 s, step-100 `tok/s`=1.1K vs 11.8K steady)
+> gets averaged in — your ETA will keep falling (69 h → 37 h → … → 9.7 h
+> at step 2000) and converge to ≈6.6 h for stage 1. The window resets
+> every epoch, so from ep1 on the first line is accurate. A falling ETA
+> is warmup washout, not a misconfiguration.
 
 **Per-epoch held-out eval (`--eval-every`, default 1):** a long run must
 tell you *when* it peaks, so after every epoch the runner evaluates both
@@ -147,7 +161,7 @@ Every `--log-every` optimizer steps (default 100) the run prints a
 progress line; `tail -f <out>.log` shows the run advancing live:
 
 ```
-[medmcqa] ep0 step 1200/3809 (32%) loss=4.0217 lr=2.91e-4 gnorm=1.32 tok/s=11812 eta=1h23m45s
+[medmcqa] ep0 step 1200/3802 (32%) loss=4.0217 lr=2.91e-4 gnorm=1.32 tok/s=11812 eta=1h23m45s
 [medmcqa] ep0 done loss=3.7104 gnorm=1.41 lr_end=2.30e-4 tok/s=11860 time=2h29m10s
 [medmcqa] ep0 eval medmcqa acc=31.42% loss=3.3910 n=4183
 [medmcqa] ep0 eval medqa acc=24.67% loss=3.4005 n=1273
@@ -158,7 +172,7 @@ How to read it:
 
 | field | meaning / healthy signal |
 |---|---|
-| `step 1200/3809 (32%)` | optimizer steps into the stage and % of the **stage** budget — this is your "how far gone" number |
+| `step 1200/3802 (32%)` | optimizer steps into the stage and % of the **stage** budget — this is your "how far gone" number |
 | `loss` | EMA of CE per token — should fall every epoch; a flat line at init lr≈0 means a schedule bug (§8) |
 | `lr` | current learning rate — rises through warmup (default 200 steps) then cosine-decays to ~0 at the stage end |
 | `gnorm` | global grad norm **before** clipping at 1.0 — sustained ≫1 means the clip is active every step; a sudden collapse toward 0 means training has stalled; expect ~0.5–3 in steady state |
@@ -199,7 +213,7 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
    arms see the same sample with the same seed, so the vocabularies match;
    for a guaranteed-identical vocab, copy `runs/sandbox/tokenizer.json`
    into `runs/baseline/` before launching baseline.
-3. Stage 1: **MedMCQA train** (182,822 rows) — `--epochs` epochs.
+3. Stage 1: **MedMCQA train** — 182,496 rows kept (182,822 raw minus 326 unlabelled `cop=-1` rows, dropped by the T18 rule; the stage header prints the real `n=`) — `--epochs` epochs.
 4. Stage 2: **MedQA train** (10,178 rows) — `--epochs` epochs.
 5. After **every epoch** saves `<out>/last.pt` (weights + step + completed
    counter + opt step + history + best-medmcqa + config), evaluates both
@@ -388,7 +402,7 @@ runs/<variant>/
 | `pyarrow requires NumPy 2.0` | Jupyter/conda + unpinned clone pulled datasets 5.x/pyarrow 26 against numpy 1.x. **Fixed at source** (pyproject caps `datasets<5`, `pyarrow<21`) — `git pull && pip install -e .` self-repairs; manual: `pip install "datasets==3.6.0" "pyarrow<21"`. Never upgrade numpy on a conda image. |
 | **accuracy locked at 0.00%** on a real run | was metric bug **T17** (fixed): `answer_target` held a vocab id while `pred` is a letter index, and eval read `answer_pos` instead of `answer_pos-1`. CE loss looked healthy throughout. If you see exactly 0.00% on thousands of examples, you are on a pre-fix build — `git pull`. Near-zero on a *smoke* run is fine (chance). |
 | **"accuracy" ≈ your model's A-prediction rate; all targets are A** | was bug **T18** (fixed): MedMCQA's public **test** split ships `cop=-1` (unlabelled) for all 6,150 rows and the loader silently mapped it to "A". Now `letter_from_answer` returns `None` (row dropped) and the runner evaluates MedMCQA **validation** (4,183 labelled rows). If you see a truth histogram of all-A, you are on a pre-fix build — `git pull` and re-run `--eval-only`. |
-| OOM on 16 GB GPU (Kaggle T4) | default batch 24 needs ~30–40 GB; use `--batch-size 6 --grad-accum 8` (effective batch unchanged). |
+| OOM on 16 GB GPU (Kaggle T4) | batch-max padding means MCQ batches are small (measured: batch 6×8 ≈ 6.3 steps/s); OOM should only come from long inputs or bigger batches — if it happens, lower `--batch-size`, raise `--grad-accum` to keep effective batch 48. |
 | `torch.amp has no attribute GradScaler` | torch < 2.3 (Kaggle ships 2.2) — **fixed in code**: scaler construction falls back to `torch.cuda.amp.GradScaler`; pull latest. On T4/P100 (no bf16) the runner also auto-falls back to fp16 autocast + loss scaling and logs it. |
 | CPU-only machine | smoke/eval-only work (`--no-compile`); full training needs CUDA. |
 | both arms fair? | same flags, same seed, separate `--out`; copy tokenizer for guaranteed identical vocab. |

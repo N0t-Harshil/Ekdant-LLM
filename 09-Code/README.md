@@ -172,14 +172,18 @@ The sandbox variant emits three **separately named** diagnostics in `aux`
 Watch `spread_ratio` during training. If it pins at the floor, the trajectories
 have converged and the sandbox is doing nothing — that is itself a result.
 
-## Expected memory (per A100 80GB)
+## Expected memory (per GPU)
 
-At batch 24, seq 2048, bf16, `torch.compile`, expect roughly 40–60 GB with
-room to raise `--batch-size` — activations scale with sequence length
-(windowed attention bounds the quadratic part), so seq 2048 costs about
-twice seq 1024; on a 16GB card drop to `--batch-size 6 --grad-accum 8`
-(the `run.md` §3 recipe). The sandbox's K=4 trajectories add a
-`[K,B,T,dim]` scratch tensor — the main activation cost of the sandbox arm.
+The collator pads to **batch max** (`data.py::collate`), and
+MedMCQA/MedQA prompts are only ~40–80 tokens — `max_seq_len` 2048 is a
+truncation cap that is never padded to. Training therefore uses a few
+thousand tokens per micro-batch: measured **6.3 optimizer steps/s at
+batch 6 × accum 8 on a 16 GB T4** (fp16 fallback — T4 has no bf16).
+Memory only becomes a concern with genuinely long inputs (near 2048) or
+much larger batches — then lower `--batch-size` and raise
+`--grad-accum` to keep effective batch 48. The sandbox's K=4
+trajectories add a `[K,B,T,dim]` scratch tensor — the main activation
+cost of the sandbox arm (≈1.5× baseline wall-clock).
 
 ## Tests
 
