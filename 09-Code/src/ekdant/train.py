@@ -38,7 +38,10 @@ from ekdant.data import (
 from ekdant.model import EkdantConfig, EkdantModel, estimate_model_size
 
 STAGES = (("medmcqa", "train"), ("medqa", "train"))
-TESTS = (("medmcqa", "test"), ("medqa", "test"))
+# MedMCQA's public test split ships cop=-1 (unlabelled) — bug T18 made the
+# metric degenerate to "A-prediction rate". Standard practice: eval on the
+# labelled validation split (4,183 rows).
+TESTS = (("medmcqa", "validation"), ("medqa", "test"))
 
 
 def log(msg: str) -> None:

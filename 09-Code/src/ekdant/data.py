@@ -5,7 +5,8 @@ causal LM whose next token after ``Answer:`` is the correct letter.  The
 answer-token index is tracked exactly, so evaluation reads the letter
 logits at one position instead of scoring four continuations.
 
-MedMCQA  openlifescienceai/medmcqa     182,822 train / 6,150 test
+MedMCQA  openlifescienceai/medmcqa     182,822 train / 4,183 validation
+          (the public test split ships cop=-1 — unlabelled, never eval on it)
 MedQA    GBaker/MedQA-USMLE-4-options   10,178 train /  1,273 test
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import os
 import random
 from dataclasses import dataclass
+from numbers import Integral, Real
 from typing import Dict, List, Optional, Sequence
 
 import torch
@@ -39,21 +41,33 @@ def normalise_options(raw) -> List[str]:
     raise TypeError(f"unsupported options container {type(raw)}")
 
 
-def letter_from_answer(answer, options: Sequence[str]) -> str:
+def letter_from_answer(answer, options: Sequence[str]) -> Optional[str]:
+    """Map a raw answer field to A-D, or None if it cannot be resolved.
+
+    Never fabricates a default: MedMCQA's public test split ships cop=-1
+    for every row, and silently mapping that to "A" made the eval metric
+    degenerate into "how often does the model predict A" (bug T18).
+    """
     if isinstance(answer, str) and answer.strip().upper() in LETTERS:
         return answer.strip().upper()
     if isinstance(answer, bool):
-        return "A"
-    if isinstance(answer, int):
-        return LETTERS[answer] if 0 <= answer < len(LETTERS) else "A"
+        return None
+    if isinstance(answer, Integral):  # int, numpy integer
+        n = int(answer)
+        return LETTERS[n] if 0 <= n < len(LETTERS) else None
+    if isinstance(answer, Real):  # parquet/pandas floats (2.0), reject 1.5
+        if not float(answer).is_integer():
+            return None
+        n = int(answer)
+        return LETTERS[n] if 0 <= n < len(LETTERS) else None
     if isinstance(answer, str) and answer.strip().isdigit():
         n = int(answer.strip())
-        return LETTERS[n] if 0 <= n < len(LETTERS) else "A"
+        return LETTERS[n] if 0 <= n < len(LETTERS) else None
     text = str(answer).strip()
     for i, opt in enumerate(options):
         if text == str(opt).strip():
             return LETTERS[i]
-    return "A"
+    return None
 
 
 @dataclass
@@ -82,7 +96,7 @@ def _normalise_row(row: Dict, source: str) -> Optional[MCQExample]:
     if ans_raw is None:
         return None
     letter = letter_from_answer(ans_raw, opts)
-    if letter not in LETTERS:
+    if letter is None:
         return None
     q = str(row.get("question", "")).strip()
     if len(q) < 12:
@@ -103,6 +117,12 @@ def load_examples(name: str, split: str, limit: Optional[int] = None,
 
     rows = [_normalise_row(r, name) for r in ds]
     out = [r for r in rows if r is not None]
+    if not out:
+        raise ValueError(
+            f"{name}/{split}: no usable labelled rows. MedMCQA's public "
+            f"test split ships cop=-1 for every row (no released labels) — "
+            f"evaluate on split='validation' instead."
+        )
     if limit is not None and limit < len(out):
         rng = random.Random(seed)
         out = rng.sample(out, limit)

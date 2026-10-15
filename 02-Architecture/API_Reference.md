@@ -88,7 +88,7 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 
 ## `ekdant.train` — entrypoint
 
-`python -m ekdant.train --variant sandbox|baseline --out runs/<variant>` (multi-GPU: `torchrun --nproc_per_node=N -m ekdant.train ...`). Loads `configs/{variant}_50m.json` (or `--config`), forces `use_sandbox=False` for baseline, trains/reuses a 32K BPE tokenizer on a MedMCQA sample, runs MedMCQA → MedQA stages (AdamW wd 0.1, cosine LR + warmup, grad-clip 1.0, bf16 autocast, optional `torch.compile`, DDP via `torchrun`), then evaluates both test splits into `results.json`. Flags: `--batch-size 24`, `--grad-accum 2`, `--lr 3e-4`, `--warmup 200`, `--epochs 3`, `--limit`, `--no-compile`, `--seed 17`. Shipped tests: `tests/test_model.py`, `test_sandbox.py`, `test_transformer.py` (55).
+`python -m ekdant.train --variant sandbox|baseline --out runs/<variant>` (multi-GPU: `torchrun --nproc_per_node=N -m ekdant.train ...`). Loads `configs/{variant}_50m.json` (or `--config`), forces `use_sandbox=False` for baseline, trains/reuses a 32K BPE tokenizer on a MedMCQA sample, runs MedMCQA → MedQA stages (AdamW wd 0.1, cosine LR + warmup, grad-clip 1.0, bf16 autocast, optional `torch.compile`, DDP via `torchrun`), then evaluates the held-out splits (MedMCQA **validation** — the public test split is unlabelled (T18) — and MedQA test) into `results.json`. Flags: `--batch-size 24`, `--grad-accum 2`, `--lr 3e-4`, `--warmup 200`, `--epochs 3`, `--limit`, `--no-compile`, `--seed 17`, `--resume`, `--eval-only`. Shipped tests: `tests/test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py` (70).
 
 ## DESIGN-ONLY APIs (not in the current package)
 

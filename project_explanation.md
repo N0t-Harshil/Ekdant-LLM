@@ -337,7 +337,7 @@ are new parameters, and that increase is the honest cost of the correction.
 | Done | Not done |
 |---|---|
 | ✅ Full thesis document: 26 pages, 7 figures, 65 references, 4 proofs, 0 build errors, 0 broken refs | ❌ Model source code: L2-only (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
-| ✅ Model code + **67 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready | ❌ No benchmark numbers yet (real training runs started; eval metric bug T17 fixed) |
+| ✅ Model code + **70 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready | ❌ No publishable numbers yet (both A/B arms trained on T4; metric bugs T17/T18 fixed — MedMCQA re-eval on the validation split pending) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
 | ✅ Cost-matched protocol fixed *before* any run | ❌ Open code items: LR-schedule warmup bug, sandbox diagnostics not logged |

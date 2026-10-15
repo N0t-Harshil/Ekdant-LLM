@@ -33,7 +33,7 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 
 **A/B, architecture-matched.** Two variants — `--variant sandbox|baseline` — share the identical backbone; the baseline is the same config with `use_sandbox: false` (50.09M vs 43.53M; delta = L2's 6.56M). Run one variant at a time.
 
-**Two stages, one invocation.** `STAGES = (("medmcqa","train"), ("medqa","train"))` — MedMCQA (182,822 train) then MedQA-USMLE (10,178 train); then `TESTS` evaluates both test splits. Data loads through `data.py::load_examples`; each example is formatted `question\nA. …\nAnswer: <letter>` and the answer-token index is cached (`answer_pos`).
+**Two stages, one invocation.** `STAGES = (("medmcqa","train"), ("medqa","train"))` — MedMCQA (182,822 train) then MedQA-USMLE (10,178 train); then `TESTS` evaluates the held-out splits (MedMCQA **validation** 4,183 — the public test split ships `cop=-1`, unlabelled, T18 — and MedQA test 1,273). Data loads through `data.py::load_examples`; each example is formatted `question\nA. …\nAnswer: <letter>` and the answer-token index is cached (`answer_pos`).
 
 **Tokenizer trained once, shared vocabulary.** On first run, a BPE tokenizer (NFD+lowercase, whitespace pre-tokenizer, `vocab_size` from config, special `<pad>/<bos>/<eos>/<unk>`) is trained on ≤20K MedMCQA train samples (prompt+answer), saved to `<out>/tokenizer.json`, and **reloaded if present** — both variants therefore see the same vocabulary (required for a fair A/B). `bind_letter_ids` resolves the A/B/C/D token ids for evaluation.
 
@@ -59,7 +59,7 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 
 **Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step, completed, history}`) after **every epoch** (single checkpoint, no rotation); `<out>/results.json` at the end with params, per-stage history (`stage/epoch/loss/lr`) and per-dataset test metrics.
 
-**Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = stage_index × epochs + epoch + 1`), and reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`); optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the two held-out test sets from an existing run dir. Keep `--variant`/`--out`/`--epochs` identical to the original run. Details: [run.md](../run.md) §4.
+**Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = stage_index × epochs + epoch + 1`), and reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`); optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the two held-out splits (MedMCQA validation, MedQA test) from an existing run dir. Keep `--variant`/`--out`/`--epochs` identical to the original run. Details: [run.md](../run.md) §4.
 
 **Evaluation = letter accuracy (fixed — was T17).** `evaluate()` gathers the logits row at `answer_pos - 1` (the position that *predicts* the answer, since `logits[t]` predicts token `t+1`), restricts to the 4 letter-token ids (`LETTER_IDS`), and argmaxes vs `answer_target` — which is the **letter index 0–3**, not the answer's vocab id. One forward per example instead of four option-continuation scorings (plus mean CE loss). Both halves are load-bearing: reading `answer_pos` (the off-by-one) or comparing against the vocab id each silently collapse accuracy to ~0% while CE stays correct, so a trained model scores zero. Regression-tested by `test_evaluate_scores_answer_position_and_index`.
 
@@ -80,7 +80,7 @@ Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_s
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 67 tests, CPU, ~10s
+pytest -q    # 70 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 

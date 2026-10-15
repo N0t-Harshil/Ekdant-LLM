@@ -63,10 +63,40 @@ def test_rejects_blank_option():
     assert _normalise_row(row, "medmcqa") is None
 
 
-def test_letter_from_answer_bounds():
-    assert letter_from_answer(99, ["a", "b", "c", "d"]) in LETTERS
-    assert letter_from_answer("99", ["a", "b", "c", "d"]) in LETTERS
-    assert letter_from_answer(True, ["a", "b", "c", "d"]) in LETTERS
+def test_letter_from_answer_resolves():
+    opts = ["Hyperplasia", "Hypertrophy", "Atrophy", "Dysplasia"]
+    assert letter_from_answer(2, opts) == "C"
+    assert letter_from_answer("D", opts) == "D"
+    assert letter_from_answer("3", opts) == "D"
+    assert letter_from_answer(2.0, opts) == "C"           # parquet float
+    assert letter_from_answer("Atrophy", opts) == "C"      # option-text match
+
+
+def test_letter_from_answer_unresolvable_is_none():
+    # T18: MedMCQA's public test split has cop=-1 for every row; the old
+    # silent "A" fallback turned the metric into A-prediction rate.
+    opts = ["a", "b", "c", "d"]
+    assert letter_from_answer(-1, opts) is None
+    assert letter_from_answer(99, opts) is None
+    assert letter_from_answer(True, opts) is None
+    assert letter_from_answer("99", opts) is None
+    assert letter_from_answer(1.5, opts) is None
+    assert letter_from_answer("unknown text", opts) is None
+
+
+def test_medmcqa_unlabelled_test_row_dropped():
+    assert _normalise_row(_medmcqa_row(cop=-1), "medmcqa") is None
+
+
+def test_load_examples_errors_on_fully_unlabelled_split(monkeypatch):
+    import datasets as ds_mod
+    import pytest
+    from ekdant.data import load_examples
+
+    monkeypatch.setattr(ds_mod, "load_dataset",
+                        lambda *a, **k: [_medmcqa_row(cop=-1)] * 5)
+    with pytest.raises(ValueError, match="no usable labelled rows"):
+        load_examples("medmcqa", "test")
 
 
 def test_normalise_options_dict_sorted():

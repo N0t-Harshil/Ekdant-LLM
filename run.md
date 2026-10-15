@@ -127,8 +127,10 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 4. Stage 2: **MedQA train** (10,178 rows) — `--epochs` epochs.
 5. After **every epoch** saves `<out>/last.pt` (weights + step + completed
    counter + history + config).
-6. After training: evaluates both **held-out test sets** (MedMCQA test
-   6,150; MedQA test 1,273) by letter-accuracy and writes
+6. After training: evaluates both held-out splits (MedMCQA
+   **validation** 4,183 — the public MedMCQA test set ships `cop=-1`,
+   unlabelled, so validation is the standard eval split (bug T18) — and
+   MedQA test 1,273) by letter-accuracy and writes
    `<out>/results.json`.
 
 ### Flags
@@ -193,7 +195,7 @@ Semantics: checkpoints are saved after every epoch, tagged
 ```bash
 cd 09-Code
 pip install -e .[dev]
-python -m pytest            # 67 tests
+python -m pytest            # 70 tests
 ```
 
 Covers: config/param accounting, T block (causal+window mask exactness,
@@ -222,8 +224,10 @@ fails with `tokenizer.json not found` / `last.pt not found`.
 
 **Metric:** held-out **letter-accuracy** — the logits at the answer position
 (`answer_pos - 1`, the position that predicts the answer), argmax over the
-A/B/C/D token logits vs the letter **index** (0–3), on MedMCQA test (6,150)
-and MedQA test (1,273). Not free-form generation.
+A/B/C/D token logits vs the letter **index** (0–3), on MedMCQA validation
+(4,183) and MedQA test (1,273). MedMCQA's public test split has `cop = -1`
+for every row (no released labels), so it must never be scored — see bug
+T18. Not free-form generation.
 
 ### Full procedure
 
@@ -248,13 +252,17 @@ Produces one line per arm; any accuracy gap is attributable to L2 alone
 
 ### Interpreting your numbers (reference magnitudes)
 
-From the first pipeline-validation run (`--epochs 1 --limit 60000 --warmup 1`,
-baseline arm, T4): **MedMCQA test 58.46%** (chance 25%) — the metric and the
-training loop are working end-to-end. **MedQA test 24.43% (≈chance) is
-expected** at this scale: stage 2 sees only 10,178 rows ≈ 212 optimizer steps
-(CE drops to ~2.9, i.e. it learns the text distribution, not the answers).
-More MedQA epochs is the lever; `--limit` runs are pipeline checks, never
-publishable results (see reporting rules below).
+From the first pipeline-validation runs (`--epochs 1 --limit 60000
+--warmup 1`, T4). **MedMCQA "test" numbers before the T18 fix are invalid**
+— the public test split is unlabelled and the metric degenerated into
+each model's A-prediction rate (e.g. baseline 58.46% ≡ "predicts A 58% of
+the time"). Re-evaluate with `--eval-only` after `git pull` to score
+MedMCQA **validation** instead. **MedQA numbers stand** (real labels):
+baseline 24.43%, sandbox 25.06% — both ≈ chance (25%), as expected at this
+scale: stage 2 sees only 10,178 rows ≈ 212 optimizer steps (CE drops to
+~2.9, i.e. it learns the text distribution, not the answers). More MedQA
+epochs is the lever; `--limit` runs are pipeline checks, never publishable
+results (see reporting rules below).
 
 ### Reporting rules (thesis cost rule C8)
 
@@ -288,17 +296,18 @@ runs/<variant>/
 | first run is slow | HF is downloading MedMCQA/MedQA into its cache — one-time. |
 | `pyarrow requires NumPy 2.0` | Jupyter/conda + unpinned clone pulled datasets 5.x/pyarrow 26 against numpy 1.x. **Fixed at source** (pyproject caps `datasets<5`, `pyarrow<21`) — `git pull && pip install -e .` self-repairs; manual: `pip install "datasets==3.6.0" "pyarrow<21"`. Never upgrade numpy on a conda image. |
 | **accuracy locked at 0.00%** on a real run | was metric bug **T17** (fixed): `answer_target` held a vocab id while `pred` is a letter index, and eval read `answer_pos` instead of `answer_pos-1`. CE loss looked healthy throughout. If you see exactly 0.00% on thousands of examples, you are on a pre-fix build — `git pull`. Near-zero on a *smoke* run is fine (chance). |
+| **"accuracy" ≈ your model's A-prediction rate; all targets are A** | was bug **T18** (fixed): MedMCQA's public **test** split ships `cop=-1` (unlabelled) for all 6,150 rows and the loader silently mapped it to "A". Now `letter_from_answer` returns `None` (row dropped) and the runner evaluates MedMCQA **validation** (4,183 labelled rows). If you see a truth histogram of all-A, you are on a pre-fix build — `git pull` and re-run `--eval-only`. |
 | OOM on 16 GB GPU (Kaggle T4) | default batch 24 needs ~30–40 GB; use `--batch-size 6 --grad-accum 8` (effective batch unchanged). |
 | `torch.amp has no attribute GradScaler` | torch < 2.3 (Kaggle ships 2.2) — **fixed in code**: scaler construction falls back to `torch.cuda.amp.GradScaler`; pull latest. On T4/P100 (no bf16) the runner also auto-falls back to fp16 autocast + loss scaling and logs it. |
 | CPU-only machine | smoke/eval-only work (`--no-compile`); full training needs CUDA. |
 | both arms fair? | same flags, same seed, separate `--out`; copy tokenizer for guaranteed identical vocab. |
-| dataset schema | loader handles current HF schemas: MedMCQA `opa..opd` + `cop` (0..3), MedQA `options` dict + `answer_idx` (`tests/test_data.py` locks this in). |
+| dataset schema | loader handles current HF schemas: MedMCQA `opa..opd` + `cop` (0..3; `cop=-1` rows are dropped — the public test split is unlabelled), MedQA `options` dict + `answer_idx` (`tests/test_data.py` locks this in). |
 
 ## 9. Quick reference
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-python -m pytest                                        # 67 unit tests
+python -m pytest                                        # 70 unit tests
 # full A/B (one arm at a time)
 torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox  --out runs/sandbox
 torchrun --nproc_per_node=4 -m ekdant.train --variant baseline --out runs/baseline

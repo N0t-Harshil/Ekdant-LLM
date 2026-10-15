@@ -7,8 +7,8 @@
 **Model code (`09-Code/`, L2-only, implemented):**
 - ✅ `09-Code/src/ekdant/`: `model.py`, `transformer_stack.py`, `sandbox.py`, `output_head.py`, `train.py`, `data.py` — pure PyTorch. Forward is L2-only: embed → T (windowed dense) → L2 (sandbox) → head. L1 SSM storage remains a thesis/vault design, not code.
 - ✅ `09-Code/configs/sandbox_50m.json` + `baseline_50m.json` — architecture-matched A/B pair (identical N_T=12, H=512, ~50M-class backbone; only `use_sandbox` differs; 50.09M vs 43.53M — the 6.56M delta is L2 itself).
-- ✅ `09-Code/tests/`: **67 unit tests passing** (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`). Both A/B arms smoke-verified end-to-end on CPU (train → resume → eval-only); ops runbook at `run.md`.
-- 🔨 Real training runs — **baseline arm pipeline-validation run DONE** on a T4 (1 epoch × MedMCQA 60k + MedQA, `--warmup 1` LR workaround): MedMCQA test **58.46%**, MedQA test 24.43% (chance — stage 2 is only ~212 optimizer steps; not thesis numbers). Sandbox arm of the A/B in progress. Run via `python -m ekdant.train --variant sandbox|baseline --out runs/<v>` (ops runbook: `run.md`).
+- ✅ `09-Code/tests/`: **70 unit tests passing** (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`). Both A/B arms smoke-verified end-to-end on CPU (train → resume → eval-only); ops runbook at `run.md`.
+- 🔨 Real training runs — both A/B arms trained on a T4 (1 epoch × MedMCQA 60k + MedQA, `--warmup 1` LR workaround). MedQA test stands (real labels): baseline 24.43%, sandbox 25.06% (both ≈ chance at this scale). MedMCQA numbers from those runs are **invalid** (bug T18: public test split unlabelled, metric measured A-prediction rate) — after the fix (`--eval-only` on the validation split), re-score both checkpoints. Run via `python -m ekdant.train --variant sandbox|baseline --out runs/<v>` (ops runbook: `run.md`).
 - L1: **design-only** — vault/thesis docs; no `ssm_storage.py` in the code.
 
 **Data pipeline + infra (completed, keep):** registry (54+4, 8 cats), streaming+fallbacks, quality+dedup+contamination, AST+function sampling, packing+WeightedMixedDataset, boilerplate removal, health/sanity, corpus audit, 18 doc scrapers, template-URL hardening, CUDA/PostgreSQL/cuDNN/Linux-kernel fixes, Pydantic schema + migration, tokenizer loading, distributed single-GPU + FSDP path, experiment tracker, 8-phase validation harness, reproducibility utils.
@@ -21,18 +21,18 @@
 
 **Out of scope for this thesis:** tool use, multimodality, mixture-of-experts, internalized debate, extra alignment methods, demo UIs, serving infrastructure — each is future work with its own research question (see [11_Future_Work.md](../07-Management/11_Future_Work.md)).
 
-**Remaining build work:** `src/data/pipeline.py` use the registry path only · `scripts/production_validation.py` Phase 8 runs the three-stage smoke · data + model tests exist (67 passing in `09-Code/tests/`).
+**Remaining build work:** `src/data/pipeline.py` use the registry path only · `scripts/production_validation.py` Phase 8 runs the three-stage smoke · data + model tests exist (70 passing in `09-Code/tests/`).
 
 ## 2. Readiness score — 7.1/10 (thesis-ready scaffold)
 
-> Ready to run; not yet defended. **Ready:** data, docs corpus, config skeleton, validation harness, research vault (66 papers), 3-stage spec, model code (L2+T in `09-Code/`, 67 unit tests passing, architecture-matched A/B configs, both arms smoke-verified: train/resume/eval-only). **To do:** training runs (smoke done → full MedMCQA → MedQA), 3 ablations, eval table, Ch. 6 results; fix LR-schedule bug + log sandbox diagnostics; resolve L2 size overage; L1 storage remains design-only.
+> Ready to run; not yet defended. **Ready:** data, docs corpus, config skeleton, validation harness, research vault (66 papers), 3-stage spec, model code (L2+T in `09-Code/`, 70 unit tests passing, architecture-matched A/B configs, both arms smoke-verified: train/resume/eval-only). **To do:** training runs (smoke done → full MedMCQA → MedQA), 3 ablations, eval table, Ch. 6 results; fix LR-schedule bug + log sandbox diagnostics; resolve L2 size overage; L1 storage remains design-only.
 
 | Category | Score (thesis) | Rationale |
 |----------|----------------|-----------|
 | Architecture | 8/10 | Two learned layers (L1, L2) joined by a dense Transformer stack, falsifiable, single config. T+L2 code now implemented and tested (L2-only forward; L1 storage design-only). Loses 2 pts: L1 storage not in code, no benchmark numbers yet. |
 | Reliability | 7/10 | Data path production-ready; model path unproven until training runs. |
 | Maintainability | 8/10 | 5 model files + trimmed schema; tidy tree. |
-| Testing | 7/10 | Data + model tests green; **67 unit tests passing** in `09-Code/tests/` (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`). Loses pts: no training-run/integration tests yet; LR bug + diagnostics-logging gap open. |
+| Testing | 7/10 | Data + model tests green; **70 unit tests passing** in `09-Code/tests/` (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`). Loses pts: no training-run/integration tests yet; LR bug + diagnostics-logging gap open. |
 | Validation | 8/10 | 8 phases kept; Phase 8 updated to the three-stage smoke. |
 | Documentation (this vault) | 8/10 | After the rewrite + research vault; needs generated API site only post-thesis. |
 | Performance | 6/10 | Design O(1) + single-head; no target-hardware numbers yet (thesis must add). |
@@ -45,7 +45,7 @@
 
 1. Fix `train.py` LR schedule (per-epoch steps vs optimizer steps — warmup never completes) + log sandbox diagnostics (HIGH).
 2. L2 parameter overage: measured 6.56M vs 2.8M thesis estimate (HIGH).
-3. Training runs: baseline pipeline-validation run done (MedMCQA 58.46%); sandbox arm + full 3-epoch runs + 3 ablations still open (HIGH).
+3. Training runs: both A/B arms trained on T4 (MedQA ≈ chance as expected at 1 epoch); MedMCQA held-out scoring invalidated by bug T18 (fixed — re-eval pending) + full 3-epoch runs + 3 ablations still open (HIGH).
 4. Full validation PASS + 3 checkpoints (HIGH).
 5. Ch. 6 results tables (`[PENDING]`) + 5-benchmark eval + baseline comparison (MEDIUM).
 6. L1 (`ssm_storage`) integration into `model.py` — currently design-only; unlocks the O(1) proof + L1→T→L2 handoff asserts (HIGH).
