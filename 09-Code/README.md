@@ -175,5 +175,5 @@ room to raise `--batch-size`. The sandbox's K=4 trajectories add a
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 70 tests (model/sandbox/transformer/data), CPU, ~10s
+pytest -q          # 75 tests (model/sandbox/transformer/data/schedule), CPU, ~10s
 ```

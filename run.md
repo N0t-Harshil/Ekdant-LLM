@@ -195,7 +195,7 @@ Semantics: checkpoints are saved after every epoch, tagged
 ```bash
 cd 09-Code
 pip install -e .[dev]
-python -m pytest            # 70 tests
+python -m pytest            # 75 tests
 ```
 
 Covers: config/param accounting, T block (causal+window mask exactness,
@@ -252,17 +252,24 @@ Produces one line per arm; any accuracy gap is attributable to L2 alone
 
 ### Interpreting your numbers (reference magnitudes)
 
-From the first pipeline-validation runs (`--epochs 1 --limit 60000
---warmup 1`, T4). **MedMCQA "test" numbers before the T18 fix are invalid**
-— the public test split is unlabelled and the metric degenerated into
-each model's A-prediction rate (e.g. baseline 58.46% ≡ "predicts A 58% of
-the time"). Re-evaluate with `--eval-only` after `git pull` to score
-MedMCQA **validation** instead. **MedQA numbers stand** (real labels):
-baseline 24.43%, sandbox 25.06% — both ≈ chance (25%), as expected at this
-scale: stage 2 sees only 10,178 rows ≈ 212 optimizer steps (CE drops to
-~2.9, i.e. it learns the text distribution, not the answers). More MedQA
-epochs is the lever; `--limit` runs are pipeline checks, never publishable
-results (see reporting rules below).
+Full 3-epoch A/B on a T4 (`--batch-size 6 --grad-accum 8`, full data, one
+seed, both arms run on the per-stage LR fix) — the reference for "what a
+complete run looks like":
+
+| arm | params | MedMCQA val (4,170) | MedQA test (1,273) |
+|---|---|---|---|
+| baseline | 43.53M | 33.31% | 25.69% |
+| sandbox | 50.09M | 32.01% | 26.08% |
+
+**No significant difference between arms** at this scale (MedMCQA gap 1.3
+pts, noise σ≈0.7%; MedQA pinned at chance 25% — stage 2 is only ~638
+optimizer steps). A tie is a publishable outcome (C24 framing, see
+[11_Future_Work](../07-Management/11_Future_Work.md)). Note the mild
+sequential-fine-tuning erosion of MedMCQA after the MedQA stage
+(33.81→33.31, 34.15→32.01). These are pipeline-scale numbers, not thesis
+results: 1 seed, 3 epochs, ~50M params, architecture-matched. Historical
+note: the first 1-epoch × 60k checks predate the T18 metric fix and the
+per-stage LR fix — don't mix them into comparisons.
 
 ### Reporting rules (thesis cost rule C8)
 
@@ -307,7 +314,7 @@ runs/<variant>/
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-python -m pytest                                        # 70 unit tests
+python -m pytest                                        # 75 unit tests
 # full A/B (one arm at a time)
 torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox  --out runs/sandbox
 torchrun --nproc_per_node=4 -m ekdant.train --variant baseline --out runs/baseline

@@ -80,7 +80,7 @@ Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_s
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 70 tests, CPU, ~10s
+pytest -q    # 75 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 
