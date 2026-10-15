@@ -277,13 +277,16 @@ def main() -> None:
             steps_per_epoch = max(1, len(loader))
             opt_per_epoch = max(1, math.ceil(steps_per_epoch / args.grad_accum))
             total_opt = opt_per_epoch * args.epochs
+            stage_opt_step = 0  # each stage gets its own cosine cycle
             for epoch in range(first_epoch, args.epochs):
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(epoch)
                 t0 = time.time()
-                avg, ntok, opt_step, last_lr = train_stage(
+                avg, ntok, stage_opt_step, last_lr = train_stage(
                     model, loader, opt, device, epoch, scaler, autocast,
-                    opt_step, total_opt, args.lr, args.warmup, args.grad_accum)
+                    stage_opt_step, total_opt, args.lr, args.warmup,
+                    args.grad_accum)
+                opt_step = stage_opt_step  # for resume/ckpt bookkeeping
                 step += 1
                 completed = si * args.epochs + epoch + 1
                 if is_main:

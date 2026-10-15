@@ -43,7 +43,7 @@
 
 ## 3. Gaps before defense (in order)
 
-1. Log sandbox diagnostics (`anchor_energy` / `trajectory_variance` / `spread_ratio`) into `results.json` (HIGH). ~~LR-schedule warmup bug~~ **FIXED** — LR now set per optimizer step, `opt_step` checkpointed (`tests/test_schedule.py`).
+1. Log sandbox diagnostics (`anchor_energy` / `trajectory_variance` / `spread_ratio`) into `results.json` (HIGH). ~~LR-schedule warmup bug~~ **FIXED** (per-stage reset) — LR set per optimizer step, counter resets at each stage boundary, `opt_step` checkpointed (`tests/test_schedule.py`).
 2. L2 parameter overage: measured 6.56M vs 2.8M thesis estimate (HIGH).
 3. Training runs: both A/B arms trained (1 epoch × 60k; MedMCQA val 29.90% vs 27.96% — barely above chance, pipeline check only). Full 3-epoch runs + 3 ablations still open (HIGH). ~~MedMCQA scoring~~ validated on the labelled val split after T18 fix.
 4. Full validation PASS + 3 checkpoints (HIGH).

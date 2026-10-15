@@ -32,3 +32,17 @@ def test_tiny_run_warmup_dominates():
     for s in range(5):
         lr = lr_at(s, 3, BASE, 4)
         assert 0 < lr <= BASE + 1e-12
+
+
+def test_stage_boundary_resets_cosine_cycle():
+    """Stage 2 must restart its own schedule, not inherit stage 1's spent
+    budget. Regression for the bug where a single global opt_step left
+    MedQA training at lr == 0 for all epochs (losses flat at 20.82)."""
+    stage1_total, stage2_total, warmup = 200, 20, 4
+    # stage 1 spends its whole budget -> cosine is correctly exhausted
+    assert abs(lr_at(stage1_total, stage1_total, BASE, warmup)) < 1e-12
+    # stage 2 with a RESET step counter is warm again, not pinned at 0
+    assert lr_at(0, stage2_total, BASE, warmup) > 0
+    assert abs(lr_at(0, stage2_total, BASE, warmup) - BASE / warmup) < 1e-12
+    # and if the counter were NOT reset it would stay at 0 — what we fixed
+    assert abs(lr_at(stage1_total, stage2_total, BASE, warmup)) < 1e-12
