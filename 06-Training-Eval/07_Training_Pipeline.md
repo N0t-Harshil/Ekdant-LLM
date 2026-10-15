@@ -51,13 +51,17 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 | `--epochs` | 3 | per stage |
 | `--limit` | none | cap rows per dataset (smoke) |
 | `--no-compile` | off | skip `torch.compile` |
+| `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
 | `--seed` | 17 | also seeds the row sampler |
 | `--resume` | off | continue `<out>/last.pt`; skips finished (stage, epoch) pairs |
 | `--eval-only` | off | no training; evaluate `<out>/last.pt` on both test sets |
 
 **Optimization:** AdamW (wd 0.1, betas 0.9/0.95), BF16 autocast on CUDA, `GradScaler(enabled=False)` (bf16 needs no loss scaling), grad clip 1.0 at the accumulation boundary, `torch.compile` unless `--no-compile`. **DDP:** `torchrun --nproc_per_node=4 -m ekdant.train …` — `setup_dist()` reads `RANK`, NCCL, `DistributedSampler` per stage (set_epoch per epoch), `find_unused_parameters=bool(use_sandbox)`, rank-0-only logging/saving.
 
-**Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step, completed, history}`) after **every epoch** (single checkpoint, no rotation); `<out>/results.json` at the end with params, per-stage history (`stage/epoch/loss/lr`) and per-dataset test metrics.
+**Live telemetry (`--log-every`, default 100):** every N optimizer steps the runner prints
+`[stage] ep0 step 1200/3809 (32%) loss=.. lr=.. gnorm=.. tok/s=.. eta=..` — step/total and % of the *stage* budget (the "how far gone" number), an EMA of CE, the current schedule LR, the **pre-clip global grad norm** (clip threshold 1.0; sustained ≫1 = clipping every step, collapse toward 0 = stalled), throughput, and stage ETA. Each epoch closes with a summary (`done loss=… gnorm=… lr_end=… tok/s=… time=…`) whose loss is the true sample-mean CE (comparable to eval loss). Full glossary: [run.md](../run.md) §3 "Watching training progress".
+
+**Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step, completed, opt_step, history}`) after **every epoch** (single checkpoint, no rotation); `<out>/results.json` at the end with params, per-stage history (`stage/epoch/loss/lr/gnorm` — the training curve, not just final numbers) and per-dataset test metrics.
 
 **Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = stage_index × epochs + epoch + 1`), and reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`); optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the two held-out splits (MedMCQA validation, MedQA test) from an existing run dir. Keep `--variant`/`--out`/`--epochs` identical to the original run. Details: [run.md](../run.md) §4.
 
@@ -71,10 +75,11 @@ Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_s
 
 ## 4. Known issues (open — see [10_Known_Issues](../07-Management/10_Known_Issues.md))
 
-1. **LR schedule bugs — FIXED (per-stage cosine).** (a) `lr_at(step, total, base, warmup)` used to be called **once per epoch** with `step` incremented by 1 per epoch, while `total_steps` counted **batches** — so with defaults `step` only ever reached 5, `step < warmup` always held, and lr stayed ≤ 1.5% of 3e-4. (b) The first fix used a single global `opt_step` that never reset between stages, so stage 2 (MedQA) inherited stage 1's spent budget and trained at **lr = 0** for all epochs (losses flat at ~20.82). **Now:** LR is set per **optimizer step** inside the batch loop, the counter **resets at each stage boundary** so each stage runs its own warmup+cosine, `total_opt = ceil(len(loader)/grad_accum) × epochs`, the cosine term is clamped to `p ∈ [0,1]`, and `opt_step` is saved in `last.pt` for resume. Regression tests: `tests/test_schedule.py`.
-2. **Sandbox diagnostics computed but never logged.** `ModelOutput.aux` carries `anchor_energy`, `trajectory_variance`, `spread_ratio`, `per_trajectory_retention`, `anchor_distance`, but `train_stage` ignores `out.aux` — `results.json` history has only `loss`/`lr`. No ρ trace exists for any run yet (the collapse monitor the thesis requires). Fix: accumulate `aux` scalars per epoch and append to history.
-3. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
-4. Not bugs but design gaps: diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute. *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
+1. **LR schedule bugs — FIXED (per-stage cosine).** (a) `lr_at(step, total, base, warmup)` used to be called **once per epoch** with `step` incremented by 1 per epoch, while `total_steps` counted **batches** — so with defaults `step` only ever reached 5, `step < warmup` always held, and lr stayed ≤ 1.5% of 3e-4. (b) The first fix used a single global `opt_step` that never reset between stages, so stage 2 (MedQA) inherited stage 1's spent budget and trained at **lr = 0** for all epochs (losses flat at ~20.82 — inflated ×batch-size, true ≈3.5 at batch 6). **Now:** LR is set per **optimizer step** inside the batch loop, the counter **resets at each stage boundary** so each stage runs its own warmup+cosine, `total_opt = ceil(len(loader)/grad_accum) × epochs`, the cosine term is clamped to `p ∈ [0,1]`, and `opt_step` is saved in `last.pt` for resume. Regression tests: `tests/test_schedule.py`.
+2. **Sandbox diagnostics computed but never logged.** `ModelOutput.aux` carries `anchor_energy`, `trajectory_variance`, `spread_ratio`, `per_trajectory_retention`, `anchor_distance`, but `train_stage` ignores `out.aux` — history now carries `loss`/`lr`/`gnorm` per epoch, but still no ρ trace for any run (the collapse monitor the thesis requires). Fix: accumulate `aux` scalars per epoch and append to history.
+3. **Train-loss scale bug — FIXED.** The epoch mean divided Σ(loss × batch_size) by the batch *count*, so every pre-fix train loss was inflated ×`--batch-size` (e.g. "22.28" at batch 6 ≈ true 3.7 — consistent with eval CE ≈ 3.2–3.6). Fixed to a true sample mean; eval losses were always correct; same-batch comparisons are unaffected.
+4. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
+5. Not bugs but design gaps: diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute. *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
 
 ## 5. Smoke test (Phase 8 substitute)
 

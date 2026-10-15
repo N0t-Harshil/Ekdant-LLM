@@ -108,6 +108,7 @@ trained once on the MedMCQA sample and reused, so the two variants see the
 | `--epochs` | 3 | per stage |
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
+| `--log-every` | 100 | progress line every N optimizer steps: `step X/Y (%) loss lr gnorm tok/s eta` (`0` = summaries only) |
 | `--resume` | off | continue `<out>/last.pt`; skips finished stage/epochs |
 | `--eval-only` | off | no training; evaluate `<out>/last.pt` on both test sets |
 
@@ -167,8 +168,11 @@ have converged and the sandbox is doing nothing — that is itself a result.
 
 ## Expected memory (per A100 80GB)
 
-At batch 24, seq 1024, bf16, `torch.compile`, expect roughly 30–40 GB with
-room to raise `--batch-size`. The sandbox's K=4 trajectories add a
+At batch 24, seq 2048, bf16, `torch.compile`, expect roughly 40–60 GB with
+room to raise `--batch-size` — activations scale with sequence length
+(windowed attention bounds the quadratic part), so seq 2048 costs about
+twice seq 1024; on a 16GB card drop to `--batch-size 6 --grad-accum 8`
+(the `run.md` §3 recipe). The sandbox's K=4 trajectories add a
 `[K,B,T,dim]` scratch tensor — the main activation cost of the sandbox arm.
 
 ## Tests

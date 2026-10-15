@@ -28,7 +28,7 @@ Run **one variant at a time** — each uses the full node.
 | `datasets` (HF) | auto-downloads both datasets on first run |
 | internet (first run) | MedMCQA ≈ 183k rows + MedQA ≈ 10k rows land in the HF cache (few GB) |
 | disk | + ~0.5 GB per run dir (tokenizer + checkpoint) |
-| GPU (full run) | 1× A100 80GB is enough at batch 24 / seq 1024 / bf16 (≈ 30–40 GB) |
+| GPU (full run) | 1× A100 80GB fits batch 24 / seq 2048 / bf16; 16GB (T4): use the 20K recipe's `--batch-size 6 --grad-accum 8` (§3) |
 
 No `mamba-ssm`, `flash-attn`, `triton`, `causal-conv1d` — pure PyTorch.
 
@@ -95,6 +95,62 @@ python -m ekdant.train --variant sandbox  --out runs/sandbox
 python -m ekdant.train --variant baseline --out runs/baseline
 ```
 
+### Recommended long run — the 20K-step A/B (T4, seq 2048)
+
+The validated recipe for a decisive comparison. **~20,000 optimizer steps
+total** (5 epochs × 3,809 MedMCQA steps + 5 × 213 MedQA steps at
+`--batch-size 6 --grad-accum 8`), seq 2048 (shipped configs), correct
+per-stage cosine schedule, full telemetry (§ "Watching training progress"):
+
+```bash
+cd 09-Code
+nohup python -m ekdant.train --variant baseline --out runs/baseline_20k \
+  --batch-size 6 --grad-accum 8 --epochs 5 > baseline_20k.log 2>&1 &
+tail -f baseline_20k.log            # watch live; Ctrl-c stops watching only
+
+# after it writes results.json, same command for the sandbox arm:
+nohup python -m ekdant.train --variant sandbox --out runs/sandbox_20k \
+  --batch-size 6 --grad-accum 8 --epochs 5 > sandbox_20k.log 2>&1 &
+```
+
+Budget on a T4: baseline ≈ 13 h, sandbox ≈ 18 h (~31 h sequential).
+Epoch checkpoints + `nohup` make it resume-safe (add `--resume` after a
+pod restart). Scale guide (everything stays linear in epochs at this
+batch):
+
+| `--epochs` | optimizer steps | T4 wall-clock (both arms) | note |
+|---|---|---|---|
+| 3 | ~12K | ~19 h | the recorded pipeline campaign (`runs/*_full`) |
+| **5** | **~20K** | **~31 h** | **recommended — the 20K range** |
+| 14 | ~50K | ~76 h | thesis recipe (50K steps) |
+| 50 | ~200K | ~12 days | beyond the recipe; overfitting risk, not recommended |
+
+### Watching training progress
+
+Every `--log-every` optimizer steps (default 100) the run prints a
+progress line; `tail -f <out>.log` shows the run advancing live:
+
+```
+[medmcqa] ep0 step 1200/3809 (32%) loss=4.0217 lr=2.91e-4 gnorm=1.32 tok/s=11812 eta=1h23m45s
+[medmcqa] ep0 done loss=3.7104 gnorm=1.41 lr_end=2.30e-4 tok/s=11860 time=2h29m10s
+```
+
+How to read it:
+
+| field | meaning / healthy signal |
+|---|---|
+| `step 1200/3809 (32%)` | optimizer steps into the stage and % of the **stage** budget — this is your "how far gone" number |
+| `loss` | EMA of CE per token — should fall every epoch; a flat line at init lr≈0 means a schedule bug (§8) |
+| `lr` | current learning rate — rises through warmup (default 200 steps) then cosine-decays to ~0 at the stage end |
+| `gnorm` | global grad norm **before** clipping at 1.0 — sustained ≫1 means the clip is active every step; a sudden collapse toward 0 means training has stalled; expect ~0.5–3 in steady state |
+| `tok/s` | throughput — drops when batches are long (2048-token rows) or the GPU is contended |
+| `eta` | projected time to finish the **stage** from the current rate |
+| `ep0 done …` | epoch summary: true sample-mean CE (comparable to eval loss), mean gnorm, LR at epoch end, wall time |
+
+Epoch history (loss / lr / **gnorm** per epoch) is stored in
+`last.pt → history` and written into `results.json`, so every run keeps
+its training curve, not just its final numbers.
+
 ### Full A/B (multi-GPU, e.g. 4×A100)
 
 ```bash
@@ -148,6 +204,7 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 | `--limit` | none | cap rows per dataset (smoke/debug only) |
 | `--seed` | 17 | torch seed + tokenizer sample + data sampling |
 | `--no-compile` | off | skip `torch.compile` (use if compile crashes or first-run overhead hurts) |
+| `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
 | `--resume` | off | continue an interrupted run (§4) |
 | `--eval-only` | off | skip training; evaluate existing checkpoint (§6/§7) |
 
@@ -288,14 +345,14 @@ runs/<variant>/
   tokenizer.json   shared BPE vocab (reused on resume)
   config.json      exact EkdantConfig used (authoritative on resume)
   last.pt          {model, cfg, step, completed, history} — saved every epoch
-  results.json     {variant, use_sandbox, params, history[], test{medmcqa,medqa}}
+  results.json     {variant, use_sandbox, params, history[stage,epoch,loss,lr,gnorm], test{medmcqa,medqa}}
 ```
 
 ## 8. Known issues & troubleshooting
 
 | symptom / item | detail |
 |---|---|
-| **LR stuck tiny / stage 2 at lr=0** | **FIXED** (per-stage cosine): the old `lr_at()` was called once per *epoch* with a *batch* budget (warmup never completed), and the first fix used a single global `opt_step` that never reset between stages — so stage 2 (MedQA) inherited stage 1's spent budget and trained at lr=0 (flat losses ~20.82). Now the LR counter **resets at each stage boundary**, each stage runs its own warmup+cosine, the cosine is clamped to `p ∈ [0,1]`, and `opt_step` is checkpointed for resume. Runs from before the fix used `--warmup 1` as a workaround — don't compare their lr curve to a fixed-schedule run. Regression: `tests/test_schedule.py`. |
+| **LR stuck tiny / stage 2 at lr=0** | **FIXED** (per-stage cosine): the old `lr_at()` was called once per *epoch* with a *batch* budget (warmup never completed), and the first fix used a single global `opt_step` that never reset between stages — so stage 2 (MedQA) inherited stage 1's spent budget and trained at lr=0 (flat losses ~20.82 — inflated ×batch-size, true ≈3.5 at batch 6). Now the LR counter **resets at each stage boundary**, each stage runs its own warmup+cosine, the cosine is clamped to `p ∈ [0,1]`, and `opt_step` is checkpointed for resume. Runs from before the fix used `--warmup 1` as a workaround — don't compare their lr curve to a fixed-schedule run. Regression: `tests/test_schedule.py`. |
 | L2 = 6.56M vs thesis 2.8M | debate uses full H×H cross-projections, untied across rounds; decide (slim/tie L2, or update thesis table) before publishing. Does not affect the A/B — baseline simply omits L2. |
 | sandbox diagnostics not logged | `anchor_energy` / `trajectory_variance` / `spread_ratio` are computed in `aux` but not written into `results.json`; pull them from a manual forward if you need the ρ trace. A pinned-at-floor ρ (<0.05) means trajectory collapse — itself a result. |
 | OOM | lower `--batch-size`, raise `--grad-accum` to keep effective batch constant. |
@@ -309,6 +366,7 @@ runs/<variant>/
 | CPU-only machine | smoke/eval-only work (`--no-compile`); full training needs CUDA. |
 | both arms fair? | same flags, same seed, separate `--out`; copy tokenizer for guaranteed identical vocab. |
 | dataset schema | loader handles current HF schemas: MedMCQA `opa..opd` + `cop` (0..3; `cop=-1` rows are dropped — the public test split is unlabelled), MedQA `options` dict + `answer_idx` (`tests/test_data.py` locks this in). |
+| **old train losses were inflated ×batch-size** | pre-fix epoch loss divided Σ(loss×batch) by batch *count* — with `--batch-size 6` every reported train CE was 6× the true value (e.g. "22.28" ≈ true 3.7). Fixed (sample-mean now); eval losses were always correct. Comparisons between same-batch runs are unaffected — only absolute values changed. |
 
 ## 9. Quick reference
 

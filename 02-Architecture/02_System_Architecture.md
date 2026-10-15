@@ -24,6 +24,32 @@ Four subsystems. The model subsystem is the thesis contribution; the other three
 | `data.py` | MedMCQA/MedQA MCQ pipeline (prompt template, letter-token eval) |
 | `__init__.py` | re-exports |
 
+**The shipped forward pass (L2-only build), with the A/B switch** — both
+variants share every box; the dashed path exists only when
+`use_sandbox = true`:
+
+```mermaid
+graph LR
+    IN[input_ids B,T] --> EM["embed<br/>(32K tied)"]
+    EM --> T1["T block ×12<br/>windowed GQA (W=512) + SwiGLU<br/>26.75M params — identical in both arms"]
+    T1 -->|baseline| LN["ln_f RMSNorm"]
+    T1 -->|sandbox only| SBX["L2 sandbox (6.56M)<br/>K=4 trajectories → debate R=2<br/>→ anchored descent S=8 → consensus"]
+    SBX --> LN
+    LN --> HEAD["tied vocab head<br/>(0 extra params)"]
+    HEAD --> OUT["logits → CE loss + letter-accuracy eval"]
+
+    style SBX fill:#2a4d69,color:#e8f1f8,stroke:#7fb3d5,stroke-dasharray: 5 5
+    style T1 fill:#1e3a52,color:#e8f1f8,stroke:#7fb3d5
+```
+
+**Param accounting (why the A/B is architecture-matched, not
+parameter-matched):** backbone = embed 16.78M + T 26.75M + head 0 =
+43.53M for **both** arms; the sandbox arm *adds* L2 = 6.56M → 50.09M.
+The imbalance (+15%) favors the sandbox, so a tie (or a loss) is
+conservative evidence; a param-matched *depth-matched control* (same
+50.09M, no L2, more untied depth instead) is the third arm that makes a
+"gain" claim airtight ([11](../07-Management/11_Future_Work.md)).
+
 The **thesis design** adds L1 `ssm_storage.py` (§3 — embedding + RoPE + selective SSM stack, design-only, not in the package) and an HF-style `EkdantForCausalLM` wrapper; the design target is exactly 5 model files (L1 → T → L2). Full shipped signatures: [API_Reference.md](API_Reference.md).
 
 **Transformer components (first-class, not an afterthought):** RoPE positional injection in L1 (`rope_theta`) and cross-trajectory attention in the L2 debate rounds. Attention is used *inside* subsystems for positioning and cross-reading — never as the top-level stack, and never over the sequence length (cost scales with K ≤ 8) — so inference stays O(1) in T.
@@ -56,7 +82,17 @@ graph TB
 
 **Problem it solves:** L1's compressed state is lossy on exact recall (Vault B11). T restores precise local retrieval before reasoning begins — with plain dense blocks. No MoE: the sandbox (K debating trajectories) is this architecture's mixture mechanism, so a router would duplicate it and risk collapse at 20–40M scale.
 
-**How:** `h [B,T,H]` → `n_transformer_layers` identical blocks (XS: 3, S: 5, M: 6). Each block: pre-norm → windowed GQA (`transformer_window` = 512, RoPE shared base — KV bounded by W, never T) → residual → pre-norm → dense SwiGLU FFN → residual. Output `hT [B,T,H]` feeds L2.
+**How:** `h [B,T,H]` → `n_transformer_layers` identical blocks (XS: 3, S: 5, M: 6; shipped A/B: **12**). Each block: pre-norm → windowed GQA (`transformer_window` = 512, RoPE shared base — KV bounded by W, never T) → residual → pre-norm → dense SwiGLU FFN → residual. Output `hT [B,T,H]` feeds L2.
+
+```mermaid
+graph LR
+    X[h B,T,H] --> N1["RMSNorm"] --> GQA["GQA attention<br/>Q=8 heads, KV=2 heads<br/>window W=512 → O(T·W)"] --> R1("+") --> N2["RMSNorm"] --> F["SwiGLU FFN<br/>H=512 → 1024 → 512"] --> R2("+") --> Y[hT B,T,H]
+    X --> R1
+    N2 --> F
+    F --> R2
+```
+
+(Pre-norm topology: the block's input skips to each `+`; shown via the two parallel arrows into `R1`/`R2`.)
 
 **Why this design:** exact-recall results (B11/Jamba) show pure SSM trails attention; a bounded window buys back recall at fixed memory cost. Cost is O(T·W) attention plus dense FFN — bounded, never T².
 
@@ -67,6 +103,27 @@ graph TB
 **Problem it solves (§1.2–1.3):** one monolithic pass hides who reasons, and its confidence means nothing. L2 expands L1's output into K diverse trajectories that read and revise each other (debate rounds), descend toward agreement (energy steps), and vote a consensus that is projected to logits. Agreement across trajectories is observable per example — the working confidence signal.
 
 **How:** `hT` (Transformer-enhanced) → K diverse initializations `trajectories [K,B,T,H]` → `n_debate_rounds` of cross-trajectory attention and revision → `sandbox_steps` of anchored gated descent toward the token-conditioned anchor `a_t = W_a·hT_t` (a pull toward the running consensus is provably inert on the readout — see [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.1) → consensus `y` (mean, or lowest-energy pick) → `logits = output_head(y)`, one dense projection per micro-batch. Full protocol, cost-matched evaluation rules, and failure modes (false consensus, collapse, cost > gain) live in `22_Thesis_Ch3_Layer2_Sandbox.md`.
+
+```mermaid
+graph TB
+    HT["hT from T<br/>B,T,H"] --> DI["DiverseInit: K=4 orthogonal projections + spread gains (0.8–1.25)<br/>→ traj [4,B,T,H]"]
+    DI --> D1["DebateRound 1: cross-read the other 3 (never self)<br/>γ gate lets a trajectory decline the crowd"]
+    D1 --> D2["DebateRound 2 (R=2 total)"]
+    D2 --> AD["AnchoredDescent × S=8<br/>traj ← traj − η·g·(traj − anchor), anchor = W_a·hT<br/>η = 0.5/8 = 0.0625"]
+    AD --> CONS["consensus y = mean over K (or lowest-energy pick)"]
+    AD -.monitors.-> AUX["anchor_energy · trajectory_variance · spread_ratio ρ<br/>floor penalty: max(0, 0.05 − ρ)² — 0 while healthy"]
+    CONS --> HD["tied vocab head → logits"]
+
+    style DI fill:#2a4d69,color:#e8f1f8,stroke:#7fb3d5
+    style AUX fill:#4a3a1e,color:#f8f1e8,stroke:#d5b87f,stroke-dasharray: 5 5
+```
+
+**The A/B question this diagram answers:** the sandbox arm pays
+(1) +6.56M params, (2) 4× projection work per token, (3) 2 debate rounds
++ 8 descent steps — to produce *one* consensus vector per position that
+replaces `hT` before the head. If the final numbers tie (they do at 12K
+and are being re-tested at 20K steps), the claim under test is whether
+any of that machinery ever beats the plain backbone at this scale.
 
 **Why this design:** single-path chain-of-thought is the control; sampling K paths and voting (self-consistency) is the matched-budget baseline; in-graph debate plus latent energy refinement is the tested improvement — with the published critique that debate often ties voting at equal cost built into the evaluation rules rather than hidden. Sources: `20`, PDFs `papers/Sandbox_Reasoning/C1`, `C2`, `C3`, `C8`, `C11`.
 
@@ -97,8 +154,8 @@ graph TB
 The runnable workflow lives in `09-Code/` (the L2-only build; `pip install -e .` first). From `09-Code/`:
 
 - **Unit tests:** `pytest -q` — 75 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py`, `tests/test_schedule.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas, LR schedule). Ops runbook: [`run.md`](../run.md).
-- **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` (MedMCQA → MedQA in one invocation).
-- **Train (multi-GPU):** `torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox --out runs/sandbox` (one variant at a time). Configs: `configs/sandbox_50m.json`, `configs/baseline_50m.json` (identical architecture; only `use_sandbox` differs).
+- **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` (MedMCQA → MedQA in one invocation). Live telemetry every `--log-every` (default 100) optimizer steps — step/total, % of stage, EMA loss, LR, grad norm, tok/s, ETA — plus per-epoch summaries and `history[loss,lr,gnorm]` in `results.json`. Recommended decisive run: **20K steps = `--epochs 5 --batch-size 6 --grad-accum 8`** (≈13 h + 18 h on a T4; scale table and progress-line glossary in [`run.md`](../run.md) §3).
+- **Train (multi-GPU):** `torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox --out runs/sandbox` (one variant at a time). Configs: `configs/sandbox_50m.json`, `configs/baseline_50m.json` (identical architecture; only `use_sandbox` differs; both seq 2048).
 
 Thesis-scale tooling referenced elsewhere in this vault (`main.py`, `scripts/verify_datasets.py`, `scripts/production_validation.py`, `config_ekdant_xs/s/m.yaml`, `tests/test_ekdant.py`) is documented spec only — not present in this repository.
 

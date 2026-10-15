@@ -81,19 +81,40 @@ def lr_at(step, total, base, warmup):
     return base * 0.5 * (1.0 + math.cos(math.pi * p))
 
 
+def fmt_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}h{m:02d}m{s:02d}s" if h else f"{m}m{s:02d}s"
+
+
 def train_stage(model, loader, opt, device, epoch, scaler, autocast,
-                opt_step, total_opt, base_lr, warmup, accum):
+                opt_step, total_opt, base_lr, warmup, accum,
+                stage_name="", log_every=100):
     """One epoch. LR is set per optimizer step, not per epoch (the old
-    per-epoch counter made warmup never complete — fixed; see run.md §8)."""
+    per-epoch counter made warmup never complete — fixed; see run.md §8).
+
+    Emits a progress line every ``log_every`` optimizer steps:
+        [stage] ep0 step 1200/3809 (32%) loss=.. lr=.. gnorm=.. tok/s=.. eta=..
+    ``loss`` is an EMA of the per-batch CE; ``gnorm`` is the pre-clip global
+    grad norm (clip threshold 1.0 — a sustained value far above 1 means the
+    clip is active every step; near 0 means training has stalled).
+    """
     model.train()
-    total, ntok, steps = 0.0, 0, 0
+    total, ntok, steps, nsamp = 0.0, 0, 0, 0
+    gnorm_sum, gnorm_n = 0.0, 0
+    loss_ema = None
     last_lr = opt.param_groups[0]["lr"]
+    start_opt = opt_step
+    t_start = time.time()
+    t_window, ntok_window, next_at = t_start, 0, opt_step + log_every
     for batch in loader:
         batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
         with autocast():
             out = model(batch["input_ids"], labels=batch["labels"])
             loss = out.loss / accum
         scaler.scale(loss).backward()
+        bsz_tok = int(batch["attention_mask"].sum())
         if (steps + 1) % accum == 0:
             lr = lr_at(opt_step, total_opt, base_lr, warmup)
             for g in opt.param_groups:
@@ -101,14 +122,32 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
             last_lr = lr
             opt_step += 1
             scaler.unscale_(opt)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
+            gnorm_sum += gnorm
+            gnorm_n += 1
             scaler.step(opt)
             scaler.update()
             opt.zero_grad(set_to_none=True)
+            lv = out.loss.item()
+            loss_ema = lv if loss_ema is None else 0.98 * loss_ema + 0.02 * lv
+            if log_every > 0 and opt_step >= next_at:
+                now = time.time()
+                tok_s = ntok_window / max(1e-9, now - t_window)
+                made = max(1, opt_step - start_opt)
+                eta = (now - t_start) / made * max(0, total_opt - opt_step)
+                log(f"[{stage_name}] ep{epoch} step {opt_step}/{total_opt} "
+                    f"({100.0 * opt_step / max(1, total_opt):.0f}%) "
+                    f"loss={loss_ema:.4f} lr={lr:.2e} gnorm={gnorm:.2f} "
+                    f"tok/s={tok_s:.0f} eta={fmt_duration(eta)}")
+                next_at += log_every
+                t_window, ntok_window = now, 0
         total += out.loss.item() * batch["input_ids"].size(0)
-        ntok += int(batch["attention_mask"].sum())
+        nsamp += batch["input_ids"].size(0)
+        ntok += bsz_tok
+        ntok_window += bsz_tok
         steps += 1
-    return total / max(1, steps), ntok, opt_step, last_lr
+    avg_gnorm = gnorm_sum / max(1, gnorm_n)
+    return total / max(1, nsamp), ntok, opt_step, last_lr, avg_gnorm
 
 
 @torch.no_grad()
@@ -146,6 +185,9 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--no-compile", action="store_true")
     ap.add_argument("--seed", type=int, default=17)
+    ap.add_argument("--log-every", type=int, default=100,
+                    help="print a progress line every N optimizer steps "
+                         "(0 = epoch summaries only)")
     ap.add_argument("--resume", action="store_true",
                     help="continue <out>/last.pt (skips finished stage/epochs)")
     ap.add_argument("--eval-only", action="store_true",
@@ -271,29 +313,35 @@ def main() -> None:
             ds = make_dataset(stage_name, split, tokenizer, cfg, args.limit)
             loader = build_dataloader(ds, cfg, args.batch_size, True,
                                       distributed, seed=args.seed)
-            if is_main:
-                log(f"\n=== stage {stage_name}  n={len(ds)} "
-                    f"(epoch {first_epoch}+) ===")
             steps_per_epoch = max(1, len(loader))
             opt_per_epoch = max(1, math.ceil(steps_per_epoch / args.grad_accum))
             total_opt = opt_per_epoch * args.epochs
+            if is_main:
+                log(f"\n=== stage {stage_name}  n={len(ds)} "
+                    f"(epoch {first_epoch}+) | {opt_per_epoch} opt/epoch x "
+                    f"{args.epochs} epochs = {total_opt} steps, "
+                    f"lr {args.lr:g} cosine, warmup {args.warmup} ===")
             stage_opt_step = 0  # each stage gets its own cosine cycle
             for epoch in range(first_epoch, args.epochs):
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(epoch)
                 t0 = time.time()
-                avg, ntok, stage_opt_step, last_lr = train_stage(
+                avg, ntok, stage_opt_step, last_lr, avg_gnorm = train_stage(
                     model, loader, opt, device, epoch, scaler, autocast,
                     stage_opt_step, total_opt, args.lr, args.warmup,
-                    args.grad_accum)
+                    args.grad_accum, stage_name=stage_name,
+                    log_every=args.log_every)
                 opt_step = stage_opt_step  # for resume/ckpt bookkeeping
                 step += 1
                 completed = si * args.epochs + epoch + 1
                 if is_main:
-                    log(f"[{stage_name}] ep{epoch} loss={avg:.4f} "
-                        f"tok/s={ntok/max(1,time.time()-t0):.0f} lr={last_lr:.2e}")
+                    log(f"[{stage_name}] ep{epoch} done loss={avg:.4f} "
+                        f"gnorm={avg_gnorm:.2f} lr_end={last_lr:.2e} "
+                        f"tok/s={ntok/max(1,time.time()-t0):.0f} "
+                        f"time={fmt_duration(time.time()-t0)}")
                     history.append({"stage": stage_name, "epoch": epoch,
-                                    "loss": avg, "lr": last_lr})
+                                    "loss": avg, "lr": last_lr,
+                                    "gnorm": avg_gnorm})
                     torch.save({"model": raw.state_dict(),
                                 "cfg": cfg.to_dict(),
                                 "step": step, "completed": completed,
