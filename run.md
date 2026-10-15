@@ -63,9 +63,11 @@ python -c "import ekdant; print('ok')"
 - PyTorch is preinstalled on most Kaggle images; `pip install -e .` reuses
   it (the `torch>=2.2` requirement is already satisfied).
 - **`ImportError: pyarrow requires NumPy 2.0 or newer, found 1.26.4`** —
-  conda/Kaggle pins numpy 1.x while fresh pip pulls pyarrow ≥21 (numpy-2
-  only). Downgrade pyarrow instead of touching numpy (safer for the rest of
-  the conda stack): `pip install "pyarrow<21"`.
+  conda/Kaggle pins numpy 1.x, but fresh pip pulls pyarrow ≥21 (numpy-2
+  only) and datasets 5.x (pyarrow ≥24). Downgrade **both** to a
+  resolver-consistent pair instead of touching numpy (safer for the rest of
+  the conda stack): `pip install "datasets==3.6.0" "pyarrow<21"` — our code
+  only needs `load_dataset` (stable since datasets 2.19).
 - **Kaggle T4/P100 = 16 GB VRAM** — the default batch 24 assumes ~30–40 GB.
   Run `--batch-size 6 --grad-accum 8` (effective batch 48, same as the
   24×2 default), and `--no-compile` if compile is slow or crashes.
@@ -262,7 +264,7 @@ runs/<variant>/
 | OOM | lower `--batch-size`, raise `--grad-accum` to keep effective batch constant. |
 | `torch.compile` crash/slow first epoch | `--no-compile`. |
 | first run is slow | HF is downloading MedMCQA/MedQA into its cache — one-time. |
-| `pyarrow requires NumPy 2.0` | Kaggle/conda: `pip install "pyarrow<21"` (do **not** upgrade numpy on a conda image — it breaks prebuilt pandas/scipy). |
+| `pyarrow requires NumPy 2.0` | Kaggle/conda: `pip install "datasets==3.6.0" "pyarrow<21"` (do **not** upgrade numpy on a conda image — it breaks prebuilt pandas/scipy; pyarrow alone is not enough — datasets 5.x demands pyarrow ≥24). |
 | OOM on 16 GB GPU (Kaggle T4) | default batch 24 needs ~30–40 GB; use `--batch-size 6 --grad-accum 8` (effective batch unchanged). |
 | CPU-only machine | smoke/eval-only work (`--no-compile`); full training needs CUDA. |
 | both arms fair? | same flags, same seed, separate `--out`; copy tokenizer for guaranteed identical vocab. |
