@@ -219,9 +219,21 @@ def main() -> None:
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr,
                             weight_decay=0.1, betas=(0.9, 0.95))
     use_amp = device.type == "cuda"
-    autocast = (lambda: torch.autocast("cuda", dtype=torch.bfloat16)) \
-        if use_amp else (lambda: torch.autocast("cpu", enabled=False))
-    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    if use_amp:
+        bf16_ok = torch.cuda.is_bf16_supported()
+        amp_dtype = torch.bfloat16 if bf16_ok else torch.float16
+        if is_main and not bf16_ok:
+            log("bf16 unsupported on this GPU (e.g. T4/P100) — "
+                "using fp16 autocast + loss scaling")
+        autocast = (lambda: torch.autocast("cuda", dtype=amp_dtype))
+        use_scaler = not bf16_ok  # fp16 needs loss scaling; bf16 does not
+    else:
+        autocast = (lambda: torch.autocast("cpu", enabled=False))
+        use_scaler = False
+    if hasattr(torch.amp, "GradScaler"):  # torch >= 2.3
+        scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    else:  # torch < 2.3 (Kaggle images ship 2.2)
+        scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
     sched = {"accum": args.grad_accum}
 
     if is_main:

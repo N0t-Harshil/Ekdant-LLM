@@ -266,6 +266,7 @@ runs/<variant>/
 | first run is slow | HF is downloading MedMCQA/MedQA into its cache — one-time. |
 | `pyarrow requires NumPy 2.0` | Kaggle/conda: `pip install "datasets==3.6.0" "pyarrow<21"` (do **not** upgrade numpy on a conda image — it breaks prebuilt pandas/scipy; pyarrow alone is not enough — datasets 5.x demands pyarrow ≥24). |
 | OOM on 16 GB GPU (Kaggle T4) | default batch 24 needs ~30–40 GB; use `--batch-size 6 --grad-accum 8` (effective batch unchanged). |
+| `torch.amp has no attribute GradScaler` | torch < 2.3 (Kaggle ships 2.2) — **fixed in code**: scaler construction falls back to `torch.cuda.amp.GradScaler`; pull latest. On T4/P100 (no bf16) the runner also auto-falls back to fp16 autocast + loss scaling and logs it. |
 | CPU-only machine | smoke/eval-only work (`--no-compile`); full training needs CUDA. |
 | both arms fair? | same flags, same seed, separate `--out`; copy tokenizer for guaranteed identical vocab. |
 | dataset schema | loader handles current HF schemas: MedMCQA `opa..opd` + `cop` (0..3), MedQA `options` dict + `answer_idx` (`tests/test_data.py` locks this in). |
