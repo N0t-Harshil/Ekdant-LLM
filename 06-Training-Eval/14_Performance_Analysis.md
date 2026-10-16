@@ -52,7 +52,7 @@ Sandbox ops run on `[K,B,T,H]` — every refinement op touches all K trajectorie
 | ρ trace (`spread_ratio` per step/epoch) | `Sandbox._aux` | ❌ **not logged** — `train.py` drops `aux`; add before any run |
 | `anchor_energy`, `trajectory_variance` | same aux dict (three separately-named numbers, never aliased) | ❌ not logged |
 | K=1 vs K=4 cost-vs-accuracy; depth/window ablations | config sweeps | ❌ open |
-| Baseline vs sandbox `results.json` (letter accuracy — quote `medmcqa_bench`, report `phase1.medqa` vs final `medqa`) | runner output | ready to produce |
+| Baseline vs sandbox `results.json` (letter accuracy — quote `medqa_bench`, report `phase1.medmcqa_val` vs final `medmcqa_val` retention) | runner output | ready to produce |
 
 Ch.6 result tables stay `[PENDING]` until the LR bug ([07](07_Training_Pipeline.md) §4.1) and the ρ logging gap (§4.2 above) are fixed.
 

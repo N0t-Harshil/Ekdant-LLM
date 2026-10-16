@@ -1,14 +1,17 @@
-"""Sequential A/B training: MedQA first, then a MedMCQA 60/40 fine-tune.
+"""Sequential A/B training: MedMCQA first, then a MedQA 60/40 fine-tune.
 
 Phases (one invocation, strictly in order — never trained jointly):
 
-    phase 1   train on the FULL MedQA train split (10,178),
-              then test on MedQA test -> results["phase1"]["medqa"]
-    phase 2   fine-tune on 60% of MedMCQA train (MCQA_FT_FRAC, seeded
+    phase 1   train on the FULL MedMCQA train split (182,496),
+              then test on the MedMCQA validation split (4,183 —
+              public test split ships cop=-1, unlabelled, T18)
+              -> results["phase1"]["medmcqa_val"]
+    phase 2   fine-tune on 60% of MedQA train (FT_FRAC, seeded
               permutation — both A/B arms get the identical partition)
-    final     benchmark the complementary 40% of MedMCQA exactly once
-              (never trained on) + MedQA test again (retention) +
-              the untouched MedMCQA validation score
+    final     benchmark the complementary 40% of MedQA exactly once
+              (never trained on) + the official MedQA test split
+              (also untouched) + the MedMCQA validation score again
+              (retention after the fine-tune)
 
 Checkpoint selection: best.pt tracks the untouched MedMCQA validation
 during phase 2; at the end the better of best.pt vs last.pt (same
@@ -52,15 +55,17 @@ from ekdant.data import (
 from ekdant.model import EkdantConfig, EkdantModel, estimate_model_size
 
 # Sequential protocol — phases in order, never trained jointly:
-#   phase 1: full MedQA train, then the MedQA test result is recorded
-#   phase 2: fine-tune on 60% of MedMCQA train (MCQA_FT_FRAC)
-#   final:   benchmark the complementary 40% exactly once (it is never
-#            trained on), + MedQA test again for retention
+#   phase 1: full MedMCQA train (182,496), then the MedMCQA validation
+#            result is recorded (public test split is unlabelled, T18)
+#   phase 2: fine-tune on 60% of MedQA train (FT_FRAC)
+#   final:   benchmark the complementary 40% of MedQA exactly once (it
+#            is never trained on) + official MedQA test (untouched) +
+#            the MedMCQA validation score again (retention)
 # The 60/40 partition comes from a --seed-locked permutation, so both
 # A/B arms train on identical data and benchmark the identical holdout
 # (fairness rule).
-STAGES = (("medqa", "train"), ("medmcqa_ft", "train"))
-MCQA_FT_FRAC = 0.6
+STAGES = (("medmcqa", "train"), ("medqa_ft", "train"))
+FT_FRAC = 0.6
 # MedMCQA's public test split ships cop=-1 (unlabelled) — bug T18 made the
 # metric degenerate to "A-prediction rate". The labelled validation split
 # (4,183 rows) is never trained on and serves as the untouched
@@ -112,13 +117,13 @@ def split_frac(ds, frac: float, seed: int = 17):
 
 
 def load_stage(name, split, tokenizer, cfg, limit=None, seed=17):
-    """Dataset for a stage. ``medmcqa_ft`` = the 60% fine-tune partition
-    of the MedMCQA train split (the complementary 40% stays untouched
-    until the final benchmark)."""
-    ds = make_dataset("medmcqa" if name == "medmcqa_ft" else name,
+    """Dataset for a stage. ``medqa_ft`` = the 60% fine-tune partition of
+    the MedQA train split (the complementary 40% stays untouched until
+    the final benchmark)."""
+    ds = make_dataset("medqa" if name == "medqa_ft" else name,
                       split, tokenizer, cfg, limit)
-    if name == "medmcqa_ft":
-        head, _tail = split_frac(ds, MCQA_FT_FRAC, seed)
+    if name == "medqa_ft":
+        head, _tail = split_frac(ds, FT_FRAC, seed)
         return head
     return ds
 
@@ -239,7 +244,7 @@ def main() -> None:
                     help="print a progress line every N optimizer steps "
                          "(0 = epoch summaries only)")
     ap.add_argument("--eval-every", type=int, default=1,
-                    help="during the MedMCQA fine-tune phase, evaluate the "
+                    help="during the MedQA fine-tune phase, evaluate the "
                          "untouched MedMCQA validation set every N epochs "
                          "→ history + incremental results.json + best.pt "
                          "on medmcqa_val (0 = final only)")
@@ -381,20 +386,21 @@ def main() -> None:
                 json.dump(results, f, indent=2)
 
     def eval_phase1() -> None:
-        """Phase-1 record: MedQA test right after MedQA training (before
-        the MedMCQA fine-tune). Runs once; crash-safe via results.json."""
+        """Phase-1 record: MedMCQA validation right after MedMCQA training
+        (before the MedQA fine-tune). Runs once; crash-safe via
+        results.json."""
         if args.eval_only or not is_main:
             return
-        if results.get("phase1", {}).get("medqa"):
+        if results.get("phase1", {}).get("medmcqa_val"):
             return
-        tds = make_dataset("medqa", "test", tokenizer, cfg, args.limit)
+        tds = make_dataset("medmcqa", "validation", tokenizer, cfg, args.limit)
         tloader = build_dataloader(tds, cfg, args.batch_size, False, False,
                                    seed=args.seed, workers=0)
         r = evaluate(raw, tloader, device, autocast)
-        results["phase1"] = {"medqa": r}
-        log(f"[phase1 test medqa] acc={r['accuracy']*100:.2f}% "
+        results["phase1"] = {"medmcqa_val": r}
+        log(f"[phase1 test medmcqa_val] acc={r['accuracy']*100:.2f}% "
             f"loss={r['loss']:.4f} n={r['n']}  "
-            f"(after MedQA training, before MedMCQA fine-tune)")
+            f"(after MedMCQA training, before MedQA fine-tune)")
         _write_results()
 
     if not args.eval_only:
@@ -448,7 +454,7 @@ def main() -> None:
                                 "best_medmcqa": best_acc},
                                os.path.join(args.out, "last.pt"))
                     if (args.eval_every > 0
-                            and stage_name == "medmcqa_ft"
+                            and stage_name == "medqa_ft"
                             and ((epoch + 1) % args.eval_every == 0
                                  or epoch + 1 == args.epochs)):
                         # Selection set: the untouched MedMCQA validation
@@ -483,8 +489,8 @@ def main() -> None:
 
     # Final protocol: checkpoint selection = better of best.pt vs last.pt
     # on the untouched MedMCQA validation ("change the best with last if
-    # it is good"), then score the never-trained-on 40% benchmark
-    # partition exactly once, plus MedQA test again (retention).
+    # it is good"), then score the never-trained-on 40% of MedQA exactly
+    # once, plus the official MedQA test split (also untouched).
     val_ds = make_dataset("medmcqa", "validation", tokenizer, cfg, args.limit)
     val_loader = build_dataloader(val_ds, cfg, args.batch_size, False, False,
                                   seed=args.seed, workers=0)
@@ -514,19 +520,19 @@ def main() -> None:
     if is_main:
         log(f"final benchmark uses {chosen} (medmcqa_val "
             f"{scores[chosen]['accuracy']*100:.2f}%)")
-        if args.eval_only and "medqa" not in results.get("phase1", {}):
-            log("note: phase-1 MedQA-test result not in results.json "
-                "(only a training run records it)")
+        if args.eval_only and "medmcqa_val" not in results.get("phase1", {}):
+            log("note: phase-1 MedMCQA-validation result not in "
+                "results.json (only a training run records it)")
     results["selected"] = selected
     results["test"]["medmcqa_val"] = scores[chosen]
     eval_phase1()  # no-op when already recorded / for eval-only
 
-    # The benchmark: 40% of MedMCQA train, never trained on — scored once.
-    mcqa_full = make_dataset("medmcqa", "train", tokenizer, cfg, args.limit)
-    _, bench = split_frac(mcqa_full, MCQA_FT_FRAC, args.seed)
-    finals = [("medmcqa_bench", bench),
-              ("medqa", make_dataset("medqa", "test", tokenizer, cfg,
-                                     args.limit))]
+    # The benchmark: 40% of MedQA train, never trained on — scored once.
+    medqa_full = make_dataset("medqa", "train", tokenizer, cfg, args.limit)
+    _, bench = split_frac(medqa_full, FT_FRAC, args.seed)
+    finals = [("medqa_bench", bench),
+              ("medqa_test", make_dataset("medqa", "test", tokenizer, cfg,
+                                          args.limit))]
     for name, ds_ in finals:
         loader = build_dataloader(ds_, cfg, args.batch_size, False, False,
                                   seed=args.seed, workers=0)

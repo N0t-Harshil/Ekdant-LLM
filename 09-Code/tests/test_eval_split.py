@@ -1,14 +1,14 @@
 """Sequential 60/40 benchmark protocol.
 
-Phase 1 trains on all of MedQA; phase 2 fine-tunes on the head partition
-of MedMCQA train (MCQA_FT_FRAC = 60%); the complementary 40% tail is the
+Phase 1 trains on all of MedMCQA; phase 2 fine-tunes on the head partition
+of MedQA train (FT_FRAC = 60%); the complementary 40% tail is the
 final benchmark and is never trained on. The single permutation is seeded
 by --seed, so both A/B arms get the identical partition (fairness rule).
 The untouched MedMCQA validation split (full, not partitioned) is the
 checkpoint-selection set: best.pt vs last.pt are compared on it at the end.
 """
 
-from ekdant.train import MCQA_FT_FRAC, split_frac
+from ekdant.train import FT_FRAC, STAGES, split_frac
 
 
 def test_split_frac_partitions_disjointly_and_deterministically():
@@ -33,7 +33,9 @@ def test_split_frac_sizes_truncate_down():
 
 
 def test_split_frac_fractions_and_protocol_constant():
-    # the protocol is locked: 60% fine-tune / 40% benchmark
-    assert MCQA_FT_FRAC == 0.6
-    head, tail = split_frac(list(range(5)), MCQA_FT_FRAC, seed=17)
+    # the protocol is locked: train MedMCQA first, fine-tune on 60% of
+    # MedQA, benchmark the 40% tail — never trained jointly
+    assert FT_FRAC == 0.6
+    assert STAGES == (("medmcqa", "train"), ("medqa_ft", "train"))
+    head, tail = split_frac(list(range(5)), FT_FRAC, seed=17)
     assert len(head) == 3 and len(tail) == 2

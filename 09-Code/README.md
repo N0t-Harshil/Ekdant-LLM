@@ -95,7 +95,7 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --batch-size 8
 ```
 
 Both phases run inside one invocation, strictly sequential: train+test on
-all of MedQA, then fine-tune on 60% of MedMCQA, then benchmark the
+all of MedMCQA, then fine-tune on 60% of MedQA, then benchmark the
 untouched 40%. The tokenizer is trained once on the MedMCQA sample and
 reused, so the two variants see the **same vocabulary** — required for a
 fair comparison.
@@ -107,12 +107,12 @@ fair comparison.
 | `--batch-size` | 24 | per GPU |
 | `--grad-accum` | 2 | effective batch = 24 × 2 × n_gpu |
 | `--lr` | 3e-4 | cosine, `--warmup` optimizer steps |
-| `--epochs` | 3 | per phase (MedQA phase 1, MedMCQA fine-tune phase 2) |
+| `--epochs` | 3 | per phase (MedMCQA phase 1, MedQA fine-tune phase 2) |
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
 | `--log-every` | 100 | progress line every N optimizer steps: `step X/Y (%) loss lr gnorm tok/s eta` (`0` = summaries only) |
 | `--eval-every` | 1 | phase 2: untouched MedMCQA validation eval every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_val` (`0` = no per-epoch eval) |
-| `--seed` | 17 | also **locks the 60/40 MedMCQA partition** — identical for both arms |
+| `--seed` | 17 | also **locks the 60/40 MedQA partition** — identical for both arms |
 | `--resume` | off | continue `<out>/last.pt`; skips finished stage/epochs |
 | `--eval-only` | off | no training; re-run the final protocol (selection + 40% benchmark) |
 
@@ -143,16 +143,16 @@ runs/<variant>/
   last.pt            every-epoch checkpoint (resume artifact; incl. history)
   best.pt            peak medmcqa_val during the fine-tune — candidate checkpoint
   results.json       history (loss/lr/gnorm + phase-2 val curve)
-                     + phase1{medqa} + test{medmcqa_bench, medmcqa_val, medqa} + selected{...}
+                     + phase1{medmcqa_val} + test{medmcqa_val, medqa_bench, medqa_test} + selected{...}
 ```
 
 **Protocol (sequential, never jointly trained):** train on all of
-MedQA → record the **MedQA test** result (`phase1`) → fine-tune on a
-seed-locked **60% of MedMCQA train** → benchmark the complementary
-**40%** (`medmcqa_bench`, never trained on, scored once) + MedQA test
-again (retention). Checkpoint = **better of best.pt vs last.pt** on the
-untouched MedMCQA validation (same `--seed` → identical partition and
-identical benchmark rows for both arms). Compare the two
+MedMCQA → record the **MedMCQA validation** result (`phase1`) → fine-tune
+on a seed-locked **60% of MedQA train** → benchmark the complementary
+**40%** (`medqa_bench`, never trained on, scored once) + official MedQA
+test (`medqa_test`, also untouched). Checkpoint = **better of best.pt vs
+last.pt** on the untouched MedMCQA validation (same `--seed` → identical
+partition and identical benchmark rows for both arms). Compare the two
 `results.json` files:
 
 ```bash
@@ -161,10 +161,11 @@ import json
 for v in ("baseline", "sandbox"):
     r = json.load(open(f"runs/{v}/results.json"))
     t, s = r["test"], r["selected"]
-    p1 = r.get("phase1", {}).get("medqa", {}).get("accuracy")
+    p1 = r.get("phase1", {}).get("medmcqa_val", {}).get("accuracy")
     print(f"{v:9s} params={r['params']/1e6:.2f}M ckpt={s['checkpoint']} "
-          f"bench={t['medmcqa_bench']['accuracy']*100:.2f}% "
-          f"medqa {(p1 or 0)*100:.2f}%->{t['medqa']['accuracy']*100:.2f}%")
+          f"bench={t['medqa_bench']['accuracy']*100:.2f}% "
+          f"medqa_test={t['medqa_test']['accuracy']*100:.2f}% "
+          f"medmcqa {(p1 or 0)*100:.2f}%->{t['medmcqa_val']['accuracy']*100:.2f}%")
 PY
 ```
 
