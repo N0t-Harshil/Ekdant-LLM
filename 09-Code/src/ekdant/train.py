@@ -89,11 +89,21 @@ def build_dataloader(ds, cfg, batch_size, shuffle, distributed, seed=0,
                      workers=4):
     sampler = (DistributedSampler(ds, shuffle=shuffle, seed=seed)
                if distributed else None)
+    # Dedicated generator: model init consumes a different amount of global
+    # RNG per arm (sandbox vs baseline have different param counts), so
+    # shuffle order would otherwise diverge between the A/B arms. Seeded
+    # with --seed, both arms see identical row order. (After a --resume the
+    # generator restarts, so order after the break can differ from an
+    # uninterrupted run — order noise only, never the partition.)
+    gen = None
+    if shuffle and sampler is None:
+        gen = torch.Generator()
+        gen.manual_seed(seed)
     return DataLoader(
         ds, batch_size=batch_size, shuffle=(shuffle and sampler is None),
         sampler=sampler, num_workers=workers, pin_memory=True,
         drop_last=shuffle, collate_fn=partial(collate, pad_id=cfg.pad_id),
-        persistent_workers=(workers > 0),
+        persistent_workers=(workers > 0), generator=gen,
     )
 
 
@@ -175,6 +185,7 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
     means the clip is active every step; near 0 means training stalled).
     """
     model.train()
+    opt.zero_grad(set_to_none=True)  # never inherit a prior epoch's tail
     total, ntok, steps, nsamp = 0.0, 0, 0, 0
     gnorm_sum, gnorm_n = 0.0, 0
     loss_ema = None
@@ -223,6 +234,24 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
         ntok += bsz_tok
         ntok_window += bsz_tok
         steps += 1
+    if steps > 0 and steps % accum != 0:
+        # Flush the trailing partial accumulation group. The schedule
+        # budgets ceil(steps/accum) optimizer steps per epoch; without
+        # this the tail micro-batches' grads leaked into the NEXT epoch's
+        # first step (and the budgeted step was never taken — with
+        # small --limit runs, zero steps ever fired).
+        lr = lr_at(opt_step, total_opt, base_lr, warmup)
+        for g in opt.param_groups:
+            g["lr"] = lr
+        last_lr = lr
+        opt_step += 1
+        scaler.unscale_(opt)
+        gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
+        gnorm_sum += gnorm
+        gnorm_n += 1
+        scaler.step(opt)
+        scaler.update()
+        opt.zero_grad(set_to_none=True)
     avg_gnorm = gnorm_sum / max(1, gnorm_n)
     return total / max(1, nsamp), ntok, opt_step, last_lr, avg_gnorm
 
@@ -241,8 +270,8 @@ def evaluate(model, loader, device, autocast,
                         answer_ids=batch["answer_ids"],
                         answer_weight=answer_weight)
             logits = out.logits
-        loss_sum += out.loss.item()
-        n += 1
+        loss_sum += out.loss.item() * batch["input_ids"].size(0)
+        n += batch["input_ids"].size(0)
         # logits[t] predicts token t+1 -> score the answer at p via logits[p-1]
         got = logits[torch.arange(len(logits), device=device),
                      batch["answer_pos"] - 1]

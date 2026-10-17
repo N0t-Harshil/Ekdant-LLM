@@ -364,7 +364,9 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --resume
 
 Not restored (unavoidable with `torch.save` per epoch): AdamW moments
 (optimizer restarts cold) — expect a small loss bump on the first resumed
-batch.
+batch. Also note the train-shuffle generator restarts on resume, so row
+order after the break can differ from an uninterrupted run (order noise
+only — the 60/40 partition itself is seed-locked and never changes).
 
 Semantics: checkpoints are saved after every epoch, tagged
 `completed = (epoch counts of all earlier stages summed) + epoch + 1`
@@ -385,7 +387,7 @@ original run; changing them changes the pair arithmetic. Examples:
 ```bash
 cd 09-Code
 pip install -e .[dev]
-python -m pytest            # 85 tests
+python -m pytest            # 88 tests
 ```
 
 Covers: config/param accounting, T block (causal+window mask exactness,
@@ -545,7 +547,7 @@ names — that is the checkpoint the `medqa_bench` number belongs to.
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-python -m pytest                                        # 85 unit tests
+python -m pytest                                        # 88 unit tests
 # full A/B (one arm at a time)
 torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox  --out runs/sandbox
 torchrun --nproc_per_node=4 -m ekdant.train --variant baseline --out runs/baseline

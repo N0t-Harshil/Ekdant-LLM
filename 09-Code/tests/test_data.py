@@ -215,3 +215,41 @@ def test_evaluate_scores_answer_position_and_index(tmp_path):
     model = _StubModel(logits_with_peak_at(lambda p: p))
     r = evaluate(model, [batch], torch.device("cpu"), autocast)
     assert r["accuracy"] == 0.25
+
+
+def test_evaluate_loss_is_sample_weighted(monkeypatch):
+    """Eval loss must be a true sample mean: batches differ in size (the
+    last eval batch is smaller), so a plain batch mean biases the number
+    that gets logged and compared."""
+    import torch
+
+    import ekdant.train as T
+    from ekdant.train import evaluate
+
+    monkeypatch.setattr(T, "LETTER_IDS", [1, 2, 3, 4])
+
+    class _Out:
+        def __init__(self, logits, loss):
+            self.logits, self.loss, self.aux = logits, loss, {}
+
+    class _StubModel:
+        def eval(self):
+            return self
+
+        def __call__(self, input_ids, labels=None, **kwargs):
+            bs = input_ids.size(0)
+            return _Out(torch.zeros(bs, 4, 64), torch.tensor(float(bs)))
+
+    def mk(bs):
+        return {"input_ids": torch.ones(bs, 4, dtype=torch.long),
+                "labels": torch.ones(bs, 4, dtype=torch.long),
+                "attention_mask": torch.ones(bs, 4, dtype=torch.long),
+                "answer_pos": torch.ones(bs, dtype=torch.long),
+                "answer_target": torch.zeros(bs, dtype=torch.long),
+                "answer_ids": torch.zeros(bs, dtype=torch.long)}
+
+    r = evaluate(_StubModel(), [mk(3), mk(1)], torch.device("cpu"),
+                 lambda: torch.autocast("cpu", enabled=False))
+    # sample-weighted: (3*3 + 1*1) / 4 = 2.5  (a batch mean would say 2.0)
+    assert abs(r["loss"] - 2.5) < 1e-6
+    assert r["n"] == 4

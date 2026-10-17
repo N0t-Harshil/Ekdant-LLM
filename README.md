@@ -22,7 +22,7 @@ Specialized reasoning model (T dense Transformer + L2 sandbox; L1 SSM designed i
 | [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, 8-phase validation, debugging, performance | Ch. 5/6 |
 | [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T22), defense-ordered future work | Ch. 7 |
 | [08-Thesis](08-Thesis/thesis.md) | thesis.md + thesis.tex/pdf + [glossary](08-Thesis/GLOSSARY.md) | Draft |
-| [09-Code](09-Code/README.md) | **L2-only training code** — pure PyTorch, 85 tests, A/B configs | Build |
+| [09-Code](09-Code/README.md) | **L2-only training code** — pure PyTorch, 88 tests, A/B configs | Build |
 | [papers/](papers/00_Papers_Index.md) | 66 PDFs (all thesis-cited) + indexes | Sources |
 
 ## Day-1 (new collaborator)
@@ -33,7 +33,7 @@ Specialized reasoning model (T dense Transformer + L2 sandbox; L1 SSM designed i
 cd 09-Code
 pip install -e .[dev]     # note: trailing dot is required
 python -c "import ekdant; print('ok')"
-pytest -q                    # 85 tests, CPU, ~10s
+pytest -q                    # 88 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```
 

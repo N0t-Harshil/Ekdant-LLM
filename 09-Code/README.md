@@ -134,7 +134,9 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --eval-only    # re-
 
 `--resume` restores weights, step, epoch/stage position, and history from
 `last.pt`; the tokenizer and the exact `config.json` in `--out` are reused.
-Optimizer moments restart cold (small loss bump expected). Keep the same
+Optimizer moments restart cold (small loss bump expected), and the
+train-shuffle generator restarts (row order after the break may differ —
+never the seed-locked 60/40 partition). Keep the same
 flags (esp. `--epochs` and `--ft-epochs`/`--ft-lr`/`--answer-weight`, if
 used) as the
 original run. See [`../run.md`](../run.md) §4.
@@ -206,5 +208,5 @@ cost of the sandbox arm (≈1.5× baseline wall-clock).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 85 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 88 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```
