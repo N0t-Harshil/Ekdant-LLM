@@ -1,7 +1,11 @@
 """LR schedule (optimizer-step semantics) — the warmup bug made a default
-3-epoch run never leave warmup, so full runs trained at ~0.5% of base lr."""
+3-epoch run never leave warmup, so full runs trained at ~0.5% of base lr.
+Also covers the per-phase knobs (--ft-lr / --ft-epochs) and the flat
+resume index they share across stages."""
 
-from ekdant.train import lr_at
+import argparse
+
+from ekdant.train import lr_at, stage_hparams, stage_offsets
 
 BASE = 3e-4
 
@@ -46,3 +50,35 @@ def test_stage_boundary_resets_cosine_cycle():
     assert abs(lr_at(0, stage2_total, BASE, warmup) - BASE / warmup) < 1e-12
     # and if the counter were NOT reset it would stay at 0 — what we fixed
     assert abs(lr_at(stage1_total, stage2_total, BASE, warmup)) < 1e-12
+
+
+def _args(**kw):
+    base = {"lr": BASE, "epochs": 100, "ft_lr": None, "ft_epochs": None}
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def test_stage_hparams_defaults_preserve_legacy_behavior():
+    """Without --ft-lr/--ft-epochs both phases share --lr/--epochs — a run
+    that doesn't pass the knobs behaves exactly as before they existed."""
+    a = _args()
+    assert stage_hparams(a, 0) == (BASE, 100)
+    assert stage_hparams(a, 1) == (BASE, 100)
+
+
+def test_stage_hparams_overrides_apply_to_medqa_finetune_only():
+    """The anti-overfit knobs must never touch the MedMCQA phase."""
+    a = _args(ft_lr=5e-5, ft_epochs=10)
+    assert stage_hparams(a, 0) == (BASE, 100)
+    assert stage_hparams(a, 1) == (5e-5, 10)
+
+
+def test_stage_offsets_resume_arithmetic():
+    """completed = offset + epoch + 1 stays a strictly rising flat index
+    across stages; equal epochs reproduce the legacy si * epochs values so
+    older checkpoints resume unchanged (no skipped/re-run epochs)."""
+    assert stage_offsets([100, 100]) == [0, 100]
+    offs = stage_offsets([100, 10])
+    assert offs == [0, 100]
+    totals = [offs[s] + e for s, e in enumerate((100, 10))]
+    assert totals == [100, 110]

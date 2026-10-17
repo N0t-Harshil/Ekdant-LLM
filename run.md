@@ -117,41 +117,59 @@ runs the two phases **in order, never trained jointly** (at
    MedQA test split (1,273 — also never trained on) and the
    selection-set validation score (retention vs `phase1`).
 
-100 epochs × (3,802 + 128) = **393,000 optimizer steps** total. Steps
-per epoch cannot be raised without shrinking the effective batch (same
-data, lr 3e-4 tuned at 48) — total steps grow by training longer, which
-is what this recipe does.
+Phase 1: 100 × 3,802 = 380,200 steps. Phase 2: 10 × 128 = 1,280 steps
+(the two `--ft-*` knobs below cap it — see T21). Total **381,480
+optimizer steps**. Steps per epoch cannot be raised without shrinking
+the effective batch (same data, lr 3e-4 tuned at 48) — total steps grow
+by training longer, which is what this recipe does.
 
 ```bash
 cd 09-Code
 nohup python -m ekdant.train --variant baseline --out runs/baseline_100ep \
-  --batch-size 6 --grad-accum 8 --epochs 100 > baseline_100ep.log 2>&1 &
+  --batch-size 6 --grad-accum 8 --epochs 100 \
+  --ft-lr 5e-5 --ft-epochs 10 > baseline_100ep.log 2>&1 &
 tail -f baseline_100ep.log            # watch live; Ctrl-c stops watching only
 
-# after it writes results.json (≈17.5 h), same command for the sandbox arm:
+# after it writes results.json (≈17.3 h), same command for the sandbox arm:
 nohup python -m ekdant.train --variant sandbox --out runs/sandbox_100ep \
-  --batch-size 6 --grad-accum 8 --epochs 100 > sandbox_100ep.log 2>&1 &
+  --batch-size 6 --grad-accum 8 --epochs 100 \
+  --ft-lr 5e-5 --ft-epochs 10 > sandbox_100ep.log 2>&1 &
 ```
+
+> **Why `--ft-lr 5e-5 --ft-epochs 10` is in the command (T21):** the
+> MedQA fine-tune is only **6,106 rows** — 12,800 steps at 3e-4 would
+> memorize it. The 40-epoch pilot (`runs/baseline_40ep`, pre-protocol)
+> shows the failure exactly: train CE fell to ~0.05, the *best* held-out
+> MedQA score was 28.44% at fine-tune **epoch 4** (+0.24 over the 28.20%
+> zero-shot), and MedMCQA validation collapsed 34.75% → ~28.7% (CE
+> 4.3 → 6.8 = forgetting). The useful transfer window is epochs 2–4;
+> `--ft-lr 5e-5 --ft-epochs 10` gives phase 2 **1,280 gentle steps**
+> instead of 12,800 destructive ones (total 381,480 ≈ 17.3 h baseline —
+> phase 1 dominates the wall-clock either way). Dropping the two flags
+> restores the legacy behavior (both phases share `--lr`/`--epochs`).
+> Phase 1 is unaffected either way, so an in-flight run can adopt them
+> with `--resume` + the two flags added to the original command.
 
 **Measured budget (live telemetry, baseline arm):** the collator pads
 batches to *batch max* (`data.py::collate`) and MedMCQA/MedQA prompts
 are only ~40–80 tokens — `max_seq_len` 2048 is a truncation cap, never
 padded to — so a 16 GB T4 sustains **≈6.3 optimizer steps/s ≈ 10 min
 per MedMCQA epoch** (fp16 fallback on T4, ~11.9K real tok/s).
-Baseline arm ≈ **17.5 h** (phase 1 ≈ 16.8 h + phase 2 ≈ 34 min + 100
-validation evals ≈ 15 min + final evals). Sandbox arm does K=4
+Baseline arm ≈ **17.3 h** (phase 1 ≈ 16.8 h + phase 2 ≈ 6 min + 10
+validation evals ≈ 5 min + final evals). Sandbox arm does K=4
 trajectories + debate + descent per token — expect roughly 1.5× (read
 its first ETA line) ≈ **26 h**. Full campaign **≈ 1.8 days sequential**.
 Epoch checkpoints + `nohup` make it resume-safe (add `--resume` after a
 pod restart). Scale guide (projected from the measured 6.3 steps/s;
-sandbox ≈ 1.5× baseline; steps = epochs × 3,930):
+sandbox ≈ 1.5× baseline; steps ≈ epochs × 3,802 + 1,280 with the
+fine-tune knobs):
 
 | `--epochs` | optimizer steps | T4 wall-clock (both arms) | note |
 |---|---|---|---|
-| 3 | ~12K | ~1.5 h | quick protocol check |
-| 14 | ~55K | ~6.5 h | thesis-class (~50K steps at 14 ep) |
-| 40 | ~157K | ~17.5 h | earlier campaign draft |
-| **100** | **~393K** | **~44 h (b ≈17.5 h, sbx ≈26 h)** | **the campaign — sequential MedMCQA→MedQA 60/40** |
+| 3 | ~12.7K | ~1.5 h | quick protocol check |
+| 14 | ~54.5K | ~6.5 h | thesis-class (~50K steps at 14 ep) |
+| 40 | ~153K | ~17 h | earlier campaign draft |
+| **100** | **~381K** | **~43 h (b ≈17.3 h, sbx ≈26 h)** | **the campaign — sequential MedMCQA→MedQA 60/40** |
 
 > **Reading epoch-0 ETA lines:** the first lines are inflated because
 > `torch.compile` warmup (~150 s, step-100 `tok/s`=1.1K vs 11.8K steady)
@@ -299,7 +317,9 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 | `--grad-accum` | 2 | effective batch = batch × accum × n_gpu (=192 on 4 GPUs) |
 | `--lr` | 3e-4 | cosine schedule, `--warmup` steps |
 | `--warmup` | 200 | warmup **optimizer steps**, then cosine (LR fix, §8) |
-| `--epochs` | 3 | epochs **per phase** (MedMCQA phase 1 and MedQA fine-tune phase 2 each) |
+| `--epochs` | 3 | epochs for **phase 1** (MedMCQA) |
+| `--ft-lr` | `--lr` | **phase-2 (MedQA fine-tune) cosine base LR** — lower it (e.g. `5e-5`) so 6,106 fine-tune rows don't overfit; phase 1 never uses it |
+| `--ft-epochs` | `--epochs` | epochs for **phase 2** (MedQA fine-tune) — cap it (e.g. `10`) instead of replaying `--epochs` over 6,106 rows |
 | `--limit` | none | cap rows per dataset (smoke/debug only) |
 | `--seed` | 17 | torch seed + tokenizer sample + data sampling + **the 60/40 partition** (identical for both arms) |
 | `--no-compile` | off | skip `torch.compile` (use if compile crashes or first-run overhead hurts) |
@@ -340,9 +360,11 @@ Not restored (unavoidable with `torch.save` per epoch): AdamW moments
 batch.
 
 Semantics: checkpoints are saved after every epoch, tagged
-`completed = stage_index × epochs + epoch + 1`. Resume with the **same
-`--variant`, `--out`, and `--epochs`** as the original run; changing
-`--epochs` changes the pair arithmetic. Examples:
+`completed = (epoch counts of all earlier stages summed) + epoch + 1`
+(the legacy `stage_index × epochs + epoch + 1` when both phases share one
+`--epochs`). Resume with the **same `--variant`, `--out`, `--epochs` (and
+`--ft-epochs` / `--ft-lr`, if the original run used them)** as the
+original run; changing them changes the pair arithmetic. Examples:
 
 - interrupted mid-stage → resumes at the next unfinished epoch of that stage
 - interrupted between stages → skips the finished stage, starts the next
@@ -355,7 +377,7 @@ Semantics: checkpoints are saved after every epoch, tagged
 ```bash
 cd 09-Code
 pip install -e .[dev]
-python -m pytest            # 78 tests
+python -m pytest            # 81 tests
 ```
 
 Covers: config/param accounting, T block (causal+window mask exactness,
@@ -515,7 +537,7 @@ names — that is the checkpoint the `medqa_bench` number belongs to.
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-python -m pytest                                        # 78 unit tests
+python -m pytest                                        # 81 unit tests
 # full A/B (one arm at a time)
 torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox  --out runs/sandbox
 torchrun --nproc_per_node=4 -m ekdant.train --variant baseline --out runs/baseline

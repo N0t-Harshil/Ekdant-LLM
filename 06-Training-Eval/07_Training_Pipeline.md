@@ -54,7 +54,9 @@ Data loads through `data.py::load_examples` (offline-first: cached loads skip th
 | `--grad-accum` | 2 | effective batch = 24 × 2 × n_gpu |
 | `--lr` | 3e-4 | cosine, 200 warmup optimizer steps (fixed) |
 | `--warmup` | 200 | optimizer steps (fixed, §4) |
-| `--epochs` | 3 | per phase (MedMCQA phase 1, MedQA fine-tune phase 2) |
+| `--epochs` | 3 | phase 1 (MedMCQA) epochs |
+| `--ft-lr` | `--lr` | **phase-2 (MedQA fine-tune) cosine base LR** — anti-overfit knob (e.g. `5e-5`); phase 1 never uses it |
+| `--ft-epochs` | `--epochs` | **phase-2 epochs** — cap the fine-tune (e.g. `10`) instead of replaying `--epochs` over 6,106 rows |
 | `--limit` | none | cap rows per dataset (smoke) |
 | `--no-compile` | off | skip `torch.compile` |
 | `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
@@ -70,7 +72,7 @@ Data loads through `data.py::load_examples` (offline-first: cached loads skip th
 
 **Checkpointing + outputs:** `<out>/config.json` at start; `<out>/last.pt` (`{model, cfg, step, completed, opt_step, history, best_medmcqa}`) after **every epoch** (single checkpoint, no rotation); during phase 2 with `--eval-every 1` each epoch also scores the **untouched MedMCQA validation** split (rank 0 on the unwrapped module — DDP-safe), appends `history[..].test = {medmcqa_val}` (accuracy/loss/n), rewrites `results.json` incrementally (curve survives a crash), and saves `<out>/best.pt` on a new `medmcqa_val` best. The phase-1 MedMCQA-validation result is written once at the phase boundary (`results["phase1"]`). **Final protocol:** evaluate `best.pt` and `last.pt` on `medmcqa_val`, load the better (ties keep `best.pt` — "change the best with last if it is good"), record `results["selected"] = {checkpoint, selected_on: "medmcqa_val", best_val_accuracy, last_val_accuracy}`, then score the **40% MedQA partition** (`medqa_bench`, once, never trained on) + official MedQA test (`medqa_test`) — **that is the number to quote**; `last.pt` remains the resume artifact.
 
-**Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = stage_index × epochs + epoch + 1`), reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`), and preserves the recorded `phase1` result in `results.json`; optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the final protocol (better-of selection on `medmcqa_val`, then the 40% benchmark + official MedQA test). Keep `--variant`/`--out`/`--epochs` identical to the original run. Details: [run.md](../run.md) §4.
+**Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = (epoch counts of earlier stages summed) + epoch + 1` — the legacy `stage_index × epochs` when both phases share `--epochs`), reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`), and preserves the recorded `phase1` result in `results.json`; optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the final protocol (better-of selection on `medmcqa_val`, then the 40% benchmark + official MedQA test). Keep `--variant`/`--out`/`--epochs` (and `--ft-epochs`/`--ft-lr`, if used) identical to the original run. Details: [run.md](../run.md) §4.
 
 **Evaluation = letter accuracy (fixed — was T17).** `evaluate()` gathers the logits row at `answer_pos - 1` (the position that *predicts* the answer, since `logits[t]` predicts token `t+1`), restricts to the 4 letter-token ids (`LETTER_IDS`), and argmaxes vs `answer_target` — which is the **letter index 0–3**, not the answer's vocab id. One forward per example instead of four option-continuation scorings (plus mean CE loss). Both halves are load-bearing: reading `answer_pos` (the off-by-one) or comparing against the vocab id each silently collapse accuracy to ~0% while CE stays correct, so a trained model scores zero. Regression-tested by `test_evaluate_scores_answer_position_and_index`.
 
@@ -87,13 +89,14 @@ Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_s
 3. **Train-loss scale bug — FIXED.** The epoch mean divided Σ(loss × batch_size) by the batch *count*, so every pre-fix train loss was inflated ×`--batch-size` (e.g. "22.28" at batch 6 ≈ true 3.7 — consistent with eval CE ≈ 3.2–3.6). Fixed to a true sample mean; eval losses were always correct; same-batch comparisons are unaffected.
 4. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
 5. Not bugs but design gaps: diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute. *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
+6. **Phase-2 memorization risk — MITIGATED (per-phase knobs).** Phase 2 used to inherit `--lr`/`--epochs`, so the campaign recipe spent 12,800 steps @ 3e-4 on only 6,106 MedQA rows — the 40-epoch pilot (`runs/baseline_40ep`) memorized it (train CE → ~0.05, held-out MedQA stuck at chance ≈25%, MedMCQA validation decaying = forgetting). **`--ft-lr` / `--ft-epochs`** (defaults: `--lr`/`--epochs`, so unchanged unless passed) fine-tune only phase 2; recommended `--ft-lr 5e-5 --ft-epochs 10` (phase 2 = 1,280 steps) in [run.md](../run.md) §3. Regression: `tests/test_schedule.py` (`stage_hparams`, `stage_offsets`).
 6. **Eval hang before first result — FIXED (offline-first data loading).** Per-epoch evals called `load_dataset`, which performs a hub etag HEAD on every load; with bad connectivity that request stalls indefinitely (dead route, IPv6) and training appears frozen with no error line. `data.py` now defaults `HF_HUB_OFFLINE=1` (cache-only reads) and flips online only for a first-run download (`tests/test_data.py` locks the loader contract; the stall itself was reproduced live, not unit-testable).
 
 ## 5. Smoke test (Phase 8 substitute)
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 78 tests, CPU, ~10s
+pytest -q    # 81 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 

@@ -107,7 +107,9 @@ fair comparison.
 | `--batch-size` | 24 | per GPU |
 | `--grad-accum` | 2 | effective batch = 24 × 2 × n_gpu |
 | `--lr` | 3e-4 | cosine, `--warmup` optimizer steps |
-| `--epochs` | 3 | per phase (MedMCQA phase 1, MedQA fine-tune phase 2) |
+| `--epochs` | 3 | phase 1 (MedMCQA) epochs |
+| `--ft-lr` | `--lr` | **phase-2 (MedQA fine-tune) cosine base LR** — anti-overfit knob (e.g. `5e-5`); phase 1 never uses it |
+| `--ft-epochs` | `--epochs` | **phase-2 epochs** — cap the fine-tune (e.g. `10`) instead of replaying `--epochs` over 6,106 rows |
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
 | `--log-every` | 100 | progress line every N optimizer steps: `step X/Y (%) loss lr gnorm tok/s eta` (`0` = summaries only) |
@@ -132,7 +134,8 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --eval-only    # re-
 `--resume` restores weights, step, epoch/stage position, and history from
 `last.pt`; the tokenizer and the exact `config.json` in `--out` are reused.
 Optimizer moments restart cold (small loss bump expected). Keep the same
-flags (esp. `--epochs`) as the original run. See [`../run.md`](../run.md) §4.
+flags (esp. `--epochs` and `--ft-epochs`/`--ft-lr`, if used) as the
+original run. See [`../run.md`](../run.md) §4.
 
 ## Outputs
 
@@ -199,5 +202,5 @@ cost of the sandbox arm (≈1.5× baseline wall-clock).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 78 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 81 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```

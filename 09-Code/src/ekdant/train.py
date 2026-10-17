@@ -128,6 +128,24 @@ def load_stage(name, split, tokenizer, cfg, limit=None, seed=17):
     return ds
 
 
+def stage_hparams(args, si: int):
+    """(lr, epochs) for stage ``si``.  The MedQA fine-tune phase has its own
+    knobs (``--ft-lr`` / ``--ft-epochs``) that default to ``--lr`` /
+    ``--epochs`` — a run without them behaves exactly as before."""
+    ft = STAGES[si][0] == "medqa_ft"
+    lr = args.ft_lr if ft and args.ft_lr is not None else args.lr
+    epochs = args.ft_epochs if ft and args.ft_epochs is not None \
+        else args.epochs
+    return lr, epochs
+
+
+def stage_offsets(epochs_each):
+    """Flat ``completed``-index offset of each stage (sum of earlier stages'
+    epoch counts).  With equal per-stage epochs this is the legacy
+    ``si * epochs`` arithmetic, so older checkpoints resume unchanged."""
+    return [sum(epochs_each[:si]) for si in range(len(epochs_each))]
+
+
 def lr_at(step, total, base, warmup):
     """LR for an optimizer step: linear warmup, then cosine to 0."""
     if step < warmup:
@@ -237,6 +255,11 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--warmup", type=int, default=200)
     ap.add_argument("--epochs", type=int, default=3)
+    ap.add_argument("--ft-lr", type=float, default=None,
+                    help="phase-2 (MedQA fine-tune) cosine base LR; "
+                         "default: same as --lr")
+    ap.add_argument("--ft-epochs", type=int, default=None,
+                    help="phase-2 epochs; default: same as --epochs")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--no-compile", action="store_true")
     ap.add_argument("--seed", type=int, default=17)
@@ -263,6 +286,13 @@ def main() -> None:
     is_main = (not distributed) or dist.get_rank() == 0
 
     resume_mode = args.resume or args.eval_only
+    if not resume_mode and is_main:
+        stale = os.path.join(args.out, "last.pt")
+        if os.path.exists(stale):
+            log(f"error: {stale} exists but --resume was not passed - a fresh "
+                f"run would overwrite an existing training state. Pass "
+                f"--resume, use a new --out directory, or delete {args.out}")
+            raise SystemExit(1)
     run_cfg = os.path.join(args.out, "config.json")
     if resume_mode and os.path.exists(run_cfg):
         with open(run_cfg, "r", encoding="utf-8") as f:
@@ -404,11 +434,12 @@ def main() -> None:
         _write_results()
 
     if not args.eval_only:
+        epochs_each = [stage_hparams(args, si)[1] for si in range(len(STAGES))]
+        offsets = stage_offsets(epochs_each)
         for si, (stage_name, split) in enumerate(STAGES):
-            first_epoch = 0
-            while si * args.epochs + first_epoch < start_pair:
-                first_epoch += 1
-            if first_epoch >= args.epochs:
+            stage_lr, stage_epochs = stage_hparams(args, si)
+            first_epoch = max(0, start_pair - offsets[si])
+            if first_epoch >= stage_epochs:
                 if is_main:
                     log(f"stage {stage_name}: already complete, skipping")
                 if si == 0:
@@ -420,25 +451,25 @@ def main() -> None:
                                       distributed, seed=args.seed)
             steps_per_epoch = max(1, len(loader))
             opt_per_epoch = max(1, math.ceil(steps_per_epoch / args.grad_accum))
-            total_opt = opt_per_epoch * args.epochs
+            total_opt = opt_per_epoch * stage_epochs
             if is_main:
                 log(f"\n=== stage {stage_name}  n={len(ds)} "
                     f"(epoch {first_epoch}+) | {opt_per_epoch} opt/epoch x "
-                    f"{args.epochs} epochs = {total_opt} steps, "
-                    f"lr {args.lr:g} cosine, warmup {args.warmup} ===")
+                    f"{stage_epochs} epochs = {total_opt} steps, "
+                    f"lr {stage_lr:g} cosine, warmup {args.warmup} ===")
             stage_opt_step = 0  # each stage gets its own cosine cycle
-            for epoch in range(first_epoch, args.epochs):
+            for epoch in range(first_epoch, stage_epochs):
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(epoch)
                 t0 = time.time()
                 avg, ntok, stage_opt_step, last_lr, avg_gnorm = train_stage(
                     model, loader, opt, device, epoch, scaler, autocast,
-                    stage_opt_step, total_opt, args.lr, args.warmup,
+                    stage_opt_step, total_opt, stage_lr, args.warmup,
                     args.grad_accum, stage_name=stage_name,
                     log_every=args.log_every)
                 opt_step = stage_opt_step  # for resume/ckpt bookkeeping
                 step += 1
-                completed = si * args.epochs + epoch + 1
+                completed = offsets[si] + epoch + 1
                 if is_main:
                     log(f"[{stage_name}] ep{epoch} done loss={avg:.4f} "
                         f"gnorm={avg_gnorm:.2f} lr_end={last_lr:.2e} "
@@ -456,7 +487,7 @@ def main() -> None:
                     if (args.eval_every > 0
                             and stage_name == "medqa_ft"
                             and ((epoch + 1) % args.eval_every == 0
-                                 or epoch + 1 == args.epochs)):
+                                 or epoch + 1 == stage_epochs)):
                         # Selection set: the untouched MedMCQA validation
                         # split.  The 40% benchmark partition is scored
                         # exactly once, at the end.

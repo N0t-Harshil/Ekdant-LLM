@@ -103,5 +103,5 @@ The thesis covers text-only pretraining (plus optional SFT/DPO), five evaluation
 | T (`09-Code/src/ekdant/transformer_stack.py`) | Implemented + tested |
 | L2 (`09-Code/src/ekdant/sandbox.py` + `output_head.py`) | Implemented + tested |
 | Wiring + config (`09-Code/src/ekdant/model.py`; `configs/sandbox_50m.json` / `baseline_50m.json`) | Implemented (L2-only forward: embed → T → L2 → head) |
-| Tests (`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py`) | **78 passing** (model, sandbox, transformer, data-schema, LR-schedule, benchmark half-split unit tests) |
+| Tests (`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py`) | **81 passing** (model, sandbox, transformer, data-schema, LR-schedule, benchmark half-split unit tests) |
 | Background library (66 PDFs) | Ready (`papers/00_Papers_Index.md`) |
