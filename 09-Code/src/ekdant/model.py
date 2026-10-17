@@ -105,6 +105,9 @@ class EkdantModel(nn.Module):
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
         return_aux: bool = True,
+        answer_pos: Optional[torch.Tensor] = None,
+        answer_ids: Optional[torch.Tensor] = None,
+        answer_weight: float = 0.0,
     ) -> ModelOutput:
         c = self.cfg
         x = self.drop(self.embed(input_ids))
@@ -129,6 +132,18 @@ class EkdantModel(nn.Module):
                 labels[:, 1:].reshape(-1),
                 ignore_index=-100,
             )
+            if answer_weight > 0.0 and answer_pos is not None \
+                    and answer_ids is not None:
+                # The answer letter is 1 token out of ~34 (MedMCQA) or ~173
+                # (MedQA), so plain LM CE spends ~97-99% of its gradient on
+                # predicting question text - accuracy plateaus while train CE
+                # collapses (40-epoch pilot). This term re-weights the letter
+                # decision (same position/metric as eval) without dropping
+                # the LM loss the sandbox needs for generation.
+                b_idx = torch.arange(input_ids.size(0), device=input_ids.device)
+                ans_logits = logits[b_idx, answer_pos - 1]
+                loss = loss + answer_weight * F.cross_entropy(
+                    ans_logits, answer_ids)
             if self.sandbox is not None and return_aux:
                 loss = loss + self._floor_penalty(aux)
 

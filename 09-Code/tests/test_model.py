@@ -178,6 +178,51 @@ def test_score_options_shape():
     assert s.shape == (B, 4)
 
 
+def test_answer_weight_adds_scaled_answer_ce():
+    torch.manual_seed(0)
+    m = EkdantModel(tiny(False))
+    ids = torch.randint(1, 500, (B, T))
+    answer_pos = torch.tensor([10, 20])
+    answer_ids = torch.tensor([3, 7])
+    with torch.no_grad():
+        base = m(ids, labels=ids, answer_weight=0.0).loss
+        w5 = m(ids, labels=ids, answer_pos=answer_pos,
+               answer_ids=answer_ids, answer_weight=5.0).loss
+        logits = m(ids, return_aux=False).logits
+        ans_ce = torch.nn.functional.cross_entropy(
+            logits[torch.arange(B), answer_pos - 1], answer_ids)
+    assert torch.isfinite(w5) and w5 > base
+    # loss == lm_ce + weight * ce(logits[answer_pos-1], answer_id)
+    assert abs(float(w5 - base) - 5.0 * float(ans_ce)) < 1e-4
+
+
+def test_answer_weight_zero_matches_legacy_call():
+    torch.manual_seed(0)
+    m = EkdantModel(tiny(False))
+    ids = torch.randint(1, 500, (B, T))
+    with torch.no_grad():
+        legacy = m(ids, labels=ids).loss
+        explicit = m(ids, labels=ids,
+                     answer_pos=torch.tensor([5, 6]),
+                     answer_ids=torch.tensor([1, 2]),
+                     answer_weight=0.0).loss
+    assert torch.equal(legacy, explicit)
+
+
+def test_answer_weight_gradients_reach_answer_position():
+    torch.manual_seed(0)
+    m = EkdantModel(tiny(False))
+    ids = torch.randint(1, 500, (B, T))
+    answer_pos = torch.tensor([10, 20])
+    answer_ids = torch.tensor([3, 7])
+    m.zero_grad()
+    m(ids, labels=ids, answer_pos=answer_pos,
+      answer_ids=answer_ids, answer_weight=10.0).loss.backward()
+    # the term supervises the logits that predict the letter at p-1
+    assert m.head.weight.grad is not None
+    assert float(m.head.weight.grad.abs().sum()) > 0
+
+
 def test_config_validation():
     with pytest.raises(ValueError):
         EkdantConfig(dim=64, n_heads=5).validate()

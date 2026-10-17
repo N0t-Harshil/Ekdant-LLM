@@ -246,16 +246,18 @@ def collate(batch: List[Dict], pad_id: int = 0) -> Dict[str, torch.Tensor]:
     mask = torch.zeros(len(batch), max_len, dtype=torch.long)
     pos = torch.zeros(len(batch), dtype=torch.long)
     tgt = torch.zeros(len(batch), dtype=torch.long)
+    aid = torch.zeros(len(batch), dtype=torch.long)
     for i, b in enumerate(batch):
         n = len(b["input_ids"])
         ids[i, :n] = torch.tensor(b["input_ids"], dtype=torch.long)
         mask[i, :n] = 1
         pos[i] = b["answer_pos"]
         tgt[i] = b["letter_idx"]  # index into LETTERS (0..3), not a vocab id
+        aid[i] = b["answer_id"]   # vocab id of the answer letter token
     labels = ids.clone()
     labels[~mask.bool()] = -100
     return {"input_ids": ids, "attention_mask": mask, "labels": labels,
-            "answer_pos": pos, "answer_target": tgt}
+            "answer_pos": pos, "answer_target": tgt, "answer_ids": aid}
 
 
 @torch.no_grad()

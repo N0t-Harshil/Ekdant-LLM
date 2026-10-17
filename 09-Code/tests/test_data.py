@@ -149,6 +149,22 @@ def test_letter_ids_bind_and_match_answer_token(tmp_path):
     assert batch["answer_target"].tolist() == [0, 1, 2, 3]
 
 
+def test_collate_carries_answer_vocab_ids(tmp_path):
+    from ekdant.data import LETTER_IDS, MCQDataset, collate
+
+    tok = _tiny_tokenizer(tmp_path)
+    exs = [MCQExample("which option is the correct one?",
+                      ["alpha", "beta", "gamma", "delta"], L)
+           for L in LETTERS]
+    ds = MCQDataset(exs, tok, max_len=256)
+    batch = collate(ds.rows, tok.pad_id)
+    # answer_ids are the letter tokens' vocab ids - the target the
+    # --answer-weight CE term trains on (must match eval's LETTER_IDS)
+    assert batch["answer_ids"].tolist() == LETTER_IDS
+    for i, row in enumerate(ds.rows):
+        assert int(batch["answer_ids"][i]) == row["answer_id"]
+
+
 def test_evaluate_scores_answer_position_and_index(tmp_path):
     import torch
     from ekdant.data import LETTER_IDS, MCQDataset, collate
@@ -173,7 +189,7 @@ def test_evaluate_scores_answer_position_and_index(tmp_path):
         def eval(self):
             return self
 
-        def __call__(self, input_ids, labels=None):
+        def __call__(self, input_ids, labels=None, **kwargs):
             return _Out(self.logits)
 
     def logits_with_peak_at(position_fn):

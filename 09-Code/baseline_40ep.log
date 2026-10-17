@@ -1,0 +1,1858 @@
+nohup: ignoring input
+variant=baseline  use_sandbox=False
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+trained tokenizer -> runs/baseline_40ep/tokenizer.json (26766)
+params total=43.53M T=26.75M L2=0.00M
+torch.compile enabled
+
+=== stage medmcqa  n=182496 (epoch 0+) | 3802 opt/epoch x 40 epochs = 152080 steps, lr 0.0003 cosine, warmup 200 ===
+[medmcqa] ep0 step 100/152080 (0%) loss=6.8991 lr=1.50e-04 gnorm=3.80 tok/s=1158 eta=69h01m05s
+[medmcqa] ep0 step 200/152080 (0%) loss=5.1565 lr=3.00e-04 gnorm=2.36 tok/s=11748 eta=37h51m14s
+[medmcqa] ep0 step 300/152080 (0%) loss=4.6701 lr=3.00e-04 gnorm=1.66 tok/s=11875 eta=27h27m59s
+[medmcqa] ep0 step 400/152080 (0%) loss=4.5003 lr=3.00e-04 gnorm=1.37 tok/s=11824 eta=22h16m43s
+[medmcqa] ep0 step 500/152080 (0%) loss=4.2896 lr=3.00e-04 gnorm=1.17 tok/s=11775 eta=19h09m40s
+[medmcqa] ep0 step 600/152080 (0%) loss=4.1699 lr=3.00e-04 gnorm=1.34 tok/s=11991 eta=17h03m42s
+[medmcqa] ep0 step 700/152080 (0%) loss=4.0447 lr=3.00e-04 gnorm=1.25 tok/s=11829 eta=15h34m34s
+[medmcqa] ep0 step 800/152080 (1%) loss=4.0277 lr=3.00e-04 gnorm=1.27 tok/s=11710 eta=14h27m48s
+[medmcqa] ep0 step 900/152080 (1%) loss=4.0115 lr=3.00e-04 gnorm=1.12 tok/s=11854 eta=13h35m36s
+[medmcqa] ep0 step 1000/152080 (1%) loss=3.9374 lr=3.00e-04 gnorm=1.10 tok/s=12039 eta=12h53m29s
+[medmcqa] ep0 step 1100/152080 (1%) loss=3.8780 lr=3.00e-04 gnorm=1.07 tok/s=11967 eta=12h18m49s
+[medmcqa] ep0 step 1200/152080 (1%) loss=3.7812 lr=3.00e-04 gnorm=1.17 tok/s=11832 eta=11h49m55s
+[medmcqa] ep0 step 1300/152080 (1%) loss=3.6808 lr=3.00e-04 gnorm=1.10 tok/s=11746 eta=11h26m16s
+[medmcqa] ep0 step 1400/152080 (1%) loss=3.6789 lr=3.00e-04 gnorm=1.06 tok/s=11909 eta=11h05m13s
+[medmcqa] ep0 step 1500/152080 (1%) loss=3.7589 lr=3.00e-04 gnorm=1.00 tok/s=11866 eta=10h47m03s
+[medmcqa] ep0 step 1600/152080 (1%) loss=3.6379 lr=3.00e-04 gnorm=1.07 tok/s=11940 eta=10h30m58s
+[medmcqa] ep0 step 1700/152080 (1%) loss=3.6131 lr=3.00e-04 gnorm=1.20 tok/s=11835 eta=10h17m04s
+[medmcqa] ep0 step 1800/152080 (1%) loss=3.5864 lr=3.00e-04 gnorm=1.07 tok/s=12207 eta=10h04m15s
+[medmcqa] ep0 step 1900/152080 (1%) loss=3.5482 lr=3.00e-04 gnorm=1.14 tok/s=11960 eta=9h52m49s
+[medmcqa] ep0 step 2000/152080 (1%) loss=3.4726 lr=3.00e-04 gnorm=1.26 tok/s=11983 eta=9h42m23s
+[medmcqa] ep0 step 2100/152080 (1%) loss=3.3924 lr=3.00e-04 gnorm=1.05 tok/s=11730 eta=9h33m21s
+[medmcqa] ep0 step 2200/152080 (1%) loss=3.3903 lr=3.00e-04 gnorm=1.16 tok/s=11958 eta=9h24m52s
+[medmcqa] ep0 step 2300/152080 (2%) loss=3.3996 lr=3.00e-04 gnorm=1.10 tok/s=12027 eta=9h17m07s
+[medmcqa] ep0 step 2400/152080 (2%) loss=3.4539 lr=3.00e-04 gnorm=1.11 tok/s=11850 eta=9h10m01s
+[medmcqa] ep0 step 2500/152080 (2%) loss=3.4612 lr=3.00e-04 gnorm=1.10 tok/s=12101 eta=9h03m33s
+[medmcqa] ep0 step 2600/152080 (2%) loss=3.3612 lr=3.00e-04 gnorm=1.08 tok/s=11906 eta=8h57m23s
+[medmcqa] ep0 step 2700/152080 (2%) loss=3.2914 lr=3.00e-04 gnorm=1.09 tok/s=11773 eta=8h51m54s
+[medmcqa] ep0 step 2800/152080 (2%) loss=3.2880 lr=3.00e-04 gnorm=1.18 tok/s=11741 eta=8h46m46s
+[medmcqa] ep0 step 2900/152080 (2%) loss=3.3126 lr=3.00e-04 gnorm=1.24 tok/s=11829 eta=8h42m08s
+[medmcqa] ep0 step 3000/152080 (2%) loss=3.2304 lr=3.00e-04 gnorm=1.34 tok/s=11490 eta=8h38m01s
+[medmcqa] ep0 step 3100/152080 (2%) loss=3.2721 lr=3.00e-04 gnorm=1.23 tok/s=11523 eta=8h33m59s
+[medmcqa] ep0 step 3200/152080 (2%) loss=3.1668 lr=3.00e-04 gnorm=1.33 tok/s=11707 eta=8h29m56s
+[medmcqa] ep0 step 3300/152080 (2%) loss=3.2046 lr=3.00e-04 gnorm=1.34 tok/s=11707 eta=8h26m12s
+[medmcqa] ep0 step 3400/152080 (2%) loss=3.2397 lr=3.00e-04 gnorm=1.27 tok/s=11606 eta=8h22m48s
+[medmcqa] ep0 step 3500/152080 (2%) loss=3.2004 lr=3.00e-04 gnorm=1.27 tok/s=11639 eta=8h19m31s
+[medmcqa] ep0 step 3600/152080 (2%) loss=3.2074 lr=3.00e-04 gnorm=1.15 tok/s=11491 eta=8h16m39s
+[medmcqa] ep0 step 3700/152080 (2%) loss=3.1822 lr=3.00e-04 gnorm=1.45 tok/s=11671 eta=8h13m44s
+[medmcqa] ep0 step 3800/152080 (2%) loss=3.1750 lr=3.00e-04 gnorm=1.18 tok/s=11900 eta=8h10m36s
+[medmcqa] ep0 done loss=3.7116 gnorm=1.55 lr_end=3.00e-04 tok/s=9514 time=12m34s
+[medmcqa] ep0 eval medmcqa acc=31.20% loss=3.5628 n=4170
+[medmcqa] ep0 eval medqa acc=24.59% loss=3.8984 n=1273
+[medmcqa] ep0 new best medmcqa 31.20% -> best.pt
+[medmcqa] ep1 step 3902/152080 (3%) loss=3.0170 lr=3.00e-04 gnorm=1.40 tok/s=11675 eta=6h38m35s
+[medmcqa] ep1 step 4002/152080 (3%) loss=3.0899 lr=3.00e-04 gnorm=1.32 tok/s=12172 eta=6h34m51s
+[medmcqa] ep1 step 4102/152080 (3%) loss=3.1042 lr=3.00e-04 gnorm=1.27 tok/s=11833 eta=6h33m48s
+[medmcqa] ep1 step 4202/152080 (3%) loss=3.1372 lr=2.99e-04 gnorm=1.37 tok/s=11726 eta=6h32m55s
+[medmcqa] ep1 step 4302/152080 (3%) loss=3.0894 lr=2.99e-04 gnorm=1.22 tok/s=11912 eta=6h32m43s
+[medmcqa] ep1 step 4402/152080 (3%) loss=3.0488 lr=2.99e-04 gnorm=1.40 tok/s=12172 eta=6h31m13s
+[medmcqa] ep1 step 4502/152080 (3%) loss=2.9791 lr=2.99e-04 gnorm=1.37 tok/s=11945 eta=6h30m29s
+[medmcqa] ep1 step 4602/152080 (3%) loss=2.9927 lr=2.99e-04 gnorm=1.62 tok/s=11839 eta=6h29m57s
+[medmcqa] ep1 step 4702/152080 (3%) loss=3.0347 lr=2.99e-04 gnorm=1.30 tok/s=12066 eta=6h29m15s
+[medmcqa] ep1 step 4802/152080 (3%) loss=2.9584 lr=2.99e-04 gnorm=1.26 tok/s=11995 eta=6h28m55s
+[medmcqa] ep1 step 4902/152080 (3%) loss=2.9889 lr=2.99e-04 gnorm=1.24 tok/s=12091 eta=6h28m15s
+[medmcqa] ep1 step 5002/152080 (3%) loss=2.9224 lr=2.99e-04 gnorm=1.45 tok/s=12023 eta=6h27m51s
+[medmcqa] ep1 step 5102/152080 (3%) loss=2.9992 lr=2.99e-04 gnorm=1.42 tok/s=12100 eta=6h27m16s
+[medmcqa] ep1 step 5202/152080 (3%) loss=2.9525 lr=2.99e-04 gnorm=1.35 tok/s=11917 eta=6h27m15s
+[medmcqa] ep1 step 5302/152080 (3%) loss=2.9831 lr=2.99e-04 gnorm=1.31 tok/s=11736 eta=6h27m11s
+[medmcqa] ep1 step 5402/152080 (4%) loss=2.9832 lr=2.99e-04 gnorm=1.43 tok/s=11985 eta=6h26m52s
+[medmcqa] ep1 step 5502/152080 (4%) loss=2.9215 lr=2.99e-04 gnorm=1.26 tok/s=11881 eta=6h26m40s
+[medmcqa] ep1 step 5602/152080 (4%) loss=2.9302 lr=2.99e-04 gnorm=1.34 tok/s=12200 eta=6h26m04s
+[medmcqa] ep1 step 5702/152080 (4%) loss=2.9702 lr=2.99e-04 gnorm=1.48 tok/s=11682 eta=6h25m57s
+[medmcqa] ep1 step 5802/152080 (4%) loss=2.9388 lr=2.99e-04 gnorm=1.35 tok/s=12077 eta=6h25m34s
+[medmcqa] ep1 step 5902/152080 (4%) loss=2.9340 lr=2.99e-04 gnorm=1.50 tok/s=11972 eta=6h25m10s
+[medmcqa] ep1 step 6002/152080 (4%) loss=2.9207 lr=2.99e-04 gnorm=1.47 tok/s=12131 eta=6h24m34s
+[medmcqa] ep1 step 6102/152080 (4%) loss=2.8976 lr=2.99e-04 gnorm=1.36 tok/s=11981 eta=6h24m09s
+[medmcqa] ep1 step 6202/152080 (4%) loss=2.8904 lr=2.99e-04 gnorm=1.33 tok/s=12055 eta=6h23m51s
+[medmcqa] ep1 step 6302/152080 (4%) loss=2.9609 lr=2.99e-04 gnorm=1.34 tok/s=11998 eta=6h23m31s
+[medmcqa] ep1 step 6402/152080 (4%) loss=2.9803 lr=2.99e-04 gnorm=1.40 tok/s=11999 eta=6h23m16s
+[medmcqa] ep1 step 6502/152080 (4%) loss=2.9015 lr=2.99e-04 gnorm=1.66 tok/s=11913 eta=6h22m56s
+[medmcqa] ep1 step 6602/152080 (4%) loss=2.8796 lr=2.99e-04 gnorm=1.42 tok/s=11886 eta=6h22m51s
+[medmcqa] ep1 step 6702/152080 (4%) loss=2.8999 lr=2.99e-04 gnorm=1.33 tok/s=11906 eta=6h22m46s
+[medmcqa] ep1 step 6802/152080 (4%) loss=2.9120 lr=2.99e-04 gnorm=1.36 tok/s=11756 eta=6h22m46s
+[medmcqa] ep1 step 6902/152080 (5%) loss=2.8549 lr=2.99e-04 gnorm=1.32 tok/s=11934 eta=6h22m32s
+[medmcqa] ep1 step 7002/152080 (5%) loss=2.9439 lr=2.99e-04 gnorm=1.37 tok/s=11777 eta=6h22m28s
+[medmcqa] ep1 step 7102/152080 (5%) loss=2.8629 lr=2.98e-04 gnorm=1.54 tok/s=11649 eta=6h22m23s
+[medmcqa] ep1 step 7202/152080 (5%) loss=2.8815 lr=2.98e-04 gnorm=1.39 tok/s=12265 eta=6h21m53s
+[medmcqa] ep1 step 7302/152080 (5%) loss=2.9143 lr=2.98e-04 gnorm=1.36 tok/s=12106 eta=6h21m25s
+[medmcqa] ep1 step 7402/152080 (5%) loss=2.8690 lr=2.98e-04 gnorm=1.40 tok/s=12089 eta=6h20m58s
+[medmcqa] ep1 step 7502/152080 (5%) loss=2.8431 lr=2.98e-04 gnorm=1.42 tok/s=11866 eta=6h20m47s
+[medmcqa] ep1 step 7602/152080 (5%) loss=2.8941 lr=2.98e-04 gnorm=1.37 tok/s=11651 eta=6h20m41s
+[medmcqa] ep1 done loss=2.9503 gnorm=1.39 lr_end=2.98e-04 tok/s=11945 time=10m01s
+[medmcqa] ep1 eval medmcqa acc=32.37% loss=3.3289 n=4170
+[medmcqa] ep1 eval medqa acc=27.18% loss=3.5666 n=1273
+[medmcqa] ep1 new best medmcqa 32.37% -> best.pt
+[medmcqa] ep2 step 7704/152080 (5%) loss=2.7679 lr=2.98e-04 gnorm=1.53 tok/s=12035 eta=6h19m50s
+[medmcqa] ep2 step 7804/152080 (5%) loss=2.7369 lr=2.98e-04 gnorm=1.50 tok/s=12036 eta=6h17m54s
+[medmcqa] ep2 step 7904/152080 (5%) loss=2.6454 lr=2.98e-04 gnorm=1.44 tok/s=12197 eta=6h16m53s
+[medmcqa] ep2 step 8004/152080 (5%) loss=2.6639 lr=2.98e-04 gnorm=1.38 tok/s=12161 eta=6h15m52s
+[medmcqa] ep2 step 8104/152080 (5%) loss=2.6316 lr=2.98e-04 gnorm=1.45 tok/s=12013 eta=6h15m10s
+[medmcqa] ep2 step 8204/152080 (5%) loss=2.6452 lr=2.98e-04 gnorm=1.77 tok/s=11904 eta=6h14m57s
+[medmcqa] ep2 step 8304/152080 (5%) loss=2.7034 lr=2.98e-04 gnorm=1.52 tok/s=12043 eta=6h14m24s
+[medmcqa] ep2 step 8404/152080 (6%) loss=2.7300 lr=2.98e-04 gnorm=1.52 tok/s=12258 eta=6h14m03s
+[medmcqa] ep2 step 8504/152080 (6%) loss=2.6902 lr=2.98e-04 gnorm=1.49 tok/s=12019 eta=6h13m50s
+[medmcqa] ep2 step 8604/152080 (6%) loss=2.7491 lr=2.98e-04 gnorm=1.47 tok/s=12360 eta=6h12m54s
+[medmcqa] ep2 step 8704/152080 (6%) loss=2.8019 lr=2.98e-04 gnorm=1.75 tok/s=12224 eta=6h12m22s
+[medmcqa] ep2 step 8804/152080 (6%) loss=2.7650 lr=2.98e-04 gnorm=1.37 tok/s=12162 eta=6h12m01s
+[medmcqa] ep2 step 8904/152080 (6%) loss=2.7256 lr=2.98e-04 gnorm=1.69 tok/s=12078 eta=6h11m51s
+[medmcqa] ep2 step 9004/152080 (6%) loss=2.6936 lr=2.98e-04 gnorm=1.53 tok/s=12058 eta=6h11m47s
+[medmcqa] ep2 step 9104/152080 (6%) loss=2.7241 lr=2.97e-04 gnorm=1.45 tok/s=11964 eta=6h11m51s
+[medmcqa] ep2 step 9204/152080 (6%) loss=2.7591 lr=2.97e-04 gnorm=1.58 tok/s=11703 eta=6h12m16s
+[medmcqa] ep2 step 9304/152080 (6%) loss=2.7625 lr=2.97e-04 gnorm=1.56 tok/s=11668 eta=6h12m42s
+[medmcqa] ep2 step 9404/152080 (6%) loss=2.6421 lr=2.97e-04 gnorm=1.60 tok/s=11529 eta=6h13m23s
+[medmcqa] ep2 step 9504/152080 (6%) loss=2.7009 lr=2.97e-04 gnorm=1.46 tok/s=11665 eta=6h13m37s
+[medmcqa] ep2 step 9604/152080 (6%) loss=2.7093 lr=2.97e-04 gnorm=1.57 tok/s=11778 eta=6h13m46s
+[medmcqa] ep2 step 9704/152080 (6%) loss=2.6958 lr=2.97e-04 gnorm=1.52 tok/s=11661 eta=6h14m06s
+[medmcqa] ep2 step 9804/152080 (6%) loss=2.6554 lr=2.97e-04 gnorm=1.51 tok/s=11776 eta=6h14m09s
+[medmcqa] ep2 step 9904/152080 (7%) loss=2.7255 lr=2.97e-04 gnorm=1.57 tok/s=11689 eta=6h14m11s
+[medmcqa] ep2 step 10004/152080 (7%) loss=2.7593 lr=2.97e-04 gnorm=1.44 tok/s=11662 eta=6h14m25s
+[medmcqa] ep2 step 10104/152080 (7%) loss=2.7798 lr=2.97e-04 gnorm=1.48 tok/s=11836 eta=6h14m29s
+[medmcqa] ep2 step 10204/152080 (7%) loss=2.7711 lr=2.97e-04 gnorm=1.52 tok/s=11820 eta=6h14m24s
+[medmcqa] ep2 step 10304/152080 (7%) loss=2.6764 lr=2.97e-04 gnorm=2.18 tok/s=12000 eta=6h14m11s
+[medmcqa] ep2 step 10404/152080 (7%) loss=2.7658 lr=2.97e-04 gnorm=1.54 tok/s=11640 eta=6h14m12s
+[medmcqa] ep2 step 10504/152080 (7%) loss=2.6408 lr=2.97e-04 gnorm=1.67 tok/s=11453 eta=6h14m17s
+[medmcqa] ep2 step 10604/152080 (7%) loss=2.7006 lr=2.97e-04 gnorm=1.47 tok/s=11974 eta=6h14m08s
+[medmcqa] ep2 step 10704/152080 (7%) loss=2.6919 lr=2.96e-04 gnorm=1.56 tok/s=11712 eta=6h14m00s
+[medmcqa] ep2 step 10804/152080 (7%) loss=2.6739 lr=2.96e-04 gnorm=1.68 tok/s=11526 eta=6h14m06s
+[medmcqa] ep2 step 10904/152080 (7%) loss=2.6902 lr=2.96e-04 gnorm=1.58 tok/s=11477 eta=6h14m08s
+[medmcqa] ep2 step 11004/152080 (7%) loss=2.6546 lr=2.96e-04 gnorm=1.74 tok/s=11554 eta=6h14m11s
+[medmcqa] ep2 step 11104/152080 (7%) loss=2.6497 lr=2.96e-04 gnorm=1.63 tok/s=11523 eta=6h14m12s
+[medmcqa] ep2 step 11204/152080 (7%) loss=2.7110 lr=2.96e-04 gnorm=1.54 tok/s=11772 eta=6h14m01s
+[medmcqa] ep2 step 11304/152080 (7%) loss=2.6314 lr=2.96e-04 gnorm=1.62 tok/s=11763 eta=6h13m47s
+[medmcqa] ep2 step 11404/152080 (7%) loss=2.7031 lr=2.96e-04 gnorm=1.69 tok/s=11576 eta=6h13m47s
+[medmcqa] ep2 done loss=2.6984 gnorm=1.55 lr_end=2.96e-04 tok/s=11845 time=10m06s
+[medmcqa] ep2 eval medmcqa acc=34.77% loss=3.2506 n=4170
+[medmcqa] ep2 eval medqa acc=28.20% loss=3.5030 n=1273
+[medmcqa] ep2 new best medmcqa 34.77% -> best.pt
+[medmcqa] ep3 step 11506/152080 (8%) loss=2.4111 lr=2.96e-04 gnorm=1.56 tok/s=11430 eta=6h24m40s
+[medmcqa] ep3 step 11606/152080 (8%) loss=2.4132 lr=2.96e-04 gnorm=1.61 tok/s=11822 eta=6h20m11s
+[medmcqa] ep3 step 11706/152080 (8%) loss=2.5122 lr=2.96e-04 gnorm=1.61 tok/s=11660 eta=6h18m44s
+[medmcqa] ep3 step 11806/152080 (8%) loss=2.4653 lr=2.96e-04 gnorm=1.54 tok/s=11779 eta=6h17m50s
+[medmcqa] ep3 step 11906/152080 (8%) loss=2.4704 lr=2.96e-04 gnorm=1.55 tok/s=11641 eta=6h16m50s
+[medmcqa] ep3 step 12006/152080 (8%) loss=2.5435 lr=2.96e-04 gnorm=1.53 tok/s=11548 eta=6h17m27s
+[medmcqa] ep3 step 12106/152080 (8%) loss=2.5420 lr=2.95e-04 gnorm=1.57 tok/s=11692 eta=6h17m30s
+[medmcqa] ep3 step 12206/152080 (8%) loss=2.4845 lr=2.95e-04 gnorm=1.62 tok/s=11677 eta=6h16m55s
+[medmcqa] ep3 step 12306/152080 (8%) loss=2.5561 lr=2.95e-04 gnorm=1.60 tok/s=11861 eta=6h16m39s
+[medmcqa] ep3 step 12406/152080 (8%) loss=2.4991 lr=2.95e-04 gnorm=1.62 tok/s=11713 eta=6h16m33s
+[medmcqa] ep3 step 12506/152080 (8%) loss=2.4931 lr=2.95e-04 gnorm=1.67 tok/s=11856 eta=6h15m42s
+[medmcqa] ep3 step 12606/152080 (8%) loss=2.5203 lr=2.95e-04 gnorm=1.61 tok/s=11832 eta=6h14m58s
+[medmcqa] ep3 step 12706/152080 (8%) loss=2.5046 lr=2.95e-04 gnorm=1.53 tok/s=11666 eta=6h14m44s
+[medmcqa] ep3 step 12806/152080 (8%) loss=2.5223 lr=2.95e-04 gnorm=1.82 tok/s=11594 eta=6h14m34s
+[medmcqa] ep3 step 12906/152080 (8%) loss=2.5551 lr=2.95e-04 gnorm=1.67 tok/s=12120 eta=6h13m48s
+[medmcqa] ep3 step 13006/152080 (9%) loss=2.4471 lr=2.95e-04 gnorm=1.75 tok/s=12000 eta=6h12m53s
+[medmcqa] ep3 step 13106/152080 (9%) loss=2.5343 lr=2.95e-04 gnorm=1.54 tok/s=12108 eta=6h12m00s
+[medmcqa] ep3 step 13206/152080 (9%) loss=2.5338 lr=2.95e-04 gnorm=1.57 tok/s=12182 eta=6h11m20s
+[medmcqa] ep3 step 13306/152080 (9%) loss=2.4994 lr=2.95e-04 gnorm=1.62 tok/s=12100 eta=6h10m38s
+[medmcqa] ep3 step 13406/152080 (9%) loss=2.5648 lr=2.94e-04 gnorm=1.90 tok/s=11869 eta=6h10m12s
+[medmcqa] ep3 step 13506/152080 (9%) loss=2.5924 lr=2.94e-04 gnorm=1.80 tok/s=11944 eta=6h09m41s
+[medmcqa] ep3 step 13606/152080 (9%) loss=2.5790 lr=2.94e-04 gnorm=1.59 tok/s=11856 eta=6h09m14s
+[medmcqa] ep3 step 13706/152080 (9%) loss=2.5346 lr=2.94e-04 gnorm=1.84 tok/s=11826 eta=6h08m41s
+[medmcqa] ep3 step 13806/152080 (9%) loss=2.5629 lr=2.94e-04 gnorm=1.69 tok/s=12184 eta=6h08m00s
+[medmcqa] ep3 step 13906/152080 (9%) loss=2.5625 lr=2.94e-04 gnorm=1.68 tok/s=12016 eta=6h07m30s
+[medmcqa] ep3 step 14006/152080 (9%) loss=2.5471 lr=2.94e-04 gnorm=1.63 tok/s=12013 eta=6h07m04s
+[medmcqa] ep3 step 14106/152080 (9%) loss=2.5020 lr=2.94e-04 gnorm=1.59 tok/s=12090 eta=6h06m37s
+[medmcqa] ep3 step 14206/152080 (9%) loss=2.5538 lr=2.94e-04 gnorm=1.60 tok/s=12034 eta=6h06m15s
+[medmcqa] ep3 step 14306/152080 (9%) loss=2.5345 lr=2.94e-04 gnorm=1.62 tok/s=11867 eta=6h05m44s
+[medmcqa] ep3 step 14406/152080 (9%) loss=2.5579 lr=2.94e-04 gnorm=1.65 tok/s=11750 eta=6h05m36s
+[medmcqa] ep3 step 14506/152080 (10%) loss=2.5481 lr=2.93e-04 gnorm=1.61 tok/s=11597 eta=6h05m37s
+[medmcqa] ep3 step 14606/152080 (10%) loss=2.5379 lr=2.93e-04 gnorm=1.73 tok/s=11589 eta=6h05m35s
+[medmcqa] ep3 step 14706/152080 (10%) loss=2.4884 lr=2.93e-04 gnorm=1.54 tok/s=11660 eta=6h05m29s
+[medmcqa] ep3 step 14806/152080 (10%) loss=2.5870 lr=2.93e-04 gnorm=1.56 tok/s=11509 eta=6h05m28s
+[medmcqa] ep3 step 14906/152080 (10%) loss=2.5022 lr=2.93e-04 gnorm=1.76 tok/s=12003 eta=6h04m57s
+[medmcqa] ep3 step 15006/152080 (10%) loss=2.4490 lr=2.93e-04 gnorm=1.58 tok/s=12079 eta=6h04m26s
+[medmcqa] ep3 step 15106/152080 (10%) loss=2.5373 lr=2.93e-04 gnorm=1.64 tok/s=12069 eta=6h04m00s
+[medmcqa] ep3 step 15206/152080 (10%) loss=2.5397 lr=2.93e-04 gnorm=1.55 tok/s=12130 eta=6h03m34s
+[medmcqa] ep3 done loss=2.5304 gnorm=1.65 lr_end=2.93e-04 tok/s=11849 time=10m05s
+[medmcqa] ep3 eval medmcqa acc=30.77% loss=3.2272 n=4170
+[medmcqa] ep3 eval medqa acc=24.67% loss=3.4635 n=1273
+[medmcqa] ep4 step 15308/152080 (10%) loss=2.3282 lr=2.93e-04 gnorm=1.64 tok/s=11677 eta=6h07m10s
+[medmcqa] ep4 step 15408/152080 (10%) loss=2.3104 lr=2.93e-04 gnorm=1.81 tok/s=11728 eta=6h05m00s
+[medmcqa] ep4 step 15508/152080 (10%) loss=2.3193 lr=2.93e-04 gnorm=1.63 tok/s=11623 eta=6h06m41s
+[medmcqa] ep4 step 15608/152080 (10%) loss=2.3453 lr=2.92e-04 gnorm=1.66 tok/s=12120 eta=6h03m28s
+[medmcqa] ep4 step 15708/152080 (10%) loss=2.2861 lr=2.92e-04 gnorm=1.62 tok/s=12170 eta=6h01m29s
+[medmcqa] ep4 step 15808/152080 (10%) loss=2.3631 lr=2.92e-04 gnorm=1.79 tok/s=11933 eta=6h00m09s
+[medmcqa] ep4 step 15908/152080 (10%) loss=2.3570 lr=2.92e-04 gnorm=1.69 tok/s=12026 eta=5h59m19s
+[medmcqa] ep4 step 16008/152080 (11%) loss=2.3225 lr=2.92e-04 gnorm=1.75 tok/s=12030 eta=5h59m08s
+[medmcqa] ep4 step 16108/152080 (11%) loss=2.2951 lr=2.92e-04 gnorm=1.62 tok/s=12219 eta=5h57m52s
+[medmcqa] ep4 step 16208/152080 (11%) loss=2.3511 lr=2.92e-04 gnorm=1.92 tok/s=12344 eta=5h56m37s
+[medmcqa] ep4 step 16308/152080 (11%) loss=2.4112 lr=2.92e-04 gnorm=1.58 tok/s=12053 eta=5h56m01s
+[medmcqa] ep4 step 16408/152080 (11%) loss=2.3766 lr=2.92e-04 gnorm=1.65 tok/s=12207 eta=5h55m33s
+[medmcqa] ep4 step 16508/152080 (11%) loss=2.3911 lr=2.92e-04 gnorm=1.85 tok/s=12109 eta=5h55m25s
+[medmcqa] ep4 step 16608/152080 (11%) loss=2.4040 lr=2.91e-04 gnorm=1.76 tok/s=12298 eta=5h54m37s
+[medmcqa] ep4 step 16708/152080 (11%) loss=2.3969 lr=2.91e-04 gnorm=1.76 tok/s=12392 eta=5h53m51s
+[medmcqa] ep4 step 16808/152080 (11%) loss=2.4563 lr=2.91e-04 gnorm=1.62 tok/s=12178 eta=5h53m11s
+[medmcqa] ep4 step 16908/152080 (11%) loss=2.4421 lr=2.91e-04 gnorm=1.88 tok/s=12109 eta=5h52m46s
+[medmcqa] ep4 step 17008/152080 (11%) loss=2.3822 lr=2.91e-04 gnorm=1.66 tok/s=12143 eta=5h52m28s
+[medmcqa] ep4 step 17108/152080 (11%) loss=2.3742 lr=2.91e-04 gnorm=2.00 tok/s=11857 eta=5h52m24s
+[medmcqa] ep4 step 17208/152080 (11%) loss=2.3719 lr=2.91e-04 gnorm=1.71 tok/s=11947 eta=5h52m12s
+[medmcqa] ep4 step 17308/152080 (11%) loss=2.3974 lr=2.91e-04 gnorm=1.76 tok/s=12157 eta=5h51m40s
+[medmcqa] ep4 step 17408/152080 (11%) loss=2.4445 lr=2.91e-04 gnorm=1.69 tok/s=12292 eta=5h51m01s
+[medmcqa] ep4 step 17508/152080 (12%) loss=2.4626 lr=2.90e-04 gnorm=1.84 tok/s=12325 eta=5h50m36s
+[medmcqa] ep4 step 17608/152080 (12%) loss=2.3629 lr=2.90e-04 gnorm=1.67 tok/s=12291 eta=5h50m11s
+[medmcqa] ep4 step 17708/152080 (12%) loss=2.3931 lr=2.90e-04 gnorm=1.66 tok/s=12194 eta=5h49m43s
+[medmcqa] ep4 step 17808/152080 (12%) loss=2.3646 lr=2.90e-04 gnorm=1.77 tok/s=12256 eta=5h49m18s
+[medmcqa] ep4 step 17908/152080 (12%) loss=2.4129 lr=2.90e-04 gnorm=1.74 tok/s=12311 eta=5h48m50s
+[medmcqa] ep4 step 18008/152080 (12%) loss=2.3782 lr=2.90e-04 gnorm=1.66 tok/s=11561 eta=5h49m03s
+[medmcqa] ep4 step 18108/152080 (12%) loss=2.4244 lr=2.90e-04 gnorm=1.69 tok/s=12183 eta=5h48m45s
+[medmcqa] ep4 step 18208/152080 (12%) loss=2.3551 lr=2.90e-04 gnorm=1.77 tok/s=12236 eta=5h48m25s
+[medmcqa] ep4 step 18308/152080 (12%) loss=2.4222 lr=2.90e-04 gnorm=1.80 tok/s=11933 eta=5h48m16s
+[medmcqa] ep4 step 18408/152080 (12%) loss=2.4116 lr=2.89e-04 gnorm=1.79 tok/s=12025 eta=5h48m04s
+[medmcqa] ep4 step 18508/152080 (12%) loss=2.4184 lr=2.89e-04 gnorm=1.73 tok/s=11818 eta=5h47m56s
+[medmcqa] ep4 step 18608/152080 (12%) loss=2.4045 lr=2.89e-04 gnorm=1.90 tok/s=11956 eta=5h47m51s
+[medmcqa] ep4 step 18708/152080 (12%) loss=2.3998 lr=2.89e-04 gnorm=1.80 tok/s=11841 eta=5h47m50s
+[medmcqa] ep4 step 18808/152080 (12%) loss=2.4201 lr=2.89e-04 gnorm=1.83 tok/s=11835 eta=5h47m44s
+[medmcqa] ep4 step 18908/152080 (12%) loss=2.3984 lr=2.89e-04 gnorm=1.86 tok/s=11638 eta=5h47m49s
+[medmcqa] ep4 step 19008/152080 (12%) loss=2.4232 lr=2.89e-04 gnorm=1.67 tok/s=11821 eta=5h47m43s
+[medmcqa] ep4 done loss=2.3940 gnorm=1.75 lr_end=2.89e-04 tok/s=12045 time=9m56s
+[medmcqa] ep4 eval medmcqa acc=33.74% loss=3.2341 n=4170
+[medmcqa] ep4 eval medqa acc=25.53% loss=3.4748 n=1273
+[medmcqa] ep5 step 19110/152080 (13%) loss=2.1383 lr=2.89e-04 gnorm=1.85 tok/s=11492 eta=6h01m34s
+[medmcqa] ep5 step 19210/152080 (13%) loss=2.1954 lr=2.89e-04 gnorm=1.73 tok/s=11600 eta=6h00m54s
+[medmcqa] ep5 step 19310/152080 (13%) loss=2.2105 lr=2.88e-04 gnorm=1.92 tok/s=11663 eta=5h59m17s
+[medmcqa] ep5 step 19410/152080 (13%) loss=2.1986 lr=2.88e-04 gnorm=1.74 tok/s=11782 eta=5h57m52s
+[medmcqa] ep5 step 19510/152080 (13%) loss=2.2201 lr=2.88e-04 gnorm=1.78 tok/s=11711 eta=5h56m36s
+[medmcqa] ep5 step 19610/152080 (13%) loss=2.2061 lr=2.88e-04 gnorm=1.86 tok/s=11786 eta=5h55m24s
+[medmcqa] ep5 step 19710/152080 (13%) loss=2.2190 lr=2.88e-04 gnorm=1.82 tok/s=12006 eta=5h54m25s
+[medmcqa] ep5 step 19810/152080 (13%) loss=2.2394 lr=2.88e-04 gnorm=1.89 tok/s=11933 eta=5h53m10s
+[medmcqa] ep5 step 19910/152080 (13%) loss=2.3265 lr=2.88e-04 gnorm=1.78 tok/s=12163 eta=5h51m55s
+[medmcqa] ep5 step 20010/152080 (13%) loss=2.2826 lr=2.88e-04 gnorm=1.93 tok/s=12222 eta=5h50m42s
+[medmcqa] ep5 step 20110/152080 (13%) loss=2.2597 lr=2.87e-04 gnorm=1.85 tok/s=11997 eta=5h49m42s
+[medmcqa] ep5 step 20210/152080 (13%) loss=2.2701 lr=2.87e-04 gnorm=1.86 tok/s=12081 eta=5h49m01s
+[medmcqa] ep5 step 20310/152080 (13%) loss=2.2638 lr=2.87e-04 gnorm=1.94 tok/s=11983 eta=5h48m22s
+[medmcqa] ep5 step 20410/152080 (13%) loss=2.2635 lr=2.87e-04 gnorm=1.87 tok/s=12003 eta=5h47m50s
+[medmcqa] ep5 step 20510/152080 (13%) loss=2.2564 lr=2.87e-04 gnorm=1.99 tok/s=12092 eta=5h47m14s
+[medmcqa] ep5 step 20610/152080 (14%) loss=2.2941 lr=2.87e-04 gnorm=1.92 tok/s=12100 eta=5h46m44s
+[medmcqa] ep5 step 20710/152080 (14%) loss=2.2670 lr=2.87e-04 gnorm=1.83 tok/s=12103 eta=5h46m16s
+[medmcqa] ep5 step 20810/152080 (14%) loss=2.1860 lr=2.87e-04 gnorm=1.80 tok/s=12017 eta=5h45m41s
+[medmcqa] ep5 step 20910/152080 (14%) loss=2.2663 lr=2.86e-04 gnorm=1.95 tok/s=12084 eta=5h45m14s
+[medmcqa] ep5 step 21010/152080 (14%) loss=2.3153 lr=2.86e-04 gnorm=1.83 tok/s=11929 eta=5h44m53s
+[medmcqa] ep5 step 21110/152080 (14%) loss=2.3165 lr=2.86e-04 gnorm=1.90 tok/s=12176 eta=5h44m22s
+[medmcqa] ep5 step 21210/152080 (14%) loss=2.2723 lr=2.86e-04 gnorm=1.95 tok/s=12129 eta=5h43m52s
+[medmcqa] ep5 step 21310/152080 (14%) loss=2.3184 lr=2.86e-04 gnorm=1.95 tok/s=11987 eta=5h43m36s
+[medmcqa] ep5 step 21410/152080 (14%) loss=2.2480 lr=2.86e-04 gnorm=1.82 tok/s=11978 eta=5h43m20s
+[medmcqa] ep5 step 21510/152080 (14%) loss=2.3379 lr=2.86e-04 gnorm=2.01 tok/s=11983 eta=5h43m02s
+[medmcqa] ep5 step 21610/152080 (14%) loss=2.3213 lr=2.86e-04 gnorm=1.85 tok/s=12169 eta=5h42m41s
+[medmcqa] ep5 step 21710/152080 (14%) loss=2.3399 lr=2.85e-04 gnorm=1.86 tok/s=11977 eta=5h42m22s
+[medmcqa] ep5 step 21810/152080 (14%) loss=2.2708 lr=2.85e-04 gnorm=1.97 tok/s=11982 eta=5h42m02s
+[medmcqa] ep5 step 21910/152080 (14%) loss=2.2650 lr=2.85e-04 gnorm=1.78 tok/s=12056 eta=5h41m39s
+[medmcqa] ep5 step 22010/152080 (14%) loss=2.2858 lr=2.85e-04 gnorm=1.78 tok/s=11808 eta=5h41m36s
+[medmcqa] ep5 step 22110/152080 (15%) loss=2.3157 lr=2.85e-04 gnorm=1.96 tok/s=11782 eta=5h41m29s
+[medmcqa] ep5 step 22210/152080 (15%) loss=2.3879 lr=2.85e-04 gnorm=1.99 tok/s=12004 eta=5h41m10s
+[medmcqa] ep5 step 22310/152080 (15%) loss=2.4037 lr=2.85e-04 gnorm=1.89 tok/s=12012 eta=5h40m59s
+[medmcqa] ep5 step 22410/152080 (15%) loss=2.3394 lr=2.84e-04 gnorm=2.00 tok/s=12239 eta=5h40m37s
+[medmcqa] ep5 step 22510/152080 (15%) loss=2.4251 lr=2.84e-04 gnorm=1.96 tok/s=12136 eta=5h40m16s
+[medmcqa] ep5 step 22610/152080 (15%) loss=2.3123 lr=2.84e-04 gnorm=1.88 tok/s=12266 eta=5h39m54s
+[medmcqa] ep5 step 22710/152080 (15%) loss=2.3426 lr=2.84e-04 gnorm=1.87 tok/s=12157 eta=5h39m37s
+[medmcqa] ep5 step 22810/152080 (15%) loss=2.3001 lr=2.84e-04 gnorm=1.84 tok/s=11975 eta=5h39m25s
+[medmcqa] ep5 done loss=2.2829 gnorm=1.87 lr_end=2.84e-04 tok/s=11987 time=9m58s
+[medmcqa] ep5 eval medmcqa acc=31.82% loss=3.2500 n=4170
+[medmcqa] ep5 eval medqa acc=26.24% loss=3.4747 n=1273
+[medmcqa] ep6 step 22912/152080 (15%) loss=1.9851 lr=2.84e-04 gnorm=1.97 tok/s=11562 eta=5h52m50s
+[medmcqa] ep6 step 23012/152080 (15%) loss=2.0784 lr=2.84e-04 gnorm=2.08 tok/s=11615 eta=5h49m34s
+[medmcqa] ep6 step 23112/152080 (15%) loss=2.1065 lr=2.83e-04 gnorm=2.10 tok/s=11912 eta=5h45m18s
+[medmcqa] ep6 step 23212/152080 (15%) loss=2.1126 lr=2.83e-04 gnorm=1.97 tok/s=12044 eta=5h44m03s
+[medmcqa] ep6 step 23312/152080 (15%) loss=2.1582 lr=2.83e-04 gnorm=1.91 tok/s=11890 eta=5h43m10s
+[medmcqa] ep6 step 23412/152080 (15%) loss=2.1563 lr=2.83e-04 gnorm=1.85 tok/s=11801 eta=5h42m13s
+[medmcqa] ep6 step 23512/152080 (15%) loss=2.1492 lr=2.83e-04 gnorm=1.83 tok/s=11761 eta=5h41m44s
+[medmcqa] ep6 step 23612/152080 (16%) loss=2.1206 lr=2.83e-04 gnorm=1.85 tok/s=12062 eta=5h41m00s
+[medmcqa] ep6 step 23712/152080 (16%) loss=2.1171 lr=2.83e-04 gnorm=2.05 tok/s=11818 eta=5h40m32s
+[medmcqa] ep6 step 23812/152080 (16%) loss=2.1209 lr=2.82e-04 gnorm=1.91 tok/s=11852 eta=5h40m09s
+[medmcqa] ep6 step 23912/152080 (16%) loss=2.1242 lr=2.82e-04 gnorm=2.06 tok/s=12095 eta=5h38m47s
+[medmcqa] ep6 step 24012/152080 (16%) loss=2.2216 lr=2.82e-04 gnorm=1.97 tok/s=12250 eta=5h37m34s
+[medmcqa] ep6 step 24112/152080 (16%) loss=2.2156 lr=2.82e-04 gnorm=2.16 tok/s=12125 eta=5h36m43s
+[medmcqa] ep6 step 24212/152080 (16%) loss=2.2503 lr=2.82e-04 gnorm=2.03 tok/s=12235 eta=5h36m01s
+[medmcqa] ep6 step 24312/152080 (16%) loss=2.2233 lr=2.82e-04 gnorm=1.83 tok/s=12227 eta=5h35m26s
+[medmcqa] ep6 step 24412/152080 (16%) loss=2.1648 lr=2.82e-04 gnorm=2.05 tok/s=12231 eta=5h34m54s
+[medmcqa] ep6 step 24512/152080 (16%) loss=2.2752 lr=2.81e-04 gnorm=1.98 tok/s=12074 eta=5h34m41s
+[medmcqa] ep6 step 24612/152080 (16%) loss=2.2151 lr=2.81e-04 gnorm=1.82 tok/s=12194 eta=5h34m12s
+[medmcqa] ep6 step 24712/152080 (16%) loss=2.1850 lr=2.81e-04 gnorm=2.10 tok/s=12162 eta=5h33m44s
+[medmcqa] ep6 step 24812/152080 (16%) loss=2.1541 lr=2.81e-04 gnorm=1.91 tok/s=12182 eta=5h33m08s
+[medmcqa] ep6 step 24912/152080 (16%) loss=2.2390 lr=2.81e-04 gnorm=2.04 tok/s=12291 eta=5h32m42s
+[medmcqa] ep6 step 25012/152080 (16%) loss=2.2180 lr=2.81e-04 gnorm=2.05 tok/s=11996 eta=5h32m26s
+[medmcqa] ep6 step 25112/152080 (17%) loss=2.2206 lr=2.81e-04 gnorm=2.24 tok/s=11966 eta=5h32m11s
+[medmcqa] ep6 step 25212/152080 (17%) loss=2.2152 lr=2.80e-04 gnorm=1.92 tok/s=12073 eta=5h31m57s
+[medmcqa] ep6 step 25312/152080 (17%) loss=2.1955 lr=2.80e-04 gnorm=1.99 tok/s=12118 eta=5h31m42s
+[medmcqa] ep6 step 25412/152080 (17%) loss=2.2669 lr=2.80e-04 gnorm=1.98 tok/s=11978 eta=5h31m23s
+[medmcqa] ep6 step 25512/152080 (17%) loss=2.2349 lr=2.80e-04 gnorm=2.13 tok/s=11983 eta=5h31m08s
+[medmcqa] ep6 step 25612/152080 (17%) loss=2.1938 lr=2.80e-04 gnorm=1.92 tok/s=12234 eta=5h30m43s
+[medmcqa] ep6 step 25712/152080 (17%) loss=2.2568 lr=2.80e-04 gnorm=1.93 tok/s=11944 eta=5h30m29s
+[medmcqa] ep6 step 25812/152080 (17%) loss=2.3132 lr=2.79e-04 gnorm=2.15 tok/s=12311 eta=5h30m07s
+[medmcqa] ep6 step 25912/152080 (17%) loss=2.2208 lr=2.79e-04 gnorm=1.89 tok/s=12120 eta=5h29m46s
+[medmcqa] ep6 step 26012/152080 (17%) loss=2.2625 lr=2.79e-04 gnorm=2.19 tok/s=12190 eta=5h29m26s
+[medmcqa] ep6 step 26112/152080 (17%) loss=2.2163 lr=2.79e-04 gnorm=1.96 tok/s=12242 eta=5h29m02s
+[medmcqa] ep6 step 26212/152080 (17%) loss=2.2473 lr=2.79e-04 gnorm=2.07 tok/s=12266 eta=5h28m39s
+[medmcqa] ep6 step 26312/152080 (17%) loss=2.2761 lr=2.79e-04 gnorm=2.02 tok/s=11887 eta=5h28m23s
+[medmcqa] ep6 step 26412/152080 (17%) loss=2.3066 lr=2.78e-04 gnorm=1.80 tok/s=12137 eta=5h28m07s
+[medmcqa] ep6 step 26512/152080 (17%) loss=2.2121 lr=2.78e-04 gnorm=1.83 tok/s=12144 eta=5h27m52s
+[medmcqa] ep6 step 26612/152080 (17%) loss=2.2203 lr=2.78e-04 gnorm=2.01 tok/s=12087 eta=5h27m38s
+[medmcqa] ep6 done loss=2.1908 gnorm=1.98 lr_end=2.78e-04 tok/s=12053 time=9m55s
+[medmcqa] ep6 eval medmcqa acc=32.61% loss=3.2704 n=4170
+[medmcqa] ep6 eval medqa acc=27.10% loss=3.4897 n=1273
+[medmcqa] ep7 step 26714/152080 (18%) loss=2.0734 lr=2.78e-04 gnorm=1.91 tok/s=11705 eta=5h35m05s
+[medmcqa] ep7 step 26814/152080 (18%) loss=1.9434 lr=2.78e-04 gnorm=2.00 tok/s=12172 eta=5h30m41s
+[medmcqa] ep7 step 26914/152080 (18%) loss=1.9934 lr=2.78e-04 gnorm=1.89 tok/s=12238 eta=5h28m50s
+[medmcqa] ep7 step 27014/152080 (18%) loss=2.0216 lr=2.78e-04 gnorm=1.96 tok/s=11772 eta=5h29m31s
+[medmcqa] ep7 step 27114/152080 (18%) loss=2.0424 lr=2.77e-04 gnorm=1.96 tok/s=12067 eta=5h28m39s
+[medmcqa] ep7 step 27214/152080 (18%) loss=2.0530 lr=2.77e-04 gnorm=1.93 tok/s=11921 eta=5h28m52s
+[medmcqa] ep7 step 27314/152080 (18%) loss=1.9853 lr=2.77e-04 gnorm=2.11 tok/s=11943 eta=5h28m20s
+[medmcqa] ep7 step 27414/152080 (18%) loss=2.0935 lr=2.77e-04 gnorm=2.18 tok/s=12118 eta=5h27m20s
+[medmcqa] ep7 step 27514/152080 (18%) loss=2.0966 lr=2.77e-04 gnorm=2.20 tok/s=11930 eta=5h26m48s
+[medmcqa] ep7 step 27614/152080 (18%) loss=2.0677 lr=2.77e-04 gnorm=2.03 tok/s=12313 eta=5h26m01s
+[medmcqa] ep7 step 27714/152080 (18%) loss=2.0370 lr=2.76e-04 gnorm=2.12 tok/s=11844 eta=5h25m57s
+[medmcqa] ep7 step 27814/152080 (18%) loss=2.1670 lr=2.76e-04 gnorm=2.15 tok/s=11961 eta=5h25m43s
+[medmcqa] ep7 step 27914/152080 (18%) loss=2.1554 lr=2.76e-04 gnorm=1.98 tok/s=11945 eta=5h25m28s
+[medmcqa] ep7 step 28014/152080 (18%) loss=2.0996 lr=2.76e-04 gnorm=2.19 tok/s=12082 eta=5h25m08s
+[medmcqa] ep7 step 28114/152080 (18%) loss=2.1465 lr=2.76e-04 gnorm=2.12 tok/s=12011 eta=5h24m46s
+[medmcqa] ep7 step 28214/152080 (19%) loss=2.0973 lr=2.76e-04 gnorm=2.05 tok/s=12204 eta=5h24m14s
+[medmcqa] ep7 step 28314/152080 (19%) loss=2.1643 lr=2.75e-04 gnorm=2.09 tok/s=11855 eta=5h24m26s
+[medmcqa] ep7 step 28414/152080 (19%) loss=2.0976 lr=2.75e-04 gnorm=2.00 tok/s=11697 eta=5h24m43s
+[medmcqa] ep7 step 28514/152080 (19%) loss=2.1270 lr=2.75e-04 gnorm=1.92 tok/s=11560 eta=5h25m00s
+[medmcqa] ep7 step 28614/152080 (19%) loss=2.1805 lr=2.75e-04 gnorm=2.10 tok/s=11913 eta=5h24m55s
+[medmcqa] ep7 step 28714/152080 (19%) loss=2.2054 lr=2.75e-04 gnorm=2.01 tok/s=11662 eta=5h25m10s
+[medmcqa] ep7 step 28814/152080 (19%) loss=2.1554 lr=2.74e-04 gnorm=1.98 tok/s=11887 eta=5h24m55s
+[medmcqa] ep7 step 28914/152080 (19%) loss=2.1826 lr=2.74e-04 gnorm=2.19 tok/s=11882 eta=5h24m44s
+[medmcqa] ep7 step 29014/152080 (19%) loss=2.1370 lr=2.74e-04 gnorm=2.09 tok/s=11797 eta=5h24m34s
+[medmcqa] ep7 step 29114/152080 (19%) loss=2.1084 lr=2.74e-04 gnorm=2.10 tok/s=11759 eta=5h24m23s
+[medmcqa] ep7 step 29214/152080 (19%) loss=2.1340 lr=2.74e-04 gnorm=2.05 tok/s=11992 eta=5h24m08s
+[medmcqa] ep7 step 29314/152080 (19%) loss=2.1943 lr=2.74e-04 gnorm=2.16 tok/s=11926 eta=5h23m55s
+[medmcqa] ep7 step 29414/152080 (19%) loss=2.1094 lr=2.73e-04 gnorm=2.17 tok/s=11831 eta=5h23m33s
+[medmcqa] ep7 step 29514/152080 (19%) loss=2.1432 lr=2.73e-04 gnorm=2.14 tok/s=11940 eta=5h23m17s
+[medmcqa] ep7 step 29614/152080 (19%) loss=2.1351 lr=2.73e-04 gnorm=2.25 tok/s=11917 eta=5h22m59s
+[medmcqa] ep7 step 29714/152080 (20%) loss=2.1577 lr=2.73e-04 gnorm=1.94 tok/s=11871 eta=5h22m47s
+[medmcqa] ep7 step 29814/152080 (20%) loss=2.1531 lr=2.73e-04 gnorm=2.10 tok/s=12095 eta=5h22m25s
+[medmcqa] ep7 step 29914/152080 (20%) loss=2.2019 lr=2.73e-04 gnorm=1.97 tok/s=11613 eta=5h22m28s
+[medmcqa] ep7 step 30014/152080 (20%) loss=2.2038 lr=2.72e-04 gnorm=1.97 tok/s=11657 eta=5h22m17s
+[medmcqa] ep7 step 30114/152080 (20%) loss=2.1354 lr=2.72e-04 gnorm=2.09 tok/s=11507 eta=5h22m24s
+[medmcqa] ep7 step 30214/152080 (20%) loss=2.1443 lr=2.72e-04 gnorm=2.02 tok/s=11815 eta=5h22m16s
+[medmcqa] ep7 step 30314/152080 (20%) loss=2.1846 lr=2.72e-04 gnorm=2.02 tok/s=11834 eta=5h22m08s
+[medmcqa] ep7 step 30414/152080 (20%) loss=2.2117 lr=2.72e-04 gnorm=2.05 tok/s=11791 eta=5h21m58s
+[medmcqa] ep7 done loss=2.1107 gnorm=2.06 lr_end=2.72e-04 tok/s=11894 time=10m03s
+[medmcqa] ep7 eval medmcqa acc=32.76% loss=3.3037 n=4170
+[medmcqa] ep7 eval medqa acc=24.59% loss=3.5485 n=1273
+[medmcqa] ep8 step 30516/152080 (20%) loss=1.9195 lr=2.71e-04 gnorm=2.06 tok/s=11504 eta=5h28m02s
+[medmcqa] ep8 step 30616/152080 (20%) loss=1.8756 lr=2.71e-04 gnorm=2.07 tok/s=11915 eta=5h25m09s
+[medmcqa] ep8 step 30716/152080 (20%) loss=1.8430 lr=2.71e-04 gnorm=1.96 tok/s=11817 eta=5h23m21s
+[medmcqa] ep8 step 30816/152080 (20%) loss=1.9306 lr=2.71e-04 gnorm=1.91 tok/s=11981 eta=5h21m31s
+[medmcqa] ep8 step 30916/152080 (20%) loss=1.9345 lr=2.71e-04 gnorm=1.98 tok/s=11900 eta=5h20m39s
+[medmcqa] ep8 step 31016/152080 (20%) loss=1.9517 lr=2.71e-04 gnorm=2.18 tok/s=12065 eta=5h19m41s
+[medmcqa] ep8 step 31116/152080 (20%) loss=1.9881 lr=2.70e-04 gnorm=2.20 tok/s=11885 eta=5h19m46s
+[medmcqa] ep8 step 31216/152080 (21%) loss=2.0609 lr=2.70e-04 gnorm=2.14 tok/s=11670 eta=5h20m25s
+[medmcqa] ep8 step 31316/152080 (21%) loss=2.0171 lr=2.70e-04 gnorm=2.07 tok/s=11923 eta=5h20m17s
+[medmcqa] ep8 step 31416/152080 (21%) loss=2.0071 lr=2.70e-04 gnorm=2.19 tok/s=11978 eta=5h19m35s
+[medmcqa] ep8 step 31516/152080 (21%) loss=1.9929 lr=2.70e-04 gnorm=2.05 tok/s=12150 eta=5h19m14s
+[medmcqa] ep8 step 31616/152080 (21%) loss=2.0303 lr=2.69e-04 gnorm=2.22 tok/s=11915 eta=5h18m49s
+[medmcqa] ep8 step 31716/152080 (21%) loss=2.0613 lr=2.69e-04 gnorm=2.31 tok/s=11802 eta=5h18m42s
+[medmcqa] ep8 step 31816/152080 (21%) loss=2.0808 lr=2.69e-04 gnorm=2.02 tok/s=11992 eta=5h18m20s
+[medmcqa] ep8 step 31916/152080 (21%) loss=1.9919 lr=2.69e-04 gnorm=2.10 tok/s=11773 eta=5h18m07s
+[medmcqa] ep8 step 32016/152080 (21%) loss=2.0001 lr=2.69e-04 gnorm=2.23 tok/s=11916 eta=5h17m49s
+[medmcqa] ep8 step 32116/152080 (21%) loss=2.0600 lr=2.68e-04 gnorm=2.33 tok/s=11749 eta=5h17m38s
+[medmcqa] ep8 step 32216/152080 (21%) loss=2.0136 lr=2.68e-04 gnorm=2.19 tok/s=11574 eta=5h17m38s
+[medmcqa] ep8 step 32316/152080 (21%) loss=2.0409 lr=2.68e-04 gnorm=2.17 tok/s=11648 eta=5h17m44s
+[medmcqa] ep8 step 32416/152080 (21%) loss=2.0635 lr=2.68e-04 gnorm=2.12 tok/s=11672 eta=5h17m47s
+[medmcqa] ep8 step 32516/152080 (21%) loss=2.0715 lr=2.68e-04 gnorm=1.98 tok/s=11822 eta=5h17m38s
+[medmcqa] ep8 step 32616/152080 (21%) loss=2.0198 lr=2.68e-04 gnorm=2.16 tok/s=11851 eta=5h17m20s
+[medmcqa] ep8 step 32716/152080 (22%) loss=2.1221 lr=2.67e-04 gnorm=2.20 tok/s=11767 eta=5h17m13s
+[medmcqa] ep8 step 32816/152080 (22%) loss=2.1194 lr=2.67e-04 gnorm=2.33 tok/s=12135 eta=5h16m43s
+[medmcqa] ep8 step 32916/152080 (22%) loss=2.1217 lr=2.67e-04 gnorm=2.19 tok/s=11876 eta=5h16m19s
+[medmcqa] ep8 step 33016/152080 (22%) loss=2.1539 lr=2.67e-04 gnorm=2.23 tok/s=11816 eta=5h16m07s
+[medmcqa] ep8 step 33116/152080 (22%) loss=2.0026 lr=2.67e-04 gnorm=2.07 tok/s=12027 eta=5h15m43s
+[medmcqa] ep8 step 33216/152080 (22%) loss=2.0609 lr=2.66e-04 gnorm=2.25 tok/s=12039 eta=5h15m21s
+[medmcqa] ep8 step 33316/152080 (22%) loss=2.0901 lr=2.66e-04 gnorm=2.03 tok/s=11816 eta=5h15m03s
+[medmcqa] ep8 step 33416/152080 (22%) loss=2.0222 lr=2.66e-04 gnorm=2.09 tok/s=11580 eta=5h15m00s
+[medmcqa] ep8 step 33516/152080 (22%) loss=2.1355 lr=2.66e-04 gnorm=2.15 tok/s=12022 eta=5h14m36s
+[medmcqa] ep8 step 33616/152080 (22%) loss=2.0867 lr=2.66e-04 gnorm=2.23 tok/s=11902 eta=5h14m29s
+[medmcqa] ep8 step 33716/152080 (22%) loss=2.1293 lr=2.65e-04 gnorm=2.18 tok/s=11911 eta=5h14m10s
+[medmcqa] ep8 step 33816/152080 (22%) loss=2.1784 lr=2.65e-04 gnorm=2.17 tok/s=11782 eta=5h13m53s
+[medmcqa] ep8 step 33916/152080 (22%) loss=2.1646 lr=2.65e-04 gnorm=2.12 tok/s=12128 eta=5h13m31s
+[medmcqa] ep8 step 34016/152080 (22%) loss=2.0425 lr=2.65e-04 gnorm=2.09 tok/s=12091 eta=5h13m08s
+[medmcqa] ep8 step 34116/152080 (22%) loss=2.0846 lr=2.65e-04 gnorm=2.05 tok/s=11829 eta=5h12m51s
+[medmcqa] ep8 step 34216/152080 (22%) loss=2.1321 lr=2.64e-04 gnorm=2.14 tok/s=12010 eta=5h12m27s
+[medmcqa] ep8 done loss=2.0385 gnorm=2.14 lr_end=2.64e-04 tok/s=11873 time=10m04s
+[medmcqa] ep8 eval medmcqa acc=34.08% loss=3.3283 n=4170
+[medmcqa] ep8 eval medqa acc=26.00% loss=3.5585 n=1273
+[medmcqa] ep9 step 34318/152080 (23%) loss=1.7873 lr=2.64e-04 gnorm=2.00 tok/s=12112 eta=5h07m32s
+[medmcqa] ep9 step 34418/152080 (23%) loss=1.9077 lr=2.64e-04 gnorm=2.16 tok/s=12031 eta=5h07m16s
+[medmcqa] ep9 step 34518/152080 (23%) loss=1.8680 lr=2.64e-04 gnorm=2.33 tok/s=12061 eta=5h07m27s
+[medmcqa] ep9 step 34618/152080 (23%) loss=1.8435 lr=2.64e-04 gnorm=2.13 tok/s=11891 eta=5h07m45s
+[medmcqa] ep9 step 34718/152080 (23%) loss=1.8188 lr=2.63e-04 gnorm=2.04 tok/s=11919 eta=5h07m05s
+[medmcqa] ep9 step 34818/152080 (23%) loss=1.9606 lr=2.63e-04 gnorm=2.30 tok/s=11833 eta=5h07m07s
+[medmcqa] ep9 step 34918/152080 (23%) loss=1.9211 lr=2.63e-04 gnorm=2.17 tok/s=11952 eta=5h07m04s
+[medmcqa] ep9 step 35018/152080 (23%) loss=1.9507 lr=2.63e-04 gnorm=2.36 tok/s=12060 eta=5h06m38s
+[medmcqa] ep9 step 35118/152080 (23%) loss=1.9345 lr=2.63e-04 gnorm=2.23 tok/s=12311 eta=5h05m59s
+[medmcqa] ep9 step 35218/152080 (23%) loss=1.8873 lr=2.62e-04 gnorm=2.13 tok/s=11932 eta=5h05m41s
+[medmcqa] ep9 step 35318/152080 (23%) loss=1.9849 lr=2.62e-04 gnorm=2.21 tok/s=11880 eta=5h05m32s
+[medmcqa] ep9 step 35418/152080 (23%) loss=1.9178 lr=2.62e-04 gnorm=2.36 tok/s=11581 eta=5h05m57s
+[medmcqa] ep9 step 35518/152080 (23%) loss=1.9839 lr=2.62e-04 gnorm=2.08 tok/s=12128 eta=5h05m27s
+[medmcqa] ep9 step 35618/152080 (23%) loss=1.8689 lr=2.62e-04 gnorm=2.14 tok/s=11823 eta=5h05m25s
+[medmcqa] ep9 step 35718/152080 (23%) loss=1.9397 lr=2.61e-04 gnorm=2.24 tok/s=12036 eta=5h05m15s
+[medmcqa] ep9 step 35818/152080 (24%) loss=1.9728 lr=2.61e-04 gnorm=2.34 tok/s=12109 eta=5h04m51s
+[medmcqa] ep9 step 35918/152080 (24%) loss=1.9428 lr=2.61e-04 gnorm=2.11 tok/s=11971 eta=5h04m27s
+[medmcqa] ep9 step 36018/152080 (24%) loss=1.9962 lr=2.61e-04 gnorm=2.23 tok/s=12083 eta=5h04m11s
+[medmcqa] ep9 step 36118/152080 (24%) loss=1.9647 lr=2.60e-04 gnorm=2.20 tok/s=11795 eta=5h04m10s
+[medmcqa] ep9 step 36218/152080 (24%) loss=2.0043 lr=2.60e-04 gnorm=2.37 tok/s=11937 eta=5h04m02s
+[medmcqa] ep9 step 36318/152080 (24%) loss=1.9910 lr=2.60e-04 gnorm=2.18 tok/s=11899 eta=5h03m54s
+[medmcqa] ep9 step 36418/152080 (24%) loss=1.9729 lr=2.60e-04 gnorm=2.05 tok/s=11962 eta=5h03m35s
+[medmcqa] ep9 step 36518/152080 (24%) loss=2.0815 lr=2.60e-04 gnorm=2.49 tok/s=12201 eta=5h03m12s
+[medmcqa] ep9 step 36618/152080 (24%) loss=1.9864 lr=2.59e-04 gnorm=2.30 tok/s=12213 eta=5h02m45s
+[medmcqa] ep9 step 36718/152080 (24%) loss=2.0715 lr=2.59e-04 gnorm=2.11 tok/s=12340 eta=5h02m20s
+[medmcqa] ep9 step 36818/152080 (24%) loss=1.9823 lr=2.59e-04 gnorm=2.27 tok/s=12114 eta=5h01m56s
+[medmcqa] ep9 step 36918/152080 (24%) loss=2.0036 lr=2.59e-04 gnorm=2.12 tok/s=12024 eta=5h01m35s
+[medmcqa] ep9 step 37018/152080 (24%) loss=2.0632 lr=2.59e-04 gnorm=2.36 tok/s=12165 eta=5h01m13s
+[medmcqa] ep9 step 37118/152080 (24%) loss=2.0577 lr=2.58e-04 gnorm=2.31 tok/s=12108 eta=5h00m55s
+[medmcqa] ep9 step 37218/152080 (24%) loss=2.0714 lr=2.58e-04 gnorm=2.15 tok/s=12069 eta=5h00m35s
+[medmcqa] ep9 step 37318/152080 (25%) loss=2.0343 lr=2.58e-04 gnorm=2.25 tok/s=12171 eta=5h00m17s
+[medmcqa] ep9 step 37418/152080 (25%) loss=2.0482 lr=2.58e-04 gnorm=2.22 tok/s=11935 eta=5h00m04s
+[medmcqa] ep9 step 37518/152080 (25%) loss=2.0383 lr=2.57e-04 gnorm=2.12 tok/s=12118 eta=4h59m46s
+[medmcqa] ep9 step 37618/152080 (25%) loss=2.0620 lr=2.57e-04 gnorm=2.28 tok/s=11936 eta=4h59m34s
+[medmcqa] ep9 step 37718/152080 (25%) loss=2.0159 lr=2.57e-04 gnorm=2.33 tok/s=11793 eta=4h59m30s
+[medmcqa] ep9 step 37818/152080 (25%) loss=2.0575 lr=2.57e-04 gnorm=2.28 tok/s=11700 eta=4h59m31s
+[medmcqa] ep9 step 37918/152080 (25%) loss=1.9794 lr=2.57e-04 gnorm=2.24 tok/s=11691 eta=4h59m35s
+[medmcqa] ep9 step 38018/152080 (25%) loss=2.0284 lr=2.56e-04 gnorm=2.12 tok/s=11523 eta=4h59m35s
+[medmcqa] ep9 done loss=1.9687 gnorm=2.22 lr_end=2.56e-04 tok/s=11983 time=9m59s
+[medmcqa] ep9 eval medmcqa acc=33.93% loss=3.3606 n=4170
+[medmcqa] ep9 eval medqa acc=29.38% loss=3.5891 n=1273
+[medmcqa] ep10 step 38120/152080 (25%) loss=1.6981 lr=2.56e-04 gnorm=2.12 tok/s=11411 eta=5h08m50s
+[medmcqa] ep10 step 38220/152080 (25%) loss=1.7414 lr=2.56e-04 gnorm=2.22 tok/s=11654 eta=5h07m48s
+[medmcqa] ep10 step 38320/152080 (25%) loss=1.7586 lr=2.56e-04 gnorm=2.30 tok/s=11838 eta=5h07m12s
+[medmcqa] ep10 step 38420/152080 (25%) loss=1.7775 lr=2.56e-04 gnorm=2.29 tok/s=12028 eta=5h05m08s
+[medmcqa] ep10 step 38520/152080 (25%) loss=1.8860 lr=2.55e-04 gnorm=2.02 tok/s=12014 eta=5h03m40s
+[medmcqa] ep10 step 38620/152080 (25%) loss=1.8785 lr=2.55e-04 gnorm=2.19 tok/s=11876 eta=5h02m47s
+[medmcqa] ep10 step 38720/152080 (25%) loss=1.7811 lr=2.55e-04 gnorm=2.37 tok/s=11979 eta=5h01m36s
+[medmcqa] ep10 step 38820/152080 (26%) loss=1.8031 lr=2.55e-04 gnorm=2.29 tok/s=11694 eta=5h01m38s
+[medmcqa] ep10 step 38920/152080 (26%) loss=1.8797 lr=2.54e-04 gnorm=2.35 tok/s=11722 eta=5h01m50s
+[medmcqa] ep10 step 39020/152080 (26%) loss=1.8998 lr=2.54e-04 gnorm=2.33 tok/s=11861 eta=5h01m34s
+[medmcqa] ep10 step 39120/152080 (26%) loss=1.8712 lr=2.54e-04 gnorm=2.28 tok/s=12006 eta=5h00m44s
+[medmcqa] ep10 step 39220/152080 (26%) loss=1.8484 lr=2.54e-04 gnorm=2.07 tok/s=11905 eta=5h00m20s
+[medmcqa] ep10 step 39320/152080 (26%) loss=1.8594 lr=2.54e-04 gnorm=2.30 tok/s=11972 eta=4h59m49s
+[medmcqa] ep10 step 39420/152080 (26%) loss=1.9096 lr=2.53e-04 gnorm=2.50 tok/s=12338 eta=4h58m59s
+[medmcqa] ep10 step 39520/152080 (26%) loss=1.9392 lr=2.53e-04 gnorm=2.26 tok/s=12250 eta=4h58m14s
+[medmcqa] ep10 step 39620/152080 (26%) loss=1.8906 lr=2.53e-04 gnorm=2.33 tok/s=11999 eta=4h57m42s
+[medmcqa] ep10 step 39720/152080 (26%) loss=1.8595 lr=2.53e-04 gnorm=2.19 tok/s=11863 eta=4h57m09s
+[medmcqa] ep10 step 39820/152080 (26%) loss=1.9098 lr=2.52e-04 gnorm=2.30 tok/s=11988 eta=4h56m45s
+[medmcqa] ep10 step 39920/152080 (26%) loss=1.9402 lr=2.52e-04 gnorm=2.18 tok/s=11753 eta=4h56m46s
+[medmcqa] ep10 step 40020/152080 (26%) loss=1.8927 lr=2.52e-04 gnorm=2.21 tok/s=11648 eta=4h56m43s
+[medmcqa] ep10 step 40120/152080 (26%) loss=1.8709 lr=2.52e-04 gnorm=2.27 tok/s=11601 eta=4h56m46s
+[medmcqa] ep10 step 40220/152080 (26%) loss=1.9003 lr=2.51e-04 gnorm=2.45 tok/s=12114 eta=4h56m14s
+[medmcqa] ep10 step 40320/152080 (27%) loss=2.0039 lr=2.51e-04 gnorm=2.36 tok/s=11914 eta=4h55m56s
+[medmcqa] ep10 step 40420/152080 (27%) loss=1.9623 lr=2.51e-04 gnorm=2.39 tok/s=11817 eta=4h55m46s
+[medmcqa] ep10 step 40520/152080 (27%) loss=1.9473 lr=2.51e-04 gnorm=2.28 tok/s=11612 eta=4h55m47s
+[medmcqa] ep10 step 40620/152080 (27%) loss=1.9331 lr=2.51e-04 gnorm=2.37 tok/s=11928 eta=4h55m26s
+[medmcqa] ep10 step 40720/152080 (27%) loss=1.9837 lr=2.50e-04 gnorm=2.67 tok/s=12093 eta=4h55m00s
+[medmcqa] ep10 step 40820/152080 (27%) loss=1.9111 lr=2.50e-04 gnorm=2.21 tok/s=11994 eta=4h54m34s
+[medmcqa] ep10 step 40920/152080 (27%) loss=1.9523 lr=2.50e-04 gnorm=2.40 tok/s=12033 eta=4h54m06s
+[medmcqa] ep10 step 41020/152080 (27%) loss=1.9609 lr=2.50e-04 gnorm=2.25 tok/s=12042 eta=4h53m47s
+[medmcqa] ep10 step 41120/152080 (27%) loss=1.9549 lr=2.49e-04 gnorm=2.32 tok/s=11622 eta=4h53m42s
+[medmcqa] ep10 step 41220/152080 (27%) loss=2.0053 lr=2.49e-04 gnorm=2.30 tok/s=11643 eta=4h53m35s
+[medmcqa] ep10 step 41320/152080 (27%) loss=1.9844 lr=2.49e-04 gnorm=2.35 tok/s=12020 eta=4h53m12s
+[medmcqa] ep10 step 41420/152080 (27%) loss=1.9788 lr=2.49e-04 gnorm=2.37 tok/s=11668 eta=4h53m02s
+[medmcqa] ep10 step 41520/152080 (27%) loss=2.0377 lr=2.48e-04 gnorm=2.31 tok/s=11977 eta=4h52m44s
+[medmcqa] ep10 step 41620/152080 (27%) loss=1.9943 lr=2.48e-04 gnorm=2.29 tok/s=12254 eta=4h52m14s
+[medmcqa] ep10 step 41720/152080 (27%) loss=1.9986 lr=2.48e-04 gnorm=2.51 tok/s=12203 eta=4h51m52s
+[medmcqa] ep10 step 41820/152080 (27%) loss=2.0672 lr=2.48e-04 gnorm=2.30 tok/s=11401 eta=4h52m00s
+[medmcqa] ep10 done loss=1.9024 gnorm=2.29 lr_end=2.48e-04 tok/s=11884 time=10m04s
+[medmcqa] ep10 eval medmcqa acc=34.29% loss=3.3864 n=4170
+[medmcqa] ep10 eval medqa acc=28.52% loss=3.5899 n=1273
+[medmcqa] ep11 step 41922/152080 (28%) loss=1.6957 lr=2.48e-04 gnorm=2.18 tok/s=11995 eta=4h49m03s
+[medmcqa] ep11 step 42022/152080 (28%) loss=1.7079 lr=2.47e-04 gnorm=2.10 tok/s=11838 eta=4h50m04s
+[medmcqa] ep11 step 42122/152080 (28%) loss=1.7407 lr=2.47e-04 gnorm=2.08 tok/s=11684 eta=4h51m51s
+[medmcqa] ep11 step 42222/152080 (28%) loss=1.7513 lr=2.47e-04 gnorm=2.25 tok/s=11790 eta=4h52m11s
+[medmcqa] ep11 step 42322/152080 (28%) loss=1.7132 lr=2.47e-04 gnorm=2.26 tok/s=11712 eta=4h53m04s
+[medmcqa] ep11 step 42422/152080 (28%) loss=1.7779 lr=2.46e-04 gnorm=2.54 tok/s=11704 eta=4h52m58s
+[medmcqa] ep11 step 42522/152080 (28%) loss=1.7404 lr=2.46e-04 gnorm=2.31 tok/s=11847 eta=4h52m20s
+[medmcqa] ep11 step 42622/152080 (28%) loss=1.7925 lr=2.46e-04 gnorm=2.16 tok/s=11917 eta=4h51m54s
+[medmcqa] ep11 step 42722/152080 (28%) loss=1.7622 lr=2.46e-04 gnorm=2.33 tok/s=11535 eta=4h52m25s
+[medmcqa] ep11 step 42822/152080 (28%) loss=1.7775 lr=2.45e-04 gnorm=2.39 tok/s=12102 eta=4h51m42s
+[medmcqa] ep11 step 42922/152080 (28%) loss=1.7822 lr=2.45e-04 gnorm=2.23 tok/s=11945 eta=4h51m14s
+[medmcqa] ep11 step 43022/152080 (28%) loss=1.8186 lr=2.45e-04 gnorm=2.44 tok/s=11852 eta=4h50m46s
+[medmcqa] ep11 step 43122/152080 (28%) loss=1.7926 lr=2.45e-04 gnorm=2.42 tok/s=11845 eta=4h50m25s
+[medmcqa] ep11 step 43222/152080 (28%) loss=1.8339 lr=2.44e-04 gnorm=2.43 tok/s=11912 eta=4h50m04s
+[medmcqa] ep11 step 43322/152080 (28%) loss=1.8100 lr=2.44e-04 gnorm=2.37 tok/s=11814 eta=4h49m36s
+[medmcqa] ep11 step 43422/152080 (29%) loss=1.8667 lr=2.44e-04 gnorm=2.31 tok/s=12110 eta=4h49m04s
+[medmcqa] ep11 step 43522/152080 (29%) loss=1.8781 lr=2.44e-04 gnorm=2.27 tok/s=11984 eta=4h48m29s
+[medmcqa] ep11 step 43622/152080 (29%) loss=1.8397 lr=2.43e-04 gnorm=2.33 tok/s=11898 eta=4h47m59s
+[medmcqa] ep11 step 43722/152080 (29%) loss=1.8423 lr=2.43e-04 gnorm=2.39 tok/s=11978 eta=4h47m33s
+[medmcqa] ep11 step 43822/152080 (29%) loss=1.8164 lr=2.43e-04 gnorm=2.29 tok/s=11875 eta=4h47m12s
+[medmcqa] ep11 step 43922/152080 (29%) loss=1.7934 lr=2.43e-04 gnorm=2.34 tok/s=11918 eta=4h46m54s
+[medmcqa] ep11 step 44022/152080 (29%) loss=1.9251 lr=2.42e-04 gnorm=2.49 tok/s=12179 eta=4h46m22s
+[medmcqa] ep11 step 44122/152080 (29%) loss=1.9080 lr=2.42e-04 gnorm=2.54 tok/s=11817 eta=4h46m05s
+[medmcqa] ep11 step 44222/152080 (29%) loss=1.8259 lr=2.42e-04 gnorm=2.63 tok/s=11914 eta=4h45m39s
+[medmcqa] ep11 step 44322/152080 (29%) loss=1.8342 lr=2.42e-04 gnorm=2.36 tok/s=11966 eta=4h45m17s
+[medmcqa] ep11 step 44422/152080 (29%) loss=1.8776 lr=2.42e-04 gnorm=2.49 tok/s=12207 eta=4h44m46s
+[medmcqa] ep11 step 44522/152080 (29%) loss=1.9028 lr=2.41e-04 gnorm=2.46 tok/s=12003 eta=4h44m22s
+[medmcqa] ep11 step 44622/152080 (29%) loss=1.9413 lr=2.41e-04 gnorm=2.27 tok/s=12031 eta=4h44m00s
+[medmcqa] ep11 step 44722/152080 (29%) loss=1.8642 lr=2.41e-04 gnorm=2.40 tok/s=12238 eta=4h43m32s
+[medmcqa] ep11 step 44822/152080 (29%) loss=1.8764 lr=2.41e-04 gnorm=2.42 tok/s=12057 eta=4h43m10s
+[medmcqa] ep11 step 44922/152080 (30%) loss=1.9561 lr=2.40e-04 gnorm=2.48 tok/s=11885 eta=4h42m56s
+[medmcqa] ep11 step 45022/152080 (30%) loss=1.9138 lr=2.40e-04 gnorm=2.29 tok/s=12016 eta=4h42m36s
+[medmcqa] ep11 step 45122/152080 (30%) loss=1.8322 lr=2.40e-04 gnorm=2.30 tok/s=12271 eta=4h42m09s
+[medmcqa] ep11 step 45222/152080 (30%) loss=1.8838 lr=2.40e-04 gnorm=2.46 tok/s=11975 eta=4h41m50s
+[medmcqa] ep11 step 45322/152080 (30%) loss=1.9192 lr=2.39e-04 gnorm=2.45 tok/s=12100 eta=4h41m26s
+[medmcqa] ep11 step 45422/152080 (30%) loss=1.9032 lr=2.39e-04 gnorm=2.31 tok/s=11853 eta=4h41m14s
+[medmcqa] ep11 step 45522/152080 (30%) loss=1.9270 lr=2.39e-04 gnorm=2.46 tok/s=12049 eta=4h40m56s
+[medmcqa] ep11 step 45622/152080 (30%) loss=1.8675 lr=2.39e-04 gnorm=2.74 tok/s=11969 eta=4h40m36s
+[medmcqa] ep11 done loss=1.8367 gnorm=2.35 lr_end=2.39e-04 tok/s=11941 time=10m01s
+[medmcqa] ep11 eval medmcqa acc=34.39% loss=3.4142 n=4170
+[medmcqa] ep11 eval medqa acc=28.20% loss=3.6355 n=1273
+[medmcqa] ep12 step 45724/152080 (30%) loss=1.5650 lr=2.38e-04 gnorm=2.41 tok/s=12106 eta=4h37m15s
+[medmcqa] ep12 step 45824/152080 (30%) loss=1.5858 lr=2.38e-04 gnorm=2.30 tok/s=12068 eta=4h37m37s
+[medmcqa] ep12 step 45924/152080 (30%) loss=1.6577 lr=2.38e-04 gnorm=2.33 tok/s=12041 eta=4h36m53s
+[medmcqa] ep12 step 46024/152080 (30%) loss=1.6094 lr=2.38e-04 gnorm=2.37 tok/s=11775 eta=4h38m30s
+[medmcqa] ep12 step 46124/152080 (30%) loss=1.6426 lr=2.37e-04 gnorm=2.31 tok/s=11723 eta=4h39m46s
+[medmcqa] ep12 step 46224/152080 (30%) loss=1.7277 lr=2.37e-04 gnorm=2.27 tok/s=11646 eta=4h40m03s
+[medmcqa] ep12 step 46324/152080 (30%) loss=1.7407 lr=2.37e-04 gnorm=2.26 tok/s=12111 eta=4h39m07s
+[medmcqa] ep12 step 46424/152080 (31%) loss=1.6723 lr=2.37e-04 gnorm=2.15 tok/s=11857 eta=4h38m43s
+[medmcqa] ep12 step 46524/152080 (31%) loss=1.6904 lr=2.36e-04 gnorm=2.43 tok/s=11980 eta=4h38m16s
+[medmcqa] ep12 step 46624/152080 (31%) loss=1.6954 lr=2.36e-04 gnorm=2.46 tok/s=12225 eta=4h37m44s
+[medmcqa] ep12 step 46724/152080 (31%) loss=1.7330 lr=2.36e-04 gnorm=2.51 tok/s=11895 eta=4h37m26s
+[medmcqa] ep12 step 46824/152080 (31%) loss=1.7459 lr=2.35e-04 gnorm=2.60 tok/s=12026 eta=4h37m17s
+[medmcqa] ep12 step 46924/152080 (31%) loss=1.7624 lr=2.35e-04 gnorm=2.61 tok/s=11755 eta=4h37m25s
+[medmcqa] ep12 step 47024/152080 (31%) loss=1.7405 lr=2.35e-04 gnorm=2.21 tok/s=11797 eta=4h37m13s
+[medmcqa] ep12 step 47124/152080 (31%) loss=1.7253 lr=2.35e-04 gnorm=2.45 tok/s=11929 eta=4h36m58s
+[medmcqa] ep12 step 47224/152080 (31%) loss=1.7448 lr=2.34e-04 gnorm=2.44 tok/s=11972 eta=4h36m32s
+[medmcqa] ep12 step 47324/152080 (31%) loss=1.7742 lr=2.34e-04 gnorm=2.21 tok/s=11960 eta=4h36m14s
+[medmcqa] ep12 step 47424/152080 (31%) loss=1.8088 lr=2.34e-04 gnorm=2.40 tok/s=11969 eta=4h35m44s
+[medmcqa] ep12 step 47524/152080 (31%) loss=1.7901 lr=2.34e-04 gnorm=2.37 tok/s=12054 eta=4h35m29s
+[medmcqa] ep12 step 47624/152080 (31%) loss=1.8744 lr=2.33e-04 gnorm=2.59 tok/s=11911 eta=4h35m17s
+[medmcqa] ep12 step 47724/152080 (31%) loss=1.8091 lr=2.33e-04 gnorm=2.35 tok/s=11754 eta=4h35m17s
+[medmcqa] ep12 step 47824/152080 (31%) loss=1.8271 lr=2.33e-04 gnorm=2.43 tok/s=11927 eta=4h35m04s
+[medmcqa] ep12 step 47924/152080 (32%) loss=1.8314 lr=2.33e-04 gnorm=2.33 tok/s=12080 eta=4h34m42s
+[medmcqa] ep12 step 48024/152080 (32%) loss=1.8410 lr=2.32e-04 gnorm=2.31 tok/s=11861 eta=4h34m26s
+[medmcqa] ep12 step 48124/152080 (32%) loss=1.8432 lr=2.32e-04 gnorm=2.43 tok/s=11931 eta=4h34m12s
+[medmcqa] ep12 step 48224/152080 (32%) loss=1.8717 lr=2.32e-04 gnorm=2.56 tok/s=12016 eta=4h33m54s
+[medmcqa] ep12 step 48324/152080 (32%) loss=1.8876 lr=2.32e-04 gnorm=2.53 tok/s=11887 eta=4h33m44s
+[medmcqa] ep12 step 48424/152080 (32%) loss=1.8869 lr=2.31e-04 gnorm=2.38 tok/s=11967 eta=4h33m25s
+[medmcqa] ep12 step 48524/152080 (32%) loss=1.7406 lr=2.31e-04 gnorm=2.37 tok/s=12072 eta=4h33m04s
+[medmcqa] ep12 step 48624/152080 (32%) loss=1.7732 lr=2.31e-04 gnorm=2.55 tok/s=12087 eta=4h32m46s
+[medmcqa] ep12 step 48724/152080 (32%) loss=1.8115 lr=2.31e-04 gnorm=2.36 tok/s=11891 eta=4h32m29s
+[medmcqa] ep12 step 48824/152080 (32%) loss=1.8564 lr=2.30e-04 gnorm=2.31 tok/s=12060 eta=4h32m07s
+[medmcqa] ep12 step 48924/152080 (32%) loss=1.8329 lr=2.30e-04 gnorm=2.31 tok/s=12082 eta=4h31m48s
+[medmcqa] ep12 step 49024/152080 (32%) loss=1.8051 lr=2.30e-04 gnorm=2.46 tok/s=11906 eta=4h31m38s
+[medmcqa] ep12 step 49124/152080 (32%) loss=1.8581 lr=2.30e-04 gnorm=2.59 tok/s=11729 eta=4h31m31s
+[medmcqa] ep12 step 49224/152080 (32%) loss=1.8807 lr=2.29e-04 gnorm=2.47 tok/s=11887 eta=4h31m18s
+[medmcqa] ep12 step 49324/152080 (32%) loss=1.8847 lr=2.29e-04 gnorm=2.60 tok/s=11794 eta=4h31m02s
+[medmcqa] ep12 step 49424/152080 (32%) loss=1.9222 lr=2.29e-04 gnorm=2.38 tok/s=11458 eta=4h30m56s
+[medmcqa] ep12 done loss=1.7762 gnorm=2.41 lr_end=2.29e-04 tok/s=11925 time=10m02s
+[medmcqa] ep12 eval medmcqa acc=34.65% loss=3.4410 n=4170
+[medmcqa] ep12 eval medqa acc=25.53% loss=3.6591 n=1273
+[medmcqa] ep13 step 49526/152080 (33%) loss=1.6041 lr=2.28e-04 gnorm=2.37 tok/s=11619 eta=4h39m01s
+[medmcqa] ep13 step 49626/152080 (33%) loss=1.5010 lr=2.28e-04 gnorm=2.17 tok/s=12104 eta=4h33m33s
+[medmcqa] ep13 step 49726/152080 (33%) loss=1.5903 lr=2.28e-04 gnorm=2.30 tok/s=12213 eta=4h29m52s
+[medmcqa] ep13 step 49826/152080 (33%) loss=1.6018 lr=2.28e-04 gnorm=2.33 tok/s=12033 eta=4h28m30s
+[medmcqa] ep13 step 49926/152080 (33%) loss=1.6090 lr=2.27e-04 gnorm=2.73 tok/s=12094 eta=4h27m24s
+[medmcqa] ep13 step 50026/152080 (33%) loss=1.6369 lr=2.27e-04 gnorm=2.52 tok/s=12043 eta=4h27m04s
+[medmcqa] ep13 step 50126/152080 (33%) loss=1.6642 lr=2.27e-04 gnorm=2.58 tok/s=11885 eta=4h27m26s
+[medmcqa] ep13 step 50226/152080 (33%) loss=1.6106 lr=2.27e-04 gnorm=2.42 tok/s=11868 eta=4h27m19s
+[medmcqa] ep13 step 50326/152080 (33%) loss=1.6272 lr=2.26e-04 gnorm=2.71 tok/s=12151 eta=4h27m00s
+[medmcqa] ep13 step 50426/152080 (33%) loss=1.6507 lr=2.26e-04 gnorm=2.48 tok/s=11841 eta=4h26m54s
+[medmcqa] ep13 step 50526/152080 (33%) loss=1.6389 lr=2.26e-04 gnorm=2.51 tok/s=11895 eta=4h26m49s
+[medmcqa] ep13 step 50626/152080 (33%) loss=1.6950 lr=2.26e-04 gnorm=2.49 tok/s=11894 eta=4h26m51s
+[medmcqa] ep13 step 50726/152080 (33%) loss=1.7019 lr=2.25e-04 gnorm=2.60 tok/s=11835 eta=4h26m58s
+[medmcqa] ep13 step 50826/152080 (33%) loss=1.6858 lr=2.25e-04 gnorm=2.72 tok/s=11877 eta=4h26m43s
+[medmcqa] ep13 step 50926/152080 (33%) loss=1.6767 lr=2.25e-04 gnorm=2.71 tok/s=11894 eta=4h26m37s
+[medmcqa] ep13 step 51026/152080 (34%) loss=1.7497 lr=2.24e-04 gnorm=2.38 tok/s=11446 eta=4h27m05s
+[medmcqa] ep13 step 51126/152080 (34%) loss=1.7359 lr=2.24e-04 gnorm=2.74 tok/s=12029 eta=4h26m41s
+[medmcqa] ep13 step 51226/152080 (34%) loss=1.7302 lr=2.24e-04 gnorm=2.44 tok/s=12217 eta=4h26m18s
+[medmcqa] ep13 step 51326/152080 (34%) loss=1.7649 lr=2.24e-04 gnorm=2.52 tok/s=12270 eta=4h25m41s
+[medmcqa] ep13 step 51426/152080 (34%) loss=1.7836 lr=2.23e-04 gnorm=2.41 tok/s=12034 eta=4h25m14s
+[medmcqa] ep13 step 51526/152080 (34%) loss=1.7489 lr=2.23e-04 gnorm=2.49 tok/s=12024 eta=4h24m49s
+[medmcqa] ep13 step 51626/152080 (34%) loss=1.7634 lr=2.23e-04 gnorm=2.49 tok/s=12062 eta=4h24m30s
+[medmcqa] ep13 step 51726/152080 (34%) loss=1.7633 lr=2.23e-04 gnorm=2.61 tok/s=12001 eta=4h24m12s
+[medmcqa] ep13 step 51826/152080 (34%) loss=1.7467 lr=2.22e-04 gnorm=2.31 tok/s=11664 eta=4h24m07s
+[medmcqa] ep13 step 51926/152080 (34%) loss=1.7742 lr=2.22e-04 gnorm=2.68 tok/s=11699 eta=4h24m00s
+[medmcqa] ep13 step 52026/152080 (34%) loss=1.7189 lr=2.22e-04 gnorm=2.33 tok/s=11753 eta=4h23m59s
+[medmcqa] ep13 step 52126/152080 (34%) loss=1.7492 lr=2.21e-04 gnorm=2.85 tok/s=11592 eta=4h23m55s
+[medmcqa] ep13 step 52226/152080 (34%) loss=1.7773 lr=2.21e-04 gnorm=2.66 tok/s=11764 eta=4h23m52s
+[medmcqa] ep13 step 52326/152080 (34%) loss=1.8293 lr=2.21e-04 gnorm=2.37 tok/s=11860 eta=4h23m38s
+[medmcqa] ep13 step 52426/152080 (34%) loss=1.7177 lr=2.21e-04 gnorm=2.51 tok/s=11931 eta=4h23m24s
+[medmcqa] ep13 step 52526/152080 (35%) loss=1.7942 lr=2.20e-04 gnorm=2.57 tok/s=12037 eta=4h23m03s
+[medmcqa] ep13 step 52626/152080 (35%) loss=1.7842 lr=2.20e-04 gnorm=2.52 tok/s=12113 eta=4h22m39s
+[medmcqa] ep13 step 52726/152080 (35%) loss=1.8090 lr=2.20e-04 gnorm=2.65 tok/s=11917 eta=4h22m19s
+[medmcqa] ep13 step 52826/152080 (35%) loss=1.7754 lr=2.20e-04 gnorm=2.67 tok/s=11956 eta=4h21m59s
+[medmcqa] ep13 step 52926/152080 (35%) loss=1.8196 lr=2.19e-04 gnorm=2.81 tok/s=11996 eta=4h21m40s
+[medmcqa] ep13 step 53026/152080 (35%) loss=1.8128 lr=2.19e-04 gnorm=2.37 tok/s=12005 eta=4h21m20s
+[medmcqa] ep13 step 53126/152080 (35%) loss=1.7568 lr=2.19e-04 gnorm=2.44 tok/s=12070 eta=4h20m58s
+[medmcqa] ep13 step 53226/152080 (35%) loss=1.7850 lr=2.18e-04 gnorm=2.44 tok/s=11830 eta=4h20m45s
+[medmcqa] ep13 done loss=1.7198 gnorm=2.48 lr_end=2.18e-04 tok/s=11932 time=10m01s
+[medmcqa] ep13 eval medmcqa acc=34.15% loss=3.4728 n=4170
+[medmcqa] ep13 eval medqa acc=27.89% loss=3.6932 n=1273
+[medmcqa] ep14 step 53328/152080 (35%) loss=1.5330 lr=2.18e-04 gnorm=2.46 tok/s=11419 eta=4h29m28s
+[medmcqa] ep14 step 53428/152080 (35%) loss=1.5174 lr=2.18e-04 gnorm=2.27 tok/s=11850 eta=4h25m19s
+[medmcqa] ep14 step 53528/152080 (35%) loss=1.4944 lr=2.18e-04 gnorm=2.38 tok/s=11976 eta=4h23m20s
+[medmcqa] ep14 step 53628/152080 (35%) loss=1.5221 lr=2.17e-04 gnorm=2.51 tok/s=11848 eta=4h22m50s
+[medmcqa] ep14 step 53728/152080 (35%) loss=1.6587 lr=2.17e-04 gnorm=2.47 tok/s=11979 eta=4h22m08s
+[medmcqa] ep14 step 53828/152080 (35%) loss=1.5735 lr=2.17e-04 gnorm=2.59 tok/s=11966 eta=4h21m07s
+[medmcqa] ep14 step 53928/152080 (35%) loss=1.5895 lr=2.17e-04 gnorm=2.29 tok/s=11829 eta=4h20m45s
+[medmcqa] ep14 step 54028/152080 (36%) loss=1.6079 lr=2.16e-04 gnorm=2.53 tok/s=11790 eta=4h21m00s
+[medmcqa] ep14 step 54128/152080 (36%) loss=1.6095 lr=2.16e-04 gnorm=2.49 tok/s=11632 eta=4h21m23s
+[medmcqa] ep14 step 54228/152080 (36%) loss=1.6466 lr=2.16e-04 gnorm=2.92 tok/s=11679 eta=4h21m21s
+[medmcqa] ep14 step 54328/152080 (36%) loss=1.6271 lr=2.15e-04 gnorm=2.60 tok/s=11573 eta=4h21m18s
+[medmcqa] ep14 step 54428/152080 (36%) loss=1.6594 lr=2.15e-04 gnorm=2.60 tok/s=11925 eta=4h20m39s
+[medmcqa] ep14 step 54528/152080 (36%) loss=1.6531 lr=2.15e-04 gnorm=2.58 tok/s=12102 eta=4h20m06s
+[medmcqa] ep14 step 54628/152080 (36%) loss=1.6353 lr=2.15e-04 gnorm=2.56 tok/s=11844 eta=4h19m36s
+[medmcqa] ep14 step 54728/152080 (36%) loss=1.6459 lr=2.14e-04 gnorm=2.61 tok/s=11961 eta=4h19m08s
+[medmcqa] ep14 step 54828/152080 (36%) loss=1.6775 lr=2.14e-04 gnorm=2.61 tok/s=11911 eta=4h18m45s
+[medmcqa] ep14 step 54928/152080 (36%) loss=1.6893 lr=2.14e-04 gnorm=2.71 tok/s=11944 eta=4h18m20s
+[medmcqa] ep14 step 55028/152080 (36%) loss=1.6416 lr=2.13e-04 gnorm=2.40 tok/s=12199 eta=4h17m56s
+[medmcqa] ep14 step 55128/152080 (36%) loss=1.6347 lr=2.13e-04 gnorm=2.46 tok/s=12024 eta=4h17m29s
+[medmcqa] ep14 step 55228/152080 (36%) loss=1.7123 lr=2.13e-04 gnorm=2.77 tok/s=11849 eta=4h17m03s
+[medmcqa] ep14 step 55328/152080 (36%) loss=1.6618 lr=2.13e-04 gnorm=2.56 tok/s=11862 eta=4h16m40s
+[medmcqa] ep14 step 55428/152080 (36%) loss=1.6521 lr=2.12e-04 gnorm=2.54 tok/s=11806 eta=4h16m22s
+[medmcqa] ep14 step 55528/152080 (37%) loss=1.7146 lr=2.12e-04 gnorm=2.52 tok/s=11761 eta=4h16m16s
+[medmcqa] ep14 step 55628/152080 (37%) loss=1.7457 lr=2.12e-04 gnorm=2.59 tok/s=11949 eta=4h15m57s
+[medmcqa] ep14 step 55728/152080 (37%) loss=1.6763 lr=2.11e-04 gnorm=2.64 tok/s=11713 eta=4h15m43s
+[medmcqa] ep14 step 55828/152080 (37%) loss=1.7244 lr=2.11e-04 gnorm=2.54 tok/s=11817 eta=4h15m32s
+[medmcqa] ep14 step 55928/152080 (37%) loss=1.7251 lr=2.11e-04 gnorm=2.82 tok/s=11871 eta=4h15m17s
+[medmcqa] ep14 step 56028/152080 (37%) loss=1.7553 lr=2.11e-04 gnorm=2.48 tok/s=12100 eta=4h14m54s
+[medmcqa] ep14 step 56128/152080 (37%) loss=1.7423 lr=2.10e-04 gnorm=2.72 tok/s=12043 eta=4h14m27s
+[medmcqa] ep14 step 56228/152080 (37%) loss=1.6727 lr=2.10e-04 gnorm=2.60 tok/s=11988 eta=4h13m59s
+[medmcqa] ep14 step 56328/152080 (37%) loss=1.7401 lr=2.10e-04 gnorm=2.72 tok/s=12208 eta=4h13m34s
+[medmcqa] ep14 step 56428/152080 (37%) loss=1.7005 lr=2.09e-04 gnorm=2.57 tok/s=12169 eta=4h13m08s
+[medmcqa] ep14 step 56528/152080 (37%) loss=1.7278 lr=2.09e-04 gnorm=2.60 tok/s=12125 eta=4h12m47s
+[medmcqa] ep14 step 56628/152080 (37%) loss=1.6973 lr=2.09e-04 gnorm=2.67 tok/s=11972 eta=4h12m26s
+[medmcqa] ep14 step 56728/152080 (37%) loss=1.7591 lr=2.09e-04 gnorm=2.48 tok/s=12098 eta=4h12m04s
+[medmcqa] ep14 step 56828/152080 (37%) loss=1.7387 lr=2.08e-04 gnorm=2.60 tok/s=11832 eta=4h11m51s
+[medmcqa] ep14 step 56928/152080 (37%) loss=1.7992 lr=2.08e-04 gnorm=2.82 tok/s=11800 eta=4h11m36s
+[medmcqa] ep14 step 57028/152080 (37%) loss=1.7826 lr=2.08e-04 gnorm=2.63 tok/s=12149 eta=4h11m13s
+[medmcqa] ep14 done loss=1.6657 gnorm=2.56 lr_end=2.08e-04 tok/s=11909 time=10m02s
+[medmcqa] ep14 eval medmcqa acc=34.29% loss=3.4883 n=4170
+[medmcqa] ep14 eval medqa acc=26.79% loss=3.7204 n=1273
+[medmcqa] ep15 step 57130/152080 (38%) loss=1.4558 lr=2.07e-04 gnorm=2.51 tok/s=11417 eta=4h22m37s
+[medmcqa] ep15 step 57230/152080 (38%) loss=1.5045 lr=2.07e-04 gnorm=2.40 tok/s=11562 eta=4h20m58s
+[medmcqa] ep15 step 57330/152080 (38%) loss=1.4890 lr=2.07e-04 gnorm=2.52 tok/s=11644 eta=4h18m52s
+[medmcqa] ep15 step 57430/152080 (38%) loss=1.5088 lr=2.07e-04 gnorm=2.43 tok/s=11800 eta=4h17m13s
+[medmcqa] ep15 step 57530/152080 (38%) loss=1.5397 lr=2.06e-04 gnorm=2.60 tok/s=11795 eta=4h16m16s
+[medmcqa] ep15 step 57630/152080 (38%) loss=1.5691 lr=2.06e-04 gnorm=2.48 tok/s=11429 eta=4h16m26s
+[medmcqa] ep15 step 57730/152080 (38%) loss=1.5511 lr=2.06e-04 gnorm=2.63 tok/s=11737 eta=4h15m42s
+[medmcqa] ep15 step 57830/152080 (38%) loss=1.5349 lr=2.05e-04 gnorm=2.46 tok/s=11766 eta=4h15m19s
+[medmcqa] ep15 step 57930/152080 (38%) loss=1.5203 lr=2.05e-04 gnorm=2.50 tok/s=11731 eta=4h14m38s
+[medmcqa] ep15 step 58030/152080 (38%) loss=1.5431 lr=2.05e-04 gnorm=2.78 tok/s=11912 eta=4h13m47s
+[medmcqa] ep15 step 58130/152080 (38%) loss=1.5889 lr=2.05e-04 gnorm=2.54 tok/s=11755 eta=4h13m15s
+[medmcqa] ep15 step 58230/152080 (38%) loss=1.6049 lr=2.04e-04 gnorm=2.77 tok/s=11697 eta=4h12m43s
+[medmcqa] ep15 step 58330/152080 (38%) loss=1.6105 lr=2.04e-04 gnorm=2.62 tok/s=11883 eta=4h12m15s
+[medmcqa] ep15 step 58430/152080 (38%) loss=1.5157 lr=2.04e-04 gnorm=2.59 tok/s=11849 eta=4h11m52s
+[medmcqa] ep15 step 58530/152080 (38%) loss=1.6088 lr=2.03e-04 gnorm=2.84 tok/s=11748 eta=4h11m34s
+[medmcqa] ep15 step 58630/152080 (39%) loss=1.5940 lr=2.03e-04 gnorm=2.55 tok/s=11736 eta=4h11m12s
+[medmcqa] ep15 step 58730/152080 (39%) loss=1.6380 lr=2.03e-04 gnorm=2.73 tok/s=11444 eta=4h11m03s
+[medmcqa] ep15 step 58830/152080 (39%) loss=1.6237 lr=2.03e-04 gnorm=2.51 tok/s=11638 eta=4h10m51s
+[medmcqa] ep15 step 58930/152080 (39%) loss=1.6216 lr=2.02e-04 gnorm=2.69 tok/s=11425 eta=4h10m42s
+[medmcqa] ep15 step 59030/152080 (39%) loss=1.6503 lr=2.02e-04 gnorm=2.63 tok/s=11771 eta=4h10m17s
+[medmcqa] ep15 step 59130/152080 (39%) loss=1.6272 lr=2.02e-04 gnorm=2.86 tok/s=11763 eta=4h09m53s
+[medmcqa] ep15 step 59230/152080 (39%) loss=1.6323 lr=2.01e-04 gnorm=2.62 tok/s=11842 eta=4h09m33s
+[medmcqa] ep15 step 59330/152080 (39%) loss=1.7246 lr=2.01e-04 gnorm=2.79 tok/s=11776 eta=4h09m17s
+[medmcqa] ep15 step 59430/152080 (39%) loss=1.7447 lr=2.01e-04 gnorm=2.58 tok/s=11584 eta=4h09m08s
+[medmcqa] ep15 step 59530/152080 (39%) loss=1.6839 lr=2.01e-04 gnorm=2.50 tok/s=11782 eta=4h08m55s
+[medmcqa] ep15 step 59630/152080 (39%) loss=1.7133 lr=2.00e-04 gnorm=2.58 tok/s=11645 eta=4h08m38s
+[medmcqa] ep15 step 59730/152080 (39%) loss=1.6998 lr=2.00e-04 gnorm=2.55 tok/s=11838 eta=4h08m16s
+[medmcqa] ep15 step 59830/152080 (39%) loss=1.6280 lr=2.00e-04 gnorm=2.81 tok/s=11467 eta=4h08m05s
+[medmcqa] ep15 step 59930/152080 (39%) loss=1.6152 lr=1.99e-04 gnorm=2.72 tok/s=11561 eta=4h07m52s
+[medmcqa] ep15 step 60030/152080 (39%) loss=1.6699 lr=1.99e-04 gnorm=2.71 tok/s=11578 eta=4h07m40s
+[medmcqa] ep15 step 60130/152080 (40%) loss=1.6849 lr=1.99e-04 gnorm=2.92 tok/s=11652 eta=4h07m27s
+[medmcqa] ep15 step 60230/152080 (40%) loss=1.6847 lr=1.98e-04 gnorm=2.74 tok/s=11649 eta=4h07m17s
+[medmcqa] ep15 step 60330/152080 (40%) loss=1.6083 lr=1.98e-04 gnorm=2.60 tok/s=11480 eta=4h07m09s
+[medmcqa] ep15 step 60430/152080 (40%) loss=1.6592 lr=1.98e-04 gnorm=2.56 tok/s=11619 eta=4h06m57s
+[medmcqa] ep15 step 60530/152080 (40%) loss=1.7172 lr=1.98e-04 gnorm=2.66 tok/s=11477 eta=4h06m48s
+[medmcqa] ep15 step 60630/152080 (40%) loss=1.6847 lr=1.97e-04 gnorm=2.76 tok/s=11742 eta=4h06m34s
+[medmcqa] ep15 step 60730/152080 (40%) loss=1.6994 lr=1.97e-04 gnorm=2.63 tok/s=11783 eta=4h06m16s
+[medmcqa] ep15 step 60830/152080 (40%) loss=1.6740 lr=1.97e-04 gnorm=2.66 tok/s=11955 eta=4h05m51s
+[medmcqa] ep15 done loss=1.6125 gnorm=2.63 lr_end=1.97e-04 tok/s=11682 time=10m14s
+[medmcqa] ep15 eval medmcqa acc=34.63% loss=3.5277 n=4170
+[medmcqa] ep15 eval medqa acc=27.34% loss=3.7589 n=1273
+[medmcqa] ep16 step 60932/152080 (40%) loss=1.4473 lr=1.96e-04 gnorm=2.40 tok/s=11514 eta=4h08m32s
+[medmcqa] ep16 step 61032/152080 (40%) loss=1.4184 lr=1.96e-04 gnorm=2.62 tok/s=11506 eta=4h07m57s
+[medmcqa] ep16 step 61132/152080 (40%) loss=1.4326 lr=1.96e-04 gnorm=2.50 tok/s=11866 eta=4h05m22s
+[medmcqa] ep16 step 61232/152080 (40%) loss=1.4666 lr=1.96e-04 gnorm=2.58 tok/s=12134 eta=4h02m57s
+[medmcqa] ep16 step 61332/152080 (40%) loss=1.4635 lr=1.95e-04 gnorm=2.68 tok/s=12030 eta=4h01m38s
+[medmcqa] ep16 step 61432/152080 (40%) loss=1.4805 lr=1.95e-04 gnorm=2.76 tok/s=12086 eta=4h00m32s
+[medmcqa] ep16 step 61532/152080 (40%) loss=1.5443 lr=1.95e-04 gnorm=2.60 tok/s=12080 eta=3h59m30s
+[medmcqa] ep16 step 61632/152080 (41%) loss=1.4956 lr=1.94e-04 gnorm=2.49 tok/s=11884 eta=3h58m54s
+[medmcqa] ep16 step 61732/152080 (41%) loss=1.4776 lr=1.94e-04 gnorm=2.60 tok/s=11906 eta=3h58m49s
+[medmcqa] ep16 step 61832/152080 (41%) loss=1.5467 lr=1.94e-04 gnorm=2.68 tok/s=12099 eta=3h58m05s
+[medmcqa] ep16 step 61932/152080 (41%) loss=1.5688 lr=1.93e-04 gnorm=2.70 tok/s=12134 eta=3h57m29s
+[medmcqa] ep16 step 62032/152080 (41%) loss=1.5634 lr=1.93e-04 gnorm=2.58 tok/s=11663 eta=3h57m41s
+[medmcqa] ep16 step 62132/152080 (41%) loss=1.5109 lr=1.93e-04 gnorm=2.60 tok/s=11780 eta=3h57m43s
+[medmcqa] ep16 step 62232/152080 (41%) loss=1.5175 lr=1.93e-04 gnorm=2.68 tok/s=12434 eta=3h57m00s
+[medmcqa] ep16 step 62332/152080 (41%) loss=1.5499 lr=1.92e-04 gnorm=2.74 tok/s=12064 eta=3h56m29s
+[medmcqa] ep16 step 62432/152080 (41%) loss=1.5263 lr=1.92e-04 gnorm=2.62 tok/s=11839 eta=3h56m09s
+[medmcqa] ep16 step 62532/152080 (41%) loss=1.5092 lr=1.92e-04 gnorm=2.57 tok/s=11834 eta=3h55m53s
+[medmcqa] ep16 step 62632/152080 (41%) loss=1.5671 lr=1.91e-04 gnorm=2.87 tok/s=12097 eta=3h55m32s
+[medmcqa] ep16 step 62732/152080 (41%) loss=1.6242 lr=1.91e-04 gnorm=2.77 tok/s=11939 eta=3h55m17s
+[medmcqa] ep16 step 62832/152080 (41%) loss=1.5867 lr=1.91e-04 gnorm=2.85 tok/s=11846 eta=3h55m17s
+[medmcqa] ep16 step 62932/152080 (41%) loss=1.5854 lr=1.90e-04 gnorm=2.78 tok/s=11953 eta=3h55m05s
+[medmcqa] ep16 step 63032/152080 (41%) loss=1.6081 lr=1.90e-04 gnorm=2.74 tok/s=11795 eta=3h55m00s
+[medmcqa] ep16 step 63132/152080 (42%) loss=1.6184 lr=1.90e-04 gnorm=2.82 tok/s=12110 eta=3h54m34s
+[medmcqa] ep16 step 63232/152080 (42%) loss=1.6000 lr=1.90e-04 gnorm=2.81 tok/s=11943 eta=3h54m10s
+[medmcqa] ep16 step 63332/152080 (42%) loss=1.5930 lr=1.89e-04 gnorm=2.60 tok/s=12116 eta=3h53m43s
+[medmcqa] ep16 step 63432/152080 (42%) loss=1.5681 lr=1.89e-04 gnorm=2.71 tok/s=11884 eta=3h53m27s
+[medmcqa] ep16 step 63532/152080 (42%) loss=1.6252 lr=1.89e-04 gnorm=2.75 tok/s=11615 eta=3h53m21s
+[medmcqa] ep16 step 63632/152080 (42%) loss=1.5954 lr=1.88e-04 gnorm=2.50 tok/s=12034 eta=3h53m06s
+[medmcqa] ep16 step 63732/152080 (42%) loss=1.6260 lr=1.88e-04 gnorm=2.48 tok/s=12067 eta=3h52m45s
+[medmcqa] ep16 step 63832/152080 (42%) loss=1.5905 lr=1.88e-04 gnorm=2.81 tok/s=11947 eta=3h52m25s
+[medmcqa] ep16 step 63932/152080 (42%) loss=1.5875 lr=1.87e-04 gnorm=2.69 tok/s=11941 eta=3h52m08s
+[medmcqa] ep16 step 64032/152080 (42%) loss=1.6632 lr=1.87e-04 gnorm=2.92 tok/s=12034 eta=3h51m51s
+[medmcqa] ep16 step 64132/152080 (42%) loss=1.6599 lr=1.87e-04 gnorm=2.73 tok/s=12002 eta=3h51m34s
+[medmcqa] ep16 step 64232/152080 (42%) loss=1.6365 lr=1.87e-04 gnorm=2.74 tok/s=11889 eta=3h51m22s
+[medmcqa] ep16 step 64332/152080 (42%) loss=1.6597 lr=1.86e-04 gnorm=2.77 tok/s=12010 eta=3h51m10s
+[medmcqa] ep16 step 64432/152080 (42%) loss=1.6901 lr=1.86e-04 gnorm=2.79 tok/s=11844 eta=3h51m00s
+[medmcqa] ep16 step 64532/152080 (42%) loss=1.6409 lr=1.86e-04 gnorm=2.72 tok/s=11902 eta=3h50m45s
+[medmcqa] ep16 step 64632/152080 (42%) loss=1.6421 lr=1.85e-04 gnorm=2.80 tok/s=12091 eta=3h50m27s
+[medmcqa] ep16 done loss=1.5571 gnorm=2.70 lr_end=1.85e-04 tok/s=11944 time=10m01s
+[medmcqa] ep16 eval medmcqa acc=34.03% loss=3.5626 n=4170
+[medmcqa] ep16 eval medqa acc=27.10% loss=3.8014 n=1273
+[medmcqa] ep17 step 64734/152080 (43%) loss=1.3563 lr=1.85e-04 gnorm=2.54 tok/s=11612 eta=3h58m23s
+[medmcqa] ep17 step 64834/152080 (43%) loss=1.3703 lr=1.85e-04 gnorm=2.58 tok/s=11589 eta=3h56m45s
+[medmcqa] ep17 step 64934/152080 (43%) loss=1.3679 lr=1.84e-04 gnorm=2.90 tok/s=11682 eta=3h55m52s
+[medmcqa] ep17 step 65034/152080 (43%) loss=1.3955 lr=1.84e-04 gnorm=2.66 tok/s=11811 eta=3h55m34s
+[medmcqa] ep17 step 65134/152080 (43%) loss=1.4440 lr=1.84e-04 gnorm=2.57 tok/s=12009 eta=3h53m36s
+[medmcqa] ep17 step 65234/152080 (43%) loss=1.4346 lr=1.84e-04 gnorm=2.51 tok/s=11994 eta=3h52m25s
+[medmcqa] ep17 step 65334/152080 (43%) loss=1.4467 lr=1.83e-04 gnorm=2.64 tok/s=12082 eta=3h51m22s
+[medmcqa] ep17 step 65434/152080 (43%) loss=1.4341 lr=1.83e-04 gnorm=2.67 tok/s=12035 eta=3h50m24s
+[medmcqa] ep17 step 65534/152080 (43%) loss=1.4945 lr=1.83e-04 gnorm=2.62 tok/s=11850 eta=3h50m08s
+[medmcqa] ep17 step 65634/152080 (43%) loss=1.4413 lr=1.82e-04 gnorm=2.52 tok/s=11870 eta=3h49m44s
+[medmcqa] ep17 step 65734/152080 (43%) loss=1.4707 lr=1.82e-04 gnorm=2.69 tok/s=11867 eta=3h49m30s
+[medmcqa] ep17 step 65834/152080 (43%) loss=1.4673 lr=1.82e-04 gnorm=2.81 tok/s=11892 eta=3h49m07s
+[medmcqa] ep17 step 65934/152080 (43%) loss=1.4456 lr=1.81e-04 gnorm=2.91 tok/s=12255 eta=3h48m28s
+[medmcqa] ep17 step 66034/152080 (43%) loss=1.5015 lr=1.81e-04 gnorm=2.80 tok/s=11835 eta=3h48m05s
+[medmcqa] ep17 step 66134/152080 (43%) loss=1.5317 lr=1.81e-04 gnorm=2.88 tok/s=11953 eta=3h47m43s
+[medmcqa] ep17 step 66234/152080 (44%) loss=1.5067 lr=1.81e-04 gnorm=3.01 tok/s=11878 eta=3h47m14s
+[medmcqa] ep17 step 66334/152080 (44%) loss=1.5439 lr=1.80e-04 gnorm=2.87 tok/s=12140 eta=3h46m49s
+[medmcqa] ep17 step 66434/152080 (44%) loss=1.4602 lr=1.80e-04 gnorm=3.30 tok/s=12106 eta=3h46m16s
+[medmcqa] ep17 step 66534/152080 (44%) loss=1.4736 lr=1.80e-04 gnorm=2.58 tok/s=12065 eta=3h45m49s
+[medmcqa] ep17 step 66634/152080 (44%) loss=1.5299 lr=1.79e-04 gnorm=2.94 tok/s=12287 eta=3h45m17s
+[medmcqa] ep17 step 66734/152080 (44%) loss=1.5464 lr=1.79e-04 gnorm=2.95 tok/s=11560 eta=3h45m18s
+[medmcqa] ep17 step 66834/152080 (44%) loss=1.5316 lr=1.79e-04 gnorm=3.08 tok/s=11949 eta=3h45m00s
+[medmcqa] ep17 step 66934/152080 (44%) loss=1.5557 lr=1.78e-04 gnorm=2.98 tok/s=11978 eta=3h44m42s
+[medmcqa] ep17 step 67034/152080 (44%) loss=1.5230 lr=1.78e-04 gnorm=2.91 tok/s=11887 eta=3h44m23s
+[medmcqa] ep17 step 67134/152080 (44%) loss=1.5342 lr=1.78e-04 gnorm=2.49 tok/s=11848 eta=3h44m11s
+[medmcqa] ep17 step 67234/152080 (44%) loss=1.5598 lr=1.77e-04 gnorm=2.84 tok/s=11823 eta=3h44m00s
+[medmcqa] ep17 step 67334/152080 (44%) loss=1.5676 lr=1.77e-04 gnorm=2.96 tok/s=12062 eta=3h43m42s
+[medmcqa] ep17 step 67434/152080 (44%) loss=1.5548 lr=1.77e-04 gnorm=3.24 tok/s=11899 eta=3h43m26s
+[medmcqa] ep17 step 67534/152080 (44%) loss=1.5839 lr=1.77e-04 gnorm=2.95 tok/s=11802 eta=3h43m17s
+[medmcqa] ep17 step 67634/152080 (44%) loss=1.5940 lr=1.76e-04 gnorm=2.82 tok/s=11869 eta=3h42m59s
+[medmcqa] ep17 step 67734/152080 (45%) loss=1.6150 lr=1.76e-04 gnorm=2.74 tok/s=11985 eta=3h42m37s
+[medmcqa] ep17 step 67834/152080 (45%) loss=1.4759 lr=1.76e-04 gnorm=3.04 tok/s=11991 eta=3h42m17s
+[medmcqa] ep17 step 67934/152080 (45%) loss=1.5533 lr=1.75e-04 gnorm=2.99 tok/s=11744 eta=3h42m06s
+[medmcqa] ep17 step 68034/152080 (45%) loss=1.5843 lr=1.75e-04 gnorm=2.94 tok/s=11868 eta=3h41m55s
+[medmcqa] ep17 step 68134/152080 (45%) loss=1.5743 lr=1.75e-04 gnorm=2.80 tok/s=11844 eta=3h41m45s
+[medmcqa] ep17 step 68234/152080 (45%) loss=1.5524 lr=1.74e-04 gnorm=3.00 tok/s=11243 eta=3h41m51s
+[medmcqa] ep17 step 68334/152080 (45%) loss=1.5646 lr=1.74e-04 gnorm=2.77 tok/s=11685 eta=3h41m40s
+[medmcqa] ep17 step 68434/152080 (45%) loss=1.6511 lr=1.74e-04 gnorm=2.73 tok/s=12050 eta=3h41m25s
+[medmcqa] ep17 done loss=1.5032 gnorm=2.77 lr_end=1.74e-04 tok/s=11890 time=10m03s
+[medmcqa] ep17 eval medmcqa acc=34.10% loss=3.5974 n=4170
+[medmcqa] ep17 eval medqa acc=26.87% loss=3.8335 n=1273
+[medmcqa] ep18 step 68536/152080 (45%) loss=1.2810 lr=1.73e-04 gnorm=2.50 tok/s=11628 eta=3h45m55s
+[medmcqa] ep18 step 68636/152080 (45%) loss=1.3147 lr=1.73e-04 gnorm=2.50 tok/s=11936 eta=3h42m46s
+[medmcqa] ep18 step 68736/152080 (45%) loss=1.3317 lr=1.73e-04 gnorm=2.65 tok/s=11734 eta=3h42m35s
+[medmcqa] ep18 step 68836/152080 (45%) loss=1.3622 lr=1.73e-04 gnorm=2.79 tok/s=11998 eta=3h41m46s
+[medmcqa] ep18 step 68936/152080 (45%) loss=1.3398 lr=1.72e-04 gnorm=2.59 tok/s=11875 eta=3h41m24s
+[medmcqa] ep18 step 69036/152080 (45%) loss=1.3689 lr=1.72e-04 gnorm=2.71 tok/s=11659 eta=3h40m58s
+[medmcqa] ep18 step 69136/152080 (45%) loss=1.3757 lr=1.72e-04 gnorm=2.83 tok/s=11858 eta=3h40m38s
+[medmcqa] ep18 step 69236/152080 (46%) loss=1.3964 lr=1.71e-04 gnorm=2.74 tok/s=12017 eta=3h40m03s
+[medmcqa] ep18 step 69336/152080 (46%) loss=1.3880 lr=1.71e-04 gnorm=2.88 tok/s=11868 eta=3h39m39s
+[medmcqa] ep18 step 69436/152080 (46%) loss=1.4650 lr=1.71e-04 gnorm=2.91 tok/s=12186 eta=3h38m57s
+[medmcqa] ep18 step 69536/152080 (46%) loss=1.4311 lr=1.70e-04 gnorm=2.67 tok/s=11773 eta=3h38m39s
+[medmcqa] ep18 step 69636/152080 (46%) loss=1.4358 lr=1.70e-04 gnorm=2.68 tok/s=12047 eta=3h38m05s
+[medmcqa] ep18 step 69736/152080 (46%) loss=1.3999 lr=1.70e-04 gnorm=2.91 tok/s=12073 eta=3h37m39s
+[medmcqa] ep18 step 69836/152080 (46%) loss=1.4555 lr=1.70e-04 gnorm=2.72 tok/s=11953 eta=3h37m14s
+[medmcqa] ep18 step 69936/152080 (46%) loss=1.4742 lr=1.69e-04 gnorm=2.87 tok/s=11979 eta=3h36m55s
+[medmcqa] ep18 step 70036/152080 (46%) loss=1.4321 lr=1.69e-04 gnorm=2.97 tok/s=11919 eta=3h36m34s
+[medmcqa] ep18 step 70136/152080 (46%) loss=1.4301 lr=1.69e-04 gnorm=2.74 tok/s=12071 eta=3h36m09s
+[medmcqa] ep18 step 70236/152080 (46%) loss=1.4531 lr=1.68e-04 gnorm=3.01 tok/s=12062 eta=3h35m47s
+[medmcqa] ep18 step 70336/152080 (46%) loss=1.4449 lr=1.68e-04 gnorm=2.75 tok/s=12142 eta=3h35m26s
+[medmcqa] ep18 step 70436/152080 (46%) loss=1.4619 lr=1.68e-04 gnorm=2.93 tok/s=12150 eta=3h35m08s
+[medmcqa] ep18 step 70536/152080 (46%) loss=1.4974 lr=1.67e-04 gnorm=2.78 tok/s=11802 eta=3h34m56s
+[medmcqa] ep18 step 70636/152080 (46%) loss=1.4758 lr=1.67e-04 gnorm=2.72 tok/s=11848 eta=3h34m38s
+[medmcqa] ep18 step 70736/152080 (47%) loss=1.5023 lr=1.67e-04 gnorm=3.09 tok/s=11961 eta=3h34m22s
+[medmcqa] ep18 step 70836/152080 (47%) loss=1.5501 lr=1.66e-04 gnorm=2.92 tok/s=12041 eta=3h34m03s
+[medmcqa] ep18 step 70936/152080 (47%) loss=1.5094 lr=1.66e-04 gnorm=3.01 tok/s=12143 eta=3h33m40s
+[medmcqa] ep18 step 71036/152080 (47%) loss=1.4505 lr=1.66e-04 gnorm=2.94 tok/s=12160 eta=3h33m21s
+[medmcqa] ep18 step 71136/152080 (47%) loss=1.5220 lr=1.66e-04 gnorm=3.04 tok/s=12133 eta=3h32m59s
+[medmcqa] ep18 step 71236/152080 (47%) loss=1.5436 lr=1.65e-04 gnorm=2.96 tok/s=11934 eta=3h32m45s
+[medmcqa] ep18 step 71336/152080 (47%) loss=1.4933 lr=1.65e-04 gnorm=2.93 tok/s=11939 eta=3h32m27s
+[medmcqa] ep18 step 71436/152080 (47%) loss=1.4760 lr=1.65e-04 gnorm=2.69 tok/s=12106 eta=3h32m11s
+[medmcqa] ep18 step 71536/152080 (47%) loss=1.5121 lr=1.64e-04 gnorm=2.92 tok/s=12022 eta=3h31m53s
+[medmcqa] ep18 step 71636/152080 (47%) loss=1.5191 lr=1.64e-04 gnorm=2.98 tok/s=11943 eta=3h31m40s
+[medmcqa] ep18 step 71736/152080 (47%) loss=1.5234 lr=1.64e-04 gnorm=2.89 tok/s=11617 eta=3h31m32s
+[medmcqa] ep18 step 71836/152080 (47%) loss=1.4668 lr=1.63e-04 gnorm=2.87 tok/s=11668 eta=3h31m21s
+[medmcqa] ep18 step 71936/152080 (47%) loss=1.5157 lr=1.63e-04 gnorm=3.16 tok/s=11735 eta=3h31m13s
+[medmcqa] ep18 step 72036/152080 (47%) loss=1.4962 lr=1.63e-04 gnorm=2.91 tok/s=11830 eta=3h31m00s
+[medmcqa] ep18 step 72136/152080 (47%) loss=1.5254 lr=1.62e-04 gnorm=2.82 tok/s=12012 eta=3h30m45s
+[medmcqa] ep18 step 72236/152080 (47%) loss=1.5266 lr=1.62e-04 gnorm=2.93 tok/s=11890 eta=3h30m30s
+[medmcqa] ep18 done loss=1.4505 gnorm=2.84 lr_end=1.62e-04 tok/s=11938 time=10m01s
+[medmcqa] ep18 eval medmcqa acc=33.53% loss=3.6270 n=4170
+[medmcqa] ep18 eval medqa acc=26.55% loss=3.8841 n=1273
+[medmcqa] ep19 step 72338/152080 (48%) loss=1.2156 lr=1.62e-04 gnorm=2.73 tok/s=11689 eta=3h34m49s
+[medmcqa] ep19 step 72438/152080 (48%) loss=1.3175 lr=1.61e-04 gnorm=2.70 tok/s=11571 eta=3h34m26s
+[medmcqa] ep19 step 72538/152080 (48%) loss=1.3121 lr=1.61e-04 gnorm=2.62 tok/s=11769 eta=3h34m02s
+[medmcqa] ep19 step 72638/152080 (48%) loss=1.3369 lr=1.61e-04 gnorm=2.84 tok/s=11661 eta=3h34m01s
+[medmcqa] ep19 step 72738/152080 (48%) loss=1.2943 lr=1.61e-04 gnorm=3.01 tok/s=11662 eta=3h33m38s
+[medmcqa] ep19 step 72838/152080 (48%) loss=1.2959 lr=1.60e-04 gnorm=2.84 tok/s=11769 eta=3h33m19s
+[medmcqa] ep19 step 72938/152080 (48%) loss=1.3227 lr=1.60e-04 gnorm=3.08 tok/s=12120 eta=3h32m23s
+[medmcqa] ep19 step 73038/152080 (48%) loss=1.3247 lr=1.60e-04 gnorm=2.85 tok/s=11856 eta=3h31m39s
+[medmcqa] ep19 step 73138/152080 (48%) loss=1.3471 lr=1.59e-04 gnorm=2.65 tok/s=12139 eta=3h31m06s
+[medmcqa] ep19 step 73238/152080 (48%) loss=1.3946 lr=1.59e-04 gnorm=2.61 tok/s=11731 eta=3h30m46s
+[medmcqa] ep19 step 73338/152080 (48%) loss=1.3463 lr=1.59e-04 gnorm=2.78 tok/s=11670 eta=3h30m46s
+[medmcqa] ep19 step 73438/152080 (48%) loss=1.4184 lr=1.58e-04 gnorm=2.91 tok/s=11756 eta=3h30m35s
+[medmcqa] ep19 step 73538/152080 (48%) loss=1.4007 lr=1.58e-04 gnorm=2.93 tok/s=11658 eta=3h30m20s
+[medmcqa] ep19 step 73638/152080 (48%) loss=1.4559 lr=1.58e-04 gnorm=2.94 tok/s=11819 eta=3h29m58s
+[medmcqa] ep19 step 73738/152080 (48%) loss=1.3875 lr=1.57e-04 gnorm=3.10 tok/s=11900 eta=3h29m37s
+[medmcqa] ep19 step 73838/152080 (49%) loss=1.4296 lr=1.57e-04 gnorm=2.80 tok/s=11658 eta=3h29m29s
+[medmcqa] ep19 step 73938/152080 (49%) loss=1.4044 lr=1.57e-04 gnorm=3.03 tok/s=11543 eta=3h29m26s
+[medmcqa] ep19 step 74038/152080 (49%) loss=1.4196 lr=1.57e-04 gnorm=3.04 tok/s=11486 eta=3h29m21s
+[medmcqa] ep19 step 74138/152080 (49%) loss=1.4041 lr=1.56e-04 gnorm=3.04 tok/s=11859 eta=3h28m53s
+[medmcqa] ep19 step 74238/152080 (49%) loss=1.4426 lr=1.56e-04 gnorm=3.14 tok/s=12057 eta=3h28m20s
+[medmcqa] ep19 step 74338/152080 (49%) loss=1.4536 lr=1.56e-04 gnorm=3.05 tok/s=12116 eta=3h27m46s
+[medmcqa] ep19 step 74438/152080 (49%) loss=1.4736 lr=1.55e-04 gnorm=3.13 tok/s=12032 eta=3h27m13s
+[medmcqa] ep19 step 74538/152080 (49%) loss=1.4295 lr=1.55e-04 gnorm=2.75 tok/s=12323 eta=3h26m33s
+[medmcqa] ep19 step 74638/152080 (49%) loss=1.4528 lr=1.55e-04 gnorm=2.82 tok/s=12159 eta=3h26m03s
+[medmcqa] ep19 step 74738/152080 (49%) loss=1.4571 lr=1.54e-04 gnorm=2.98 tok/s=11867 eta=3h25m43s
+[medmcqa] ep19 step 74838/152080 (49%) loss=1.4788 lr=1.54e-04 gnorm=2.93 tok/s=11990 eta=3h25m20s
+[medmcqa] ep19 step 74938/152080 (49%) loss=1.4499 lr=1.54e-04 gnorm=3.25 tok/s=11985 eta=3h24m52s
+[medmcqa] ep19 step 75038/152080 (49%) loss=1.4359 lr=1.53e-04 gnorm=3.05 tok/s=12386 eta=3h24m25s
+[medmcqa] ep19 step 75138/152080 (49%) loss=1.4772 lr=1.53e-04 gnorm=3.44 tok/s=12044 eta=3h24m02s
+[medmcqa] ep19 step 75238/152080 (49%) loss=1.4662 lr=1.53e-04 gnorm=2.93 tok/s=12076 eta=3h23m39s
+[medmcqa] ep19 step 75338/152080 (50%) loss=1.4141 lr=1.52e-04 gnorm=3.02 tok/s=11757 eta=3h23m24s
+[medmcqa] ep19 step 75438/152080 (50%) loss=1.4388 lr=1.52e-04 gnorm=2.86 tok/s=11634 eta=3h23m13s
+[medmcqa] ep19 step 75538/152080 (50%) loss=1.4729 lr=1.52e-04 gnorm=2.67 tok/s=11728 eta=3h23m04s
+[medmcqa] ep19 step 75638/152080 (50%) loss=1.4236 lr=1.52e-04 gnorm=2.96 tok/s=11356 eta=3h23m02s
+[medmcqa] ep19 step 75738/152080 (50%) loss=1.5123 lr=1.51e-04 gnorm=2.97 tok/s=11498 eta=3h22m56s
+[medmcqa] ep19 step 75838/152080 (50%) loss=1.5005 lr=1.51e-04 gnorm=3.00 tok/s=11640 eta=3h22m49s
+[medmcqa] ep19 step 75938/152080 (50%) loss=1.5189 lr=1.51e-04 gnorm=3.11 tok/s=11513 eta=3h22m41s
+[medmcqa] ep19 step 76038/152080 (50%) loss=1.4816 lr=1.50e-04 gnorm=2.99 tok/s=11968 eta=3h22m25s
+[medmcqa] ep19 done loss=1.4044 gnorm=2.91 lr_end=1.50e-04 tok/s=11824 time=10m07s
+[medmcqa] ep19 eval medmcqa acc=34.29% loss=3.6750 n=4170
+[medmcqa] ep19 eval medqa acc=25.53% loss=3.9432 n=1273
+[medmcqa] ep20 step 76140/152080 (50%) loss=1.1871 lr=1.50e-04 gnorm=2.46 tok/s=11795 eta=3h23m16s
+[medmcqa] ep20 step 76240/152080 (50%) loss=1.2177 lr=1.50e-04 gnorm=2.64 tok/s=11330 eta=3h25m56s
+[medmcqa] ep20 step 76340/152080 (50%) loss=1.2207 lr=1.49e-04 gnorm=2.66 tok/s=11618 eta=3h25m14s
+[medmcqa] ep20 step 76440/152080 (50%) loss=1.2334 lr=1.49e-04 gnorm=2.76 tok/s=11798 eta=3h23m55s
+[medmcqa] ep20 step 76540/152080 (50%) loss=1.2823 lr=1.49e-04 gnorm=2.72 tok/s=11413 eta=3h23m41s
+[medmcqa] ep20 step 76640/152080 (50%) loss=1.2634 lr=1.48e-04 gnorm=2.67 tok/s=11626 eta=3h23m49s
+[medmcqa] ep20 step 76740/152080 (50%) loss=1.2838 lr=1.48e-04 gnorm=2.77 tok/s=11645 eta=3h23m20s
+[medmcqa] ep20 step 76840/152080 (51%) loss=1.3100 lr=1.48e-04 gnorm=2.87 tok/s=11613 eta=3h23m07s
+[medmcqa] ep20 step 76940/152080 (51%) loss=1.2622 lr=1.48e-04 gnorm=2.73 tok/s=11930 eta=3h22m33s
+[medmcqa] ep20 step 77040/152080 (51%) loss=1.3105 lr=1.47e-04 gnorm=2.84 tok/s=11812 eta=3h22m01s
+[medmcqa] ep20 step 77140/152080 (51%) loss=1.2973 lr=1.47e-04 gnorm=2.96 tok/s=11478 eta=3h22m03s
+[medmcqa] ep20 step 77240/152080 (51%) loss=1.3270 lr=1.47e-04 gnorm=3.06 tok/s=11373 eta=3h22m08s
+[medmcqa] ep20 step 77340/152080 (51%) loss=1.3089 lr=1.46e-04 gnorm=2.86 tok/s=11594 eta=3h21m56s
+[medmcqa] ep20 step 77440/152080 (51%) loss=1.3262 lr=1.46e-04 gnorm=3.19 tok/s=11533 eta=3h21m56s
+[medmcqa] ep20 step 77540/152080 (51%) loss=1.3391 lr=1.46e-04 gnorm=3.22 tok/s=11651 eta=3h21m38s
+[medmcqa] ep20 step 77640/152080 (51%) loss=1.3808 lr=1.45e-04 gnorm=2.85 tok/s=11703 eta=3h21m22s
+[medmcqa] ep20 step 77740/152080 (51%) loss=1.3446 lr=1.45e-04 gnorm=2.78 tok/s=11857 eta=3h21m01s
+[medmcqa] ep20 step 77840/152080 (51%) loss=1.3637 lr=1.45e-04 gnorm=3.15 tok/s=11581 eta=3h20m43s
+[medmcqa] ep20 step 77940/152080 (51%) loss=1.3509 lr=1.44e-04 gnorm=2.87 tok/s=11864 eta=3h20m21s
+[medmcqa] ep20 step 78040/152080 (51%) loss=1.3468 lr=1.44e-04 gnorm=3.10 tok/s=11612 eta=3h20m04s
+[medmcqa] ep20 step 78140/152080 (51%) loss=1.3870 lr=1.44e-04 gnorm=2.87 tok/s=11648 eta=3h19m43s
+[medmcqa] ep20 step 78240/152080 (51%) loss=1.3398 lr=1.43e-04 gnorm=2.96 tok/s=11756 eta=3h19m24s
+[medmcqa] ep20 step 78340/152080 (52%) loss=1.3855 lr=1.43e-04 gnorm=3.24 tok/s=11658 eta=3h19m08s
+[medmcqa] ep20 step 78440/152080 (52%) loss=1.3907 lr=1.43e-04 gnorm=3.06 tok/s=11800 eta=3h18m48s
+[medmcqa] ep20 step 78540/152080 (52%) loss=1.3808 lr=1.43e-04 gnorm=2.97 tok/s=11527 eta=3h18m31s
+[medmcqa] ep20 step 78640/152080 (52%) loss=1.3956 lr=1.42e-04 gnorm=3.00 tok/s=11759 eta=3h18m06s
+[medmcqa] ep20 step 78740/152080 (52%) loss=1.4190 lr=1.42e-04 gnorm=2.98 tok/s=11865 eta=3h17m44s
+[medmcqa] ep20 step 78840/152080 (52%) loss=1.3758 lr=1.42e-04 gnorm=3.06 tok/s=11860 eta=3h17m20s
+[medmcqa] ep20 step 78940/152080 (52%) loss=1.4014 lr=1.41e-04 gnorm=2.75 tok/s=11854 eta=3h17m03s
+[medmcqa] ep20 step 79040/152080 (52%) loss=1.4243 lr=1.41e-04 gnorm=2.89 tok/s=12099 eta=3h16m36s
+[medmcqa] ep20 step 79140/152080 (52%) loss=1.4346 lr=1.41e-04 gnorm=3.28 tok/s=11722 eta=3h16m16s
+[medmcqa] ep20 step 79240/152080 (52%) loss=1.4287 lr=1.40e-04 gnorm=3.23 tok/s=12041 eta=3h15m53s
+[medmcqa] ep20 step 79340/152080 (52%) loss=1.3699 lr=1.40e-04 gnorm=3.08 tok/s=11864 eta=3h15m31s
+[medmcqa] ep20 step 79440/152080 (52%) loss=1.4073 lr=1.40e-04 gnorm=2.88 tok/s=11854 eta=3h15m11s
+[medmcqa] ep20 step 79540/152080 (52%) loss=1.3816 lr=1.39e-04 gnorm=3.08 tok/s=11981 eta=3h14m46s
+[medmcqa] ep20 step 79640/152080 (52%) loss=1.3976 lr=1.39e-04 gnorm=3.05 tok/s=12118 eta=3h14m20s
+[medmcqa] ep20 step 79740/152080 (52%) loss=1.4246 lr=1.39e-04 gnorm=3.19 tok/s=12141 eta=3h13m55s
+[medmcqa] ep20 step 79840/152080 (52%) loss=1.3941 lr=1.39e-04 gnorm=2.97 tok/s=12161 eta=3h13m32s
+[medmcqa] ep20 done loss=1.3514 gnorm=2.95 lr_end=1.39e-04 tok/s=11748 time=10m11s
+[medmcqa] ep20 eval medmcqa acc=34.36% loss=3.6959 n=4170
+[medmcqa] ep20 eval medqa acc=27.65% loss=3.9706 n=1273
+[medmcqa] ep21 step 79942/152080 (53%) loss=1.1706 lr=1.38e-04 gnorm=2.56 tok/s=11784 eta=3h13m52s
+[medmcqa] ep21 step 80042/152080 (53%) loss=1.2163 lr=1.38e-04 gnorm=2.80 tok/s=11797 eta=3h10m48s
+[medmcqa] ep21 step 80142/152080 (53%) loss=1.2005 lr=1.38e-04 gnorm=2.75 tok/s=11532 eta=3h12m13s
+[medmcqa] ep21 step 80242/152080 (53%) loss=1.1685 lr=1.37e-04 gnorm=2.85 tok/s=11904 eta=3h11m32s
+[medmcqa] ep21 step 80342/152080 (53%) loss=1.2157 lr=1.37e-04 gnorm=2.75 tok/s=11759 eta=3h11m19s
+[medmcqa] ep21 step 80442/152080 (53%) loss=1.2504 lr=1.37e-04 gnorm=2.87 tok/s=11815 eta=3h10m45s
+[medmcqa] ep21 step 80542/152080 (53%) loss=1.2709 lr=1.36e-04 gnorm=2.87 tok/s=11856 eta=3h10m28s
+[medmcqa] ep21 step 80642/152080 (53%) loss=1.2616 lr=1.36e-04 gnorm=2.91 tok/s=11939 eta=3h09m58s
+[medmcqa] ep21 step 80742/152080 (53%) loss=1.2461 lr=1.36e-04 gnorm=2.88 tok/s=11894 eta=3h09m39s
+[medmcqa] ep21 step 80842/152080 (53%) loss=1.2543 lr=1.35e-04 gnorm=2.84 tok/s=12226 eta=3h08m55s
+[medmcqa] ep21 step 80942/152080 (53%) loss=1.2378 lr=1.35e-04 gnorm=2.70 tok/s=12138 eta=3h08m18s
+[medmcqa] ep21 step 81042/152080 (53%) loss=1.2966 lr=1.35e-04 gnorm=2.97 tok/s=12120 eta=3h07m39s
+[medmcqa] ep21 step 81142/152080 (53%) loss=1.2764 lr=1.35e-04 gnorm=3.03 tok/s=11953 eta=3h07m23s
+[medmcqa] ep21 step 81242/152080 (53%) loss=1.2788 lr=1.34e-04 gnorm=2.79 tok/s=11903 eta=3h07m10s
+[medmcqa] ep21 step 81342/152080 (53%) loss=1.2709 lr=1.34e-04 gnorm=2.87 tok/s=11889 eta=3h06m53s
+[medmcqa] ep21 step 81442/152080 (54%) loss=1.3071 lr=1.34e-04 gnorm=3.02 tok/s=11951 eta=3h06m29s
+[medmcqa] ep21 step 81542/152080 (54%) loss=1.2956 lr=1.33e-04 gnorm=2.95 tok/s=12017 eta=3h06m01s
+[medmcqa] ep21 step 81642/152080 (54%) loss=1.3158 lr=1.33e-04 gnorm=3.32 tok/s=11973 eta=3h05m44s
+[medmcqa] ep21 step 81742/152080 (54%) loss=1.3461 lr=1.33e-04 gnorm=2.94 tok/s=12085 eta=3h05m25s
+[medmcqa] ep21 step 81842/152080 (54%) loss=1.2563 lr=1.32e-04 gnorm=3.12 tok/s=12082 eta=3h05m07s
+[medmcqa] ep21 step 81942/152080 (54%) loss=1.3086 lr=1.32e-04 gnorm=2.90 tok/s=12354 eta=3h04m38s
+[medmcqa] ep21 step 82042/152080 (54%) loss=1.3536 lr=1.32e-04 gnorm=3.05 tok/s=11961 eta=3h04m25s
+[medmcqa] ep21 step 82142/152080 (54%) loss=1.3254 lr=1.31e-04 gnorm=3.03 tok/s=11834 eta=3h04m17s
+[medmcqa] ep21 step 82242/152080 (54%) loss=1.2724 lr=1.31e-04 gnorm=3.05 tok/s=11630 eta=3h04m11s
+[medmcqa] ep21 step 82342/152080 (54%) loss=1.3164 lr=1.31e-04 gnorm=3.12 tok/s=11640 eta=3h04m06s
+[medmcqa] ep21 step 82442/152080 (54%) loss=1.3449 lr=1.31e-04 gnorm=3.06 tok/s=11522 eta=3h04m01s
+[medmcqa] ep21 step 82542/152080 (54%) loss=1.3830 lr=1.30e-04 gnorm=3.03 tok/s=11969 eta=3h03m45s
+[medmcqa] ep21 step 82642/152080 (54%) loss=1.3497 lr=1.30e-04 gnorm=3.00 tok/s=11679 eta=3h03m40s
+[medmcqa] ep21 step 82742/152080 (54%) loss=1.3237 lr=1.30e-04 gnorm=3.09 tok/s=11576 eta=3h03m37s
+[medmcqa] ep21 step 82842/152080 (54%) loss=1.4056 lr=1.29e-04 gnorm=2.87 tok/s=11530 eta=3h03m34s
+[medmcqa] ep21 step 82942/152080 (55%) loss=1.3345 lr=1.29e-04 gnorm=3.22 tok/s=11796 eta=3h03m19s
+[medmcqa] ep21 step 83042/152080 (55%) loss=1.3893 lr=1.29e-04 gnorm=3.63 tok/s=11623 eta=3h03m07s
+[medmcqa] ep21 step 83142/152080 (55%) loss=1.3874 lr=1.28e-04 gnorm=3.31 tok/s=11409 eta=3h03m03s
+[medmcqa] ep21 step 83242/152080 (55%) loss=1.3643 lr=1.28e-04 gnorm=2.97 tok/s=11684 eta=3h02m50s
+[medmcqa] ep21 step 83342/152080 (55%) loss=1.3658 lr=1.28e-04 gnorm=3.47 tok/s=11582 eta=3h02m42s
+[medmcqa] ep21 step 83442/152080 (55%) loss=1.4221 lr=1.27e-04 gnorm=3.09 tok/s=11847 eta=3h02m26s
+[medmcqa] ep21 step 83542/152080 (55%) loss=1.3669 lr=1.27e-04 gnorm=2.95 tok/s=11857 eta=3h02m10s
+[medmcqa] ep21 step 83642/152080 (55%) loss=1.3955 lr=1.27e-04 gnorm=3.34 tok/s=11833 eta=3h01m57s
+[medmcqa] ep21 done loss=1.2986 gnorm=3.01 lr_end=1.27e-04 tok/s=11838 time=10m06s
+[medmcqa] ep21 eval medmcqa acc=34.63% loss=3.7286 n=4170
+[medmcqa] ep21 eval medqa acc=25.45% loss=4.0154 n=1273
+[medmcqa] ep22 step 83744/152080 (55%) loss=1.1598 lr=1.27e-04 gnorm=2.84 tok/s=11482 eta=3h06m41s
+[medmcqa] ep22 step 83844/152080 (55%) loss=1.1366 lr=1.26e-04 gnorm=2.85 tok/s=11686 eta=3h05m29s
+[medmcqa] ep22 step 83944/152080 (55%) loss=1.1413 lr=1.26e-04 gnorm=2.75 tok/s=11738 eta=3h04m33s
+[medmcqa] ep22 step 84044/152080 (55%) loss=1.1601 lr=1.26e-04 gnorm=2.65 tok/s=11627 eta=3h04m39s
+[medmcqa] ep22 step 84144/152080 (55%) loss=1.1132 lr=1.25e-04 gnorm=2.84 tok/s=11895 eta=3h03m47s
+[medmcqa] ep22 step 84244/152080 (55%) loss=1.1850 lr=1.25e-04 gnorm=3.18 tok/s=11812 eta=3h03m00s
+[medmcqa] ep22 step 84344/152080 (55%) loss=1.2106 lr=1.25e-04 gnorm=3.05 tok/s=11710 eta=3h02m25s
+[medmcqa] ep22 step 84444/152080 (56%) loss=1.1522 lr=1.24e-04 gnorm=3.01 tok/s=11747 eta=3h02m02s
+[medmcqa] ep22 step 84544/152080 (56%) loss=1.1901 lr=1.24e-04 gnorm=2.95 tok/s=11528 eta=3h01m54s
+[medmcqa] ep22 step 84644/152080 (56%) loss=1.1717 lr=1.24e-04 gnorm=2.99 tok/s=11477 eta=3h01m48s
+[medmcqa] ep22 step 84744/152080 (56%) loss=1.2385 lr=1.23e-04 gnorm=3.02 tok/s=11432 eta=3h01m48s
+[medmcqa] ep22 step 84844/152080 (56%) loss=1.2463 lr=1.23e-04 gnorm=2.88 tok/s=11531 eta=3h01m41s
+[medmcqa] ep22 step 84944/152080 (56%) loss=1.2767 lr=1.23e-04 gnorm=2.84 tok/s=12000 eta=3h01m09s
+[medmcqa] ep22 step 85044/152080 (56%) loss=1.2489 lr=1.23e-04 gnorm=3.02 tok/s=11746 eta=3h00m51s
+[medmcqa] ep22 step 85144/152080 (56%) loss=1.2362 lr=1.22e-04 gnorm=3.16 tok/s=11817 eta=3h00m27s
+[medmcqa] ep22 step 85244/152080 (56%) loss=1.2183 lr=1.22e-04 gnorm=3.07 tok/s=11730 eta=3h00m09s
+[medmcqa] ep22 step 85344/152080 (56%) loss=1.2532 lr=1.22e-04 gnorm=3.27 tok/s=11862 eta=2h59m46s
+[medmcqa] ep22 step 85444/152080 (56%) loss=1.3041 lr=1.21e-04 gnorm=2.97 tok/s=11702 eta=2h59m30s
+[medmcqa] ep22 step 85544/152080 (56%) loss=1.2809 lr=1.21e-04 gnorm=3.17 tok/s=11687 eta=2h59m16s
+[medmcqa] ep22 step 85644/152080 (56%) loss=1.2802 lr=1.21e-04 gnorm=2.82 tok/s=11598 eta=2h59m09s
+[medmcqa] ep22 step 85744/152080 (56%) loss=1.2318 lr=1.20e-04 gnorm=3.12 tok/s=11454 eta=2h58m53s
+[medmcqa] ep22 step 85844/152080 (56%) loss=1.2513 lr=1.20e-04 gnorm=3.50 tok/s=11626 eta=2h58m38s
+[medmcqa] ep22 step 85944/152080 (57%) loss=1.2997 lr=1.20e-04 gnorm=3.30 tok/s=11823 eta=2h58m19s
+[medmcqa] ep22 step 86044/152080 (57%) loss=1.2283 lr=1.19e-04 gnorm=3.03 tok/s=11575 eta=2h58m08s
+[medmcqa] ep22 step 86144/152080 (57%) loss=1.2952 lr=1.19e-04 gnorm=3.11 tok/s=11712 eta=2h57m47s
+[medmcqa] ep22 step 86244/152080 (57%) loss=1.3314 lr=1.19e-04 gnorm=3.18 tok/s=12082 eta=2h57m18s
+[medmcqa] ep22 step 86344/152080 (57%) loss=1.2900 lr=1.19e-04 gnorm=3.20 tok/s=12130 eta=2h56m49s
+[medmcqa] ep22 step 86444/152080 (57%) loss=1.2945 lr=1.18e-04 gnorm=3.11 tok/s=11973 eta=2h56m22s
+[medmcqa] ep22 step 86544/152080 (57%) loss=1.3000 lr=1.18e-04 gnorm=3.03 tok/s=11967 eta=2h55m56s
+[medmcqa] ep22 step 86644/152080 (57%) loss=1.3159 lr=1.18e-04 gnorm=3.16 tok/s=11497 eta=2h55m42s
+[medmcqa] ep22 step 86744/152080 (57%) loss=1.2901 lr=1.17e-04 gnorm=3.37 tok/s=11809 eta=2h55m24s
+[medmcqa] ep22 step 86844/152080 (57%) loss=1.2597 lr=1.17e-04 gnorm=3.03 tok/s=12018 eta=2h54m58s
+[medmcqa] ep22 step 86944/152080 (57%) loss=1.3111 lr=1.17e-04 gnorm=2.98 tok/s=12195 eta=2h54m32s
+[medmcqa] ep22 step 87044/152080 (57%) loss=1.3492 lr=1.16e-04 gnorm=3.27 tok/s=11860 eta=2h54m09s
+[medmcqa] ep22 step 87144/152080 (57%) loss=1.3559 lr=1.16e-04 gnorm=3.22 tok/s=12104 eta=2h53m47s
+[medmcqa] ep22 step 87244/152080 (57%) loss=1.2976 lr=1.16e-04 gnorm=3.30 tok/s=12238 eta=2h53m24s
+[medmcqa] ep22 step 87344/152080 (57%) loss=1.3281 lr=1.16e-04 gnorm=3.48 tok/s=12115 eta=2h53m00s
+[medmcqa] ep22 step 87444/152080 (57%) loss=1.2620 lr=1.15e-04 gnorm=3.63 tok/s=11925 eta=2h52m38s
+[medmcqa] ep22 done loss=1.2449 gnorm=3.06 lr_end=1.15e-04 tok/s=11784 time=10m09s
+[medmcqa] ep22 eval medmcqa acc=32.35% loss=3.7726 n=4170
+[medmcqa] ep22 eval medqa acc=26.39% loss=4.0764 n=1273
+[medmcqa] ep23 step 87546/152080 (58%) loss=1.0783 lr=1.15e-04 gnorm=2.88 tok/s=11660 eta=2h55m07s
+[medmcqa] ep23 step 87646/152080 (58%) loss=1.1088 lr=1.15e-04 gnorm=2.93 tok/s=11716 eta=2h54m53s
+[medmcqa] ep23 step 87746/152080 (58%) loss=1.1209 lr=1.14e-04 gnorm=2.97 tok/s=11579 eta=2h54m02s
+[medmcqa] ep23 step 87846/152080 (58%) loss=1.1188 lr=1.14e-04 gnorm=2.89 tok/s=11723 eta=2h53m23s
+[medmcqa] ep23 step 87946/152080 (58%) loss=1.1465 lr=1.14e-04 gnorm=2.95 tok/s=12177 eta=2h51m48s
+[medmcqa] ep23 step 88046/152080 (58%) loss=1.1225 lr=1.13e-04 gnorm=2.94 tok/s=12369 eta=2h50m27s
+[medmcqa] ep23 step 88146/152080 (58%) loss=1.1463 lr=1.13e-04 gnorm=2.97 tok/s=12200 eta=2h49m28s
+[medmcqa] ep23 step 88246/152080 (58%) loss=1.1577 lr=1.13e-04 gnorm=2.93 tok/s=12344 eta=2h48m32s
+[medmcqa] ep23 step 88346/152080 (58%) loss=1.1379 lr=1.13e-04 gnorm=3.03 tok/s=12177 eta=2h47m51s
+[medmcqa] ep23 step 88446/152080 (58%) loss=1.1137 lr=1.12e-04 gnorm=2.83 tok/s=11758 eta=2h47m47s
+[medmcqa] ep23 step 88546/152080 (58%) loss=1.1645 lr=1.12e-04 gnorm=3.10 tok/s=12201 eta=2h47m21s
+[medmcqa] ep23 step 88646/152080 (58%) loss=1.1287 lr=1.12e-04 gnorm=3.37 tok/s=12027 eta=2h46m53s
+[medmcqa] ep23 step 88746/152080 (58%) loss=1.1940 lr=1.11e-04 gnorm=2.71 tok/s=11985 eta=2h46m37s
+[medmcqa] ep23 step 88846/152080 (58%) loss=1.2084 lr=1.11e-04 gnorm=2.92 tok/s=11993 eta=2h46m23s
+[medmcqa] ep23 step 88946/152080 (58%) loss=1.2347 lr=1.11e-04 gnorm=3.26 tok/s=11890 eta=2h46m06s
+[medmcqa] ep23 step 89046/152080 (59%) loss=1.2095 lr=1.10e-04 gnorm=2.92 tok/s=11843 eta=2h45m50s
+[medmcqa] ep23 step 89146/152080 (59%) loss=1.1652 lr=1.10e-04 gnorm=3.10 tok/s=11980 eta=2h45m34s
+[medmcqa] ep23 step 89246/152080 (59%) loss=1.1711 lr=1.10e-04 gnorm=3.06 tok/s=12063 eta=2h45m12s
+[medmcqa] ep23 step 89346/152080 (59%) loss=1.2252 lr=1.10e-04 gnorm=3.13 tok/s=11952 eta=2h44m59s
+[medmcqa] ep23 step 89446/152080 (59%) loss=1.2171 lr=1.09e-04 gnorm=3.25 tok/s=11746 eta=2h44m43s
+[medmcqa] ep23 step 89546/152080 (59%) loss=1.1819 lr=1.09e-04 gnorm=3.35 tok/s=11662 eta=2h44m38s
+[medmcqa] ep23 step 89646/152080 (59%) loss=1.2301 lr=1.09e-04 gnorm=3.25 tok/s=12027 eta=2h44m21s
+[medmcqa] ep23 step 89746/152080 (59%) loss=1.2617 lr=1.08e-04 gnorm=3.04 tok/s=12083 eta=2h44m06s
+[medmcqa] ep23 step 89846/152080 (59%) loss=1.2504 lr=1.08e-04 gnorm=3.06 tok/s=11984 eta=2h43m50s
+[medmcqa] ep23 step 89946/152080 (59%) loss=1.2538 lr=1.08e-04 gnorm=3.12 tok/s=11690 eta=2h43m41s
+[medmcqa] ep23 step 90046/152080 (59%) loss=1.1890 lr=1.07e-04 gnorm=3.39 tok/s=11675 eta=2h43m34s
+[medmcqa] ep23 step 90146/152080 (59%) loss=1.2325 lr=1.07e-04 gnorm=2.64 tok/s=11681 eta=2h43m27s
+[medmcqa] ep23 step 90246/152080 (59%) loss=1.1987 lr=1.07e-04 gnorm=3.18 tok/s=11574 eta=2h43m22s
+[medmcqa] ep23 step 90346/152080 (59%) loss=1.2034 lr=1.07e-04 gnorm=3.35 tok/s=11801 eta=2h43m11s
+[medmcqa] ep23 step 90446/152080 (59%) loss=1.2811 lr=1.06e-04 gnorm=3.29 tok/s=11764 eta=2h42m57s
+[medmcqa] ep23 step 90546/152080 (60%) loss=1.2720 lr=1.06e-04 gnorm=3.21 tok/s=11863 eta=2h42m41s
+[medmcqa] ep23 step 90646/152080 (60%) loss=1.2155 lr=1.06e-04 gnorm=2.90 tok/s=11953 eta=2h42m27s
+[medmcqa] ep23 step 90746/152080 (60%) loss=1.2085 lr=1.05e-04 gnorm=3.39 tok/s=11618 eta=2h42m18s
+[medmcqa] ep23 step 90846/152080 (60%) loss=1.2291 lr=1.05e-04 gnorm=3.12 tok/s=11438 eta=2h42m11s
+[medmcqa] ep23 step 90946/152080 (60%) loss=1.2771 lr=1.05e-04 gnorm=3.01 tok/s=11760 eta=2h42m00s
+[medmcqa] ep23 step 91046/152080 (60%) loss=1.2751 lr=1.04e-04 gnorm=3.45 tok/s=11970 eta=2h41m42s
+[medmcqa] ep23 step 91146/152080 (60%) loss=1.2742 lr=1.04e-04 gnorm=2.91 tok/s=11753 eta=2h41m26s
+[medmcqa] ep23 step 91246/152080 (60%) loss=1.2665 lr=1.04e-04 gnorm=2.99 tok/s=12070 eta=2h41m06s
+[medmcqa] ep23 done loss=1.1971 gnorm=3.08 lr_end=1.04e-04 tok/s=11886 time=10m04s
+[medmcqa] ep23 eval medmcqa acc=35.76% loss=3.8137 n=4170
+[medmcqa] ep23 eval medqa acc=28.20% loss=4.1372 n=1273
+[medmcqa] ep23 new best medmcqa 35.76% -> best.pt
+[medmcqa] ep24 step 91348/152080 (60%) loss=1.0008 lr=1.04e-04 gnorm=2.87 tok/s=11814 eta=2h39m26s
+[medmcqa] ep24 step 91448/152080 (60%) loss=1.0506 lr=1.03e-04 gnorm=2.92 tok/s=11850 eta=2h39m47s
+[medmcqa] ep24 step 91548/152080 (60%) loss=1.0776 lr=1.03e-04 gnorm=2.71 tok/s=11479 eta=2h40m52s
+[medmcqa] ep24 step 91648/152080 (60%) loss=1.0795 lr=1.03e-04 gnorm=3.06 tok/s=11580 eta=2h41m21s
+[medmcqa] ep24 step 91748/152080 (60%) loss=1.0914 lr=1.02e-04 gnorm=2.64 tok/s=11619 eta=2h41m34s
+[medmcqa] ep24 step 91848/152080 (60%) loss=1.0703 lr=1.02e-04 gnorm=3.04 tok/s=11922 eta=2h40m57s
+[medmcqa] ep24 step 91948/152080 (60%) loss=1.0746 lr=1.02e-04 gnorm=3.04 tok/s=12038 eta=2h40m09s
+[medmcqa] ep24 step 92048/152080 (61%) loss=1.0714 lr=1.02e-04 gnorm=2.85 tok/s=11999 eta=2h39m46s
+[medmcqa] ep24 step 92148/152080 (61%) loss=1.1005 lr=1.01e-04 gnorm=2.85 tok/s=11703 eta=2h39m38s
+[medmcqa] ep24 step 92248/152080 (61%) loss=1.1265 lr=1.01e-04 gnorm=3.02 tok/s=12010 eta=2h39m10s
+[medmcqa] ep24 step 92348/152080 (61%) loss=1.0771 lr=1.01e-04 gnorm=3.10 tok/s=12158 eta=2h38m36s
+[medmcqa] ep24 step 92448/152080 (61%) loss=1.1338 lr=1.00e-04 gnorm=2.98 tok/s=11992 eta=2h38m06s
+[medmcqa] ep24 step 92548/152080 (61%) loss=1.1360 lr=1.00e-04 gnorm=2.85 tok/s=12151 eta=2h37m43s
+[medmcqa] ep24 step 92648/152080 (61%) loss=1.1642 lr=9.98e-05 gnorm=3.11 tok/s=11957 eta=2h37m26s
+[medmcqa] ep24 step 92748/152080 (61%) loss=1.1106 lr=9.95e-05 gnorm=3.07 tok/s=11577 eta=2h37m23s
+[medmcqa] ep24 step 92848/152080 (61%) loss=1.1387 lr=9.92e-05 gnorm=2.95 tok/s=11627 eta=2h37m24s
+[medmcqa] ep24 step 92948/152080 (61%) loss=1.1640 lr=9.89e-05 gnorm=3.59 tok/s=11782 eta=2h37m11s
+[medmcqa] ep24 step 93048/152080 (61%) loss=1.1786 lr=9.86e-05 gnorm=3.32 tok/s=11681 eta=2h37m00s
+[medmcqa] ep24 step 93148/152080 (61%) loss=1.1387 lr=9.83e-05 gnorm=3.23 tok/s=11743 eta=2h36m44s
+[medmcqa] ep24 step 93248/152080 (61%) loss=1.1283 lr=9.80e-05 gnorm=2.99 tok/s=12037 eta=2h36m24s
+[medmcqa] ep24 step 93348/152080 (61%) loss=1.1628 lr=9.77e-05 gnorm=3.04 tok/s=11973 eta=2h36m03s
+[medmcqa] ep24 step 93448/152080 (61%) loss=1.1943 lr=9.74e-05 gnorm=3.00 tok/s=11890 eta=2h35m40s
+[medmcqa] ep24 step 93548/152080 (62%) loss=1.2007 lr=9.72e-05 gnorm=3.73 tok/s=12221 eta=2h35m14s
+[medmcqa] ep24 step 93648/152080 (62%) loss=1.1678 lr=9.69e-05 gnorm=3.03 tok/s=11967 eta=2h34m57s
+[medmcqa] ep24 step 93748/152080 (62%) loss=1.1395 lr=9.66e-05 gnorm=3.08 tok/s=12090 eta=2h34m35s
+[medmcqa] ep24 step 93848/152080 (62%) loss=1.1516 lr=9.63e-05 gnorm=2.89 tok/s=12258 eta=2h34m10s
+[medmcqa] ep24 step 93948/152080 (62%) loss=1.1494 lr=9.60e-05 gnorm=3.21 tok/s=12042 eta=2h33m50s
+[medmcqa] ep24 step 94048/152080 (62%) loss=1.1939 lr=9.57e-05 gnorm=3.18 tok/s=11986 eta=2h33m32s
+[medmcqa] ep24 step 94148/152080 (62%) loss=1.2101 lr=9.54e-05 gnorm=3.63 tok/s=11869 eta=2h33m14s
+[medmcqa] ep24 step 94248/152080 (62%) loss=1.2335 lr=9.51e-05 gnorm=3.48 tok/s=11803 eta=2h32m57s
+[medmcqa] ep24 step 94348/152080 (62%) loss=1.2414 lr=9.48e-05 gnorm=3.36 tok/s=12138 eta=2h32m39s
+[medmcqa] ep24 step 94448/152080 (62%) loss=1.1801 lr=9.45e-05 gnorm=3.38 tok/s=11715 eta=2h32m24s
+[medmcqa] ep24 step 94548/152080 (62%) loss=1.1698 lr=9.43e-05 gnorm=3.24 tok/s=12197 eta=2h32m03s
+[medmcqa] ep24 step 94648/152080 (62%) loss=1.1768 lr=9.40e-05 gnorm=3.09 tok/s=11848 eta=2h31m51s
+[medmcqa] ep24 step 94748/152080 (62%) loss=1.1332 lr=9.37e-05 gnorm=3.22 tok/s=12024 eta=2h31m32s
+[medmcqa] ep24 step 94848/152080 (62%) loss=1.1891 lr=9.34e-05 gnorm=3.09 tok/s=12170 eta=2h31m13s
+[medmcqa] ep24 step 94948/152080 (62%) loss=1.2000 lr=9.31e-05 gnorm=3.19 tok/s=11998 eta=2h30m53s
+[medmcqa] ep24 step 95048/152080 (62%) loss=1.2004 lr=9.28e-05 gnorm=3.36 tok/s=12172 eta=2h30m34s
+[medmcqa] ep24 done loss=1.1457 gnorm=3.11 lr_end=9.28e-05 tok/s=11921 time=10m02s
+[medmcqa] ep24 eval medmcqa acc=34.72% loss=3.8464 n=4170
+[medmcqa] ep24 eval medqa acc=28.12% loss=4.1967 n=1273
+[medmcqa] ep25 step 95150/152080 (63%) loss=1.0085 lr=9.25e-05 gnorm=2.63 tok/s=11549 eta=2h34m14s
+[medmcqa] ep25 step 95250/152080 (63%) loss=1.0156 lr=9.22e-05 gnorm=2.70 tok/s=11813 eta=2h32m33s
+[medmcqa] ep25 step 95350/152080 (63%) loss=1.0233 lr=9.20e-05 gnorm=2.83 tok/s=12127 eta=2h30m55s
+[medmcqa] ep25 step 95450/152080 (63%) loss=1.0450 lr=9.17e-05 gnorm=2.80 tok/s=12048 eta=2h29m48s
+[medmcqa] ep25 step 95550/152080 (63%) loss=1.0400 lr=9.14e-05 gnorm=3.14 tok/s=12188 eta=2h29m02s
+[medmcqa] ep25 step 95650/152080 (63%) loss=1.0666 lr=9.11e-05 gnorm=2.72 tok/s=12013 eta=2h28m28s
+[medmcqa] ep25 step 95750/152080 (63%) loss=1.0465 lr=9.08e-05 gnorm=3.12 tok/s=12098 eta=2h27m56s
+[medmcqa] ep25 step 95850/152080 (63%) loss=1.0305 lr=9.05e-05 gnorm=3.20 tok/s=12045 eta=2h27m30s
+[medmcqa] ep25 step 95950/152080 (63%) loss=1.1140 lr=9.02e-05 gnorm=2.95 tok/s=12002 eta=2h27m09s
+[medmcqa] ep25 step 96050/152080 (63%) loss=1.0700 lr=9.00e-05 gnorm=3.10 tok/s=11729 eta=2h27m16s
+[medmcqa] ep25 step 96150/152080 (63%) loss=1.0865 lr=8.97e-05 gnorm=3.46 tok/s=11784 eta=2h27m18s
+[medmcqa] ep25 step 96250/152080 (63%) loss=1.0361 lr=8.94e-05 gnorm=3.09 tok/s=11793 eta=2h27m15s
+[medmcqa] ep25 step 96350/152080 (63%) loss=1.0486 lr=8.91e-05 gnorm=3.22 tok/s=12107 eta=2h26m58s
+[medmcqa] ep25 step 96450/152080 (63%) loss=1.0900 lr=8.88e-05 gnorm=3.05 tok/s=12042 eta=2h26m34s
+[medmcqa] ep25 step 96550/152080 (63%) loss=1.0669 lr=8.85e-05 gnorm=3.11 tok/s=11673 eta=2h26m25s
+[medmcqa] ep25 step 96650/152080 (64%) loss=1.0514 lr=8.83e-05 gnorm=3.96 tok/s=12064 eta=2h26m02s
+[medmcqa] ep25 step 96750/152080 (64%) loss=1.0838 lr=8.80e-05 gnorm=2.95 tok/s=12322 eta=2h25m35s
+[medmcqa] ep25 step 96850/152080 (64%) loss=1.0974 lr=8.77e-05 gnorm=3.13 tok/s=12238 eta=2h25m10s
+[medmcqa] ep25 step 96950/152080 (64%) loss=1.0712 lr=8.74e-05 gnorm=3.06 tok/s=12007 eta=2h24m51s
+[medmcqa] ep25 step 97050/152080 (64%) loss=1.0510 lr=8.71e-05 gnorm=3.59 tok/s=12248 eta=2h24m29s
+[medmcqa] ep25 step 97150/152080 (64%) loss=1.1070 lr=8.68e-05 gnorm=3.40 tok/s=11975 eta=2h24m13s
+[medmcqa] ep25 step 97250/152080 (64%) loss=1.1341 lr=8.66e-05 gnorm=2.79 tok/s=11793 eta=2h24m01s
+[medmcqa] ep25 step 97350/152080 (64%) loss=1.1233 lr=8.63e-05 gnorm=2.94 tok/s=11884 eta=2h23m50s
+[medmcqa] ep25 step 97450/152080 (64%) loss=1.1194 lr=8.60e-05 gnorm=3.08 tok/s=11780 eta=2h23m38s
+[medmcqa] ep25 step 97550/152080 (64%) loss=1.1648 lr=8.57e-05 gnorm=3.24 tok/s=11888 eta=2h23m22s
+[medmcqa] ep25 step 97650/152080 (64%) loss=1.1164 lr=8.54e-05 gnorm=3.21 tok/s=12278 eta=2h23m00s
+[medmcqa] ep25 step 97750/152080 (64%) loss=1.1267 lr=8.52e-05 gnorm=3.23 tok/s=12224 eta=2h22m43s
+[medmcqa] ep25 step 97850/152080 (64%) loss=1.0975 lr=8.49e-05 gnorm=2.95 tok/s=12000 eta=2h22m24s
+[medmcqa] ep25 step 97950/152080 (64%) loss=1.1067 lr=8.46e-05 gnorm=3.12 tok/s=12156 eta=2h22m04s
+[medmcqa] ep25 step 98050/152080 (64%) loss=1.1388 lr=8.43e-05 gnorm=3.07 tok/s=12038 eta=2h21m48s
+[medmcqa] ep25 step 98150/152080 (65%) loss=1.1747 lr=8.40e-05 gnorm=3.24 tok/s=12311 eta=2h21m26s
+[medmcqa] ep25 step 98250/152080 (65%) loss=1.1769 lr=8.38e-05 gnorm=3.58 tok/s=12155 eta=2h21m08s
+[medmcqa] ep25 step 98350/152080 (65%) loss=1.1626 lr=8.35e-05 gnorm=3.33 tok/s=12126 eta=2h20m53s
+[medmcqa] ep25 step 98450/152080 (65%) loss=1.1433 lr=8.32e-05 gnorm=3.21 tok/s=11794 eta=2h20m39s
+[medmcqa] ep25 step 98550/152080 (65%) loss=1.0971 lr=8.29e-05 gnorm=3.29 tok/s=11826 eta=2h20m27s
+[medmcqa] ep25 step 98650/152080 (65%) loss=1.1370 lr=8.27e-05 gnorm=3.56 tok/s=11939 eta=2h20m12s
+[medmcqa] ep25 step 98750/152080 (65%) loss=1.1254 lr=8.24e-05 gnorm=3.45 tok/s=12120 eta=2h19m51s
+[medmcqa] ep25 step 98850/152080 (65%) loss=1.1830 lr=8.21e-05 gnorm=3.30 tok/s=11849 eta=2h19m37s
+[medmcqa] ep25 done loss=1.1015 gnorm=3.13 lr_end=8.21e-05 tok/s=11999 time=9m58s
+[medmcqa] ep25 eval medmcqa acc=34.44% loss=3.8924 n=4170
+[medmcqa] ep25 eval medqa acc=26.79% loss=4.2293 n=1273
+[medmcqa] ep26 step 98952/152080 (65%) loss=0.9498 lr=8.18e-05 gnorm=2.98 tok/s=11867 eta=2h19m37s
+[medmcqa] ep26 step 99052/152080 (65%) loss=0.9692 lr=8.15e-05 gnorm=2.74 tok/s=12019 eta=2h19m27s
+[medmcqa] ep26 step 99152/152080 (65%) loss=0.9901 lr=8.13e-05 gnorm=2.74 tok/s=11948 eta=2h19m13s
+[medmcqa] ep26 step 99252/152080 (65%) loss=1.0102 lr=8.10e-05 gnorm=3.02 tok/s=11954 eta=2h19m04s
+[medmcqa] ep26 step 99352/152080 (65%) loss=1.0275 lr=8.07e-05 gnorm=3.00 tok/s=11820 eta=2h18m56s
+[medmcqa] ep26 step 99452/152080 (65%) loss=1.0360 lr=8.04e-05 gnorm=2.83 tok/s=12146 eta=2h18m16s
+[medmcqa] ep26 step 99552/152080 (65%) loss=1.0227 lr=8.02e-05 gnorm=2.96 tok/s=11797 eta=2h18m08s
+[medmcqa] ep26 step 99652/152080 (66%) loss=1.0225 lr=7.99e-05 gnorm=2.85 tok/s=12169 eta=2h17m35s
+[medmcqa] ep26 step 99752/152080 (66%) loss=1.0174 lr=7.96e-05 gnorm=3.30 tok/s=11939 eta=2h17m23s
+[medmcqa] ep26 step 99852/152080 (66%) loss=1.0432 lr=7.93e-05 gnorm=3.06 tok/s=12114 eta=2h17m04s
+[medmcqa] ep26 step 99952/152080 (66%) loss=1.0604 lr=7.91e-05 gnorm=3.20 tok/s=12046 eta=2h16m49s
+[medmcqa] ep26 step 100052/152080 (66%) loss=1.0787 lr=7.88e-05 gnorm=2.86 tok/s=11892 eta=2h16m34s
+[medmcqa] ep26 step 100152/152080 (66%) loss=1.0564 lr=7.85e-05 gnorm=3.10 tok/s=12099 eta=2h16m14s
+[medmcqa] ep26 step 100252/152080 (66%) loss=1.0626 lr=7.83e-05 gnorm=2.83 tok/s=12078 eta=2h15m57s
+[medmcqa] ep26 step 100352/152080 (66%) loss=1.0451 lr=7.80e-05 gnorm=3.21 tok/s=11849 eta=2h15m48s
+[medmcqa] ep26 step 100452/152080 (66%) loss=1.0346 lr=7.77e-05 gnorm=3.32 tok/s=12039 eta=2h15m37s
+[medmcqa] ep26 step 100552/152080 (66%) loss=1.1092 lr=7.74e-05 gnorm=3.25 tok/s=11950 eta=2h15m20s
+[medmcqa] ep26 step 100652/152080 (66%) loss=1.0617 lr=7.72e-05 gnorm=2.79 tok/s=12016 eta=2h15m06s
+[medmcqa] ep26 step 100752/152080 (66%) loss=1.0710 lr=7.69e-05 gnorm=3.05 tok/s=11929 eta=2h14m53s
+[medmcqa] ep26 step 100852/152080 (66%) loss=1.0719 lr=7.66e-05 gnorm=3.06 tok/s=11872 eta=2h14m40s
+[medmcqa] ep26 step 100952/152080 (66%) loss=1.0466 lr=7.64e-05 gnorm=3.27 tok/s=11863 eta=2h14m25s
+[medmcqa] ep26 step 101052/152080 (66%) loss=1.0821 lr=7.61e-05 gnorm=2.72 tok/s=11703 eta=2h14m14s
+[medmcqa] ep26 step 101152/152080 (67%) loss=1.0618 lr=7.58e-05 gnorm=2.98 tok/s=11749 eta=2h14m05s
+[medmcqa] ep26 step 101252/152080 (67%) loss=1.0597 lr=7.55e-05 gnorm=3.07 tok/s=11716 eta=2h13m52s
+[medmcqa] ep26 step 101352/152080 (67%) loss=1.0586 lr=7.53e-05 gnorm=3.38 tok/s=12126 eta=2h13m33s
+[medmcqa] ep26 step 101452/152080 (67%) loss=1.0384 lr=7.50e-05 gnorm=3.47 tok/s=11823 eta=2h13m18s
+[medmcqa] ep26 step 101552/152080 (67%) loss=1.1141 lr=7.47e-05 gnorm=3.42 tok/s=11949 eta=2h13m01s
+[medmcqa] ep26 step 101652/152080 (67%) loss=1.1132 lr=7.45e-05 gnorm=3.19 tok/s=12146 eta=2h12m44s
+[medmcqa] ep26 step 101752/152080 (67%) loss=1.0817 lr=7.42e-05 gnorm=3.09 tok/s=11958 eta=2h12m27s
+[medmcqa] ep26 step 101852/152080 (67%) loss=1.0531 lr=7.39e-05 gnorm=3.50 tok/s=11895 eta=2h12m14s
+[medmcqa] ep26 step 101952/152080 (67%) loss=1.0755 lr=7.37e-05 gnorm=3.32 tok/s=11894 eta=2h11m59s
+[medmcqa] ep26 step 102052/152080 (67%) loss=1.0761 lr=7.34e-05 gnorm=3.24 tok/s=11914 eta=2h11m44s
+[medmcqa] ep26 step 102152/152080 (67%) loss=1.0923 lr=7.31e-05 gnorm=2.97 tok/s=12060 eta=2h11m26s
+[medmcqa] ep26 step 102252/152080 (67%) loss=1.0902 lr=7.29e-05 gnorm=3.21 tok/s=11973 eta=2h11m10s
+[medmcqa] ep26 step 102352/152080 (67%) loss=1.0981 lr=7.26e-05 gnorm=3.40 tok/s=11870 eta=2h10m56s
+[medmcqa] ep26 step 102452/152080 (67%) loss=1.1305 lr=7.23e-05 gnorm=3.24 tok/s=11961 eta=2h10m41s
+[medmcqa] ep26 step 102552/152080 (67%) loss=1.1042 lr=7.21e-05 gnorm=3.09 tok/s=11927 eta=2h10m26s
+[medmcqa] ep26 step 102652/152080 (67%) loss=1.1077 lr=7.18e-05 gnorm=3.17 tok/s=12238 eta=2h10m08s
+[medmcqa] ep26 done loss=1.0544 gnorm=3.11 lr_end=7.18e-05 tok/s=11955 time=10m00s
+[medmcqa] ep26 eval medmcqa acc=34.27% loss=3.9218 n=4170
+[medmcqa] ep26 eval medqa acc=26.08% loss=4.2878 n=1273
+[medmcqa] ep27 step 102754/152080 (68%) loss=0.9504 lr=7.15e-05 gnorm=2.89 tok/s=11895 eta=2h11m01s
+[medmcqa] ep27 step 102854/152080 (68%) loss=0.9451 lr=7.13e-05 gnorm=2.70 tok/s=12091 eta=2h10m01s
+[medmcqa] ep27 step 102954/152080 (68%) loss=0.9226 lr=7.10e-05 gnorm=2.69 tok/s=12129 eta=2h09m35s
+[medmcqa] ep27 step 103054/152080 (68%) loss=0.9648 lr=7.07e-05 gnorm=2.69 tok/s=11874 eta=2h09m04s
+[medmcqa] ep27 step 103154/152080 (68%) loss=0.9505 lr=7.05e-05 gnorm=2.80 tok/s=11901 eta=2h08m42s
+[medmcqa] ep27 step 103254/152080 (68%) loss=0.9231 lr=7.02e-05 gnorm=2.90 tok/s=11915 eta=2h08m21s
+[medmcqa] ep27 step 103354/152080 (68%) loss=0.9614 lr=7.00e-05 gnorm=3.23 tok/s=12044 eta=2h08m05s
+[medmcqa] ep27 step 103454/152080 (68%) loss=0.9830 lr=6.97e-05 gnorm=2.96 tok/s=11852 eta=2h07m50s
+[medmcqa] ep27 step 103554/152080 (68%) loss=1.0054 lr=6.94e-05 gnorm=2.78 tok/s=12023 eta=2h07m38s
+[medmcqa] ep27 step 103654/152080 (68%) loss=0.9860 lr=6.92e-05 gnorm=3.03 tok/s=11974 eta=2h07m16s
+[medmcqa] ep27 step 103754/152080 (68%) loss=0.9769 lr=6.89e-05 gnorm=3.39 tok/s=11651 eta=2h07m15s
+[medmcqa] ep27 step 103854/152080 (68%) loss=1.0047 lr=6.86e-05 gnorm=3.58 tok/s=12051 eta=2h06m57s
+[medmcqa] ep27 step 103954/152080 (68%) loss=0.9582 lr=6.84e-05 gnorm=3.95 tok/s=12120 eta=2h06m40s
+[medmcqa] ep27 step 104054/152080 (68%) loss=0.9993 lr=6.81e-05 gnorm=3.27 tok/s=11713 eta=2h06m34s
+[medmcqa] ep27 step 104154/152080 (68%) loss=0.9899 lr=6.79e-05 gnorm=3.35 tok/s=11550 eta=2h06m32s
+[medmcqa] ep27 step 104254/152080 (69%) loss=0.9727 lr=6.76e-05 gnorm=2.73 tok/s=11352 eta=2h06m25s
+[medmcqa] ep27 step 104354/152080 (69%) loss=0.9953 lr=6.73e-05 gnorm=2.89 tok/s=11631 eta=2h06m24s
+[medmcqa] ep27 step 104454/152080 (69%) loss=0.9754 lr=6.71e-05 gnorm=3.41 tok/s=11709 eta=2h06m15s
+[medmcqa] ep27 step 104554/152080 (69%) loss=1.0005 lr=6.68e-05 gnorm=3.54 tok/s=11648 eta=2h06m06s
+[medmcqa] ep27 step 104654/152080 (69%) loss=0.9718 lr=6.66e-05 gnorm=3.06 tok/s=12071 eta=2h05m46s
+[medmcqa] ep27 step 104754/152080 (69%) loss=1.0087 lr=6.63e-05 gnorm=3.14 tok/s=11802 eta=2h05m29s
+[medmcqa] ep27 step 104854/152080 (69%) loss=1.0210 lr=6.61e-05 gnorm=3.50 tok/s=11634 eta=2h05m22s
+[medmcqa] ep27 step 104954/152080 (69%) loss=1.0167 lr=6.58e-05 gnorm=3.20 tok/s=11565 eta=2h05m11s
+[medmcqa] ep27 step 105054/152080 (69%) loss=1.0518 lr=6.55e-05 gnorm=3.40 tok/s=12063 eta=2h04m53s
+[medmcqa] ep27 step 105154/152080 (69%) loss=1.0437 lr=6.53e-05 gnorm=3.14 tok/s=11588 eta=2h04m46s
+[medmcqa] ep27 step 105254/152080 (69%) loss=1.0035 lr=6.50e-05 gnorm=3.12 tok/s=11710 eta=2h04m34s
+[medmcqa] ep27 step 105354/152080 (69%) loss=1.0211 lr=6.48e-05 gnorm=3.13 tok/s=11665 eta=2h04m22s
+[medmcqa] ep27 step 105454/152080 (69%) loss=1.0517 lr=6.45e-05 gnorm=3.11 tok/s=11981 eta=2h04m05s
+[medmcqa] ep27 step 105554/152080 (69%) loss=1.0582 lr=6.43e-05 gnorm=2.85 tok/s=12133 eta=2h03m43s
+[medmcqa] ep27 step 105654/152080 (69%) loss=1.0437 lr=6.40e-05 gnorm=3.29 tok/s=12001 eta=2h03m24s
+[medmcqa] ep27 step 105754/152080 (70%) loss=1.0295 lr=6.38e-05 gnorm=2.95 tok/s=12174 eta=2h03m04s
+[medmcqa] ep27 step 105854/152080 (70%) loss=1.0259 lr=6.35e-05 gnorm=3.16 tok/s=11948 eta=2h02m45s
+[medmcqa] ep27 step 105954/152080 (70%) loss=1.0428 lr=6.33e-05 gnorm=2.87 tok/s=11996 eta=2h02m26s
+[medmcqa] ep27 step 106054/152080 (70%) loss=1.0590 lr=6.30e-05 gnorm=3.22 tok/s=11857 eta=2h02m07s
+[medmcqa] ep27 step 106154/152080 (70%) loss=1.0416 lr=6.27e-05 gnorm=3.64 tok/s=12037 eta=2h01m49s
+[medmcqa] ep27 step 106254/152080 (70%) loss=1.0762 lr=6.25e-05 gnorm=3.20 tok/s=12077 eta=2h01m29s
+[medmcqa] ep27 step 106354/152080 (70%) loss=1.0502 lr=6.22e-05 gnorm=3.47 tok/s=11797 eta=2h01m14s
+[medmcqa] ep27 step 106454/152080 (70%) loss=1.0788 lr=6.20e-05 gnorm=3.42 tok/s=11992 eta=2h00m57s
+[medmcqa] ep27 done loss=1.0086 gnorm=3.10 lr_end=6.20e-05 tok/s=11873 time=10m04s
+[medmcqa] ep27 eval medmcqa acc=35.06% loss=3.9699 n=4170
+[medmcqa] ep27 eval medqa acc=27.26% loss=4.3676 n=1273
+[medmcqa] ep28 step 106556/152080 (70%) loss=0.8525 lr=6.17e-05 gnorm=3.02 tok/s=11577 eta=2h03m54s
+[medmcqa] ep28 step 106656/152080 (70%) loss=0.8829 lr=6.15e-05 gnorm=3.23 tok/s=11539 eta=2h04m02s
+[medmcqa] ep28 step 106756/152080 (70%) loss=0.8807 lr=6.12e-05 gnorm=2.52 tok/s=11554 eta=2h03m46s
+[medmcqa] ep28 step 106856/152080 (70%) loss=0.9048 lr=6.10e-05 gnorm=2.82 tok/s=11423 eta=2h03m33s
+[medmcqa] ep28 step 106956/152080 (70%) loss=0.9305 lr=6.07e-05 gnorm=2.97 tok/s=11528 eta=2h03m06s
+[medmcqa] ep28 step 107056/152080 (70%) loss=0.9261 lr=6.05e-05 gnorm=2.89 tok/s=11656 eta=2h02m46s
+[medmcqa] ep28 step 107156/152080 (70%) loss=0.9181 lr=6.02e-05 gnorm=3.40 tok/s=11836 eta=2h01m57s
+[medmcqa] ep28 step 107256/152080 (71%) loss=0.9513 lr=6.00e-05 gnorm=3.03 tok/s=11815 eta=2h01m14s
+[medmcqa] ep28 step 107356/152080 (71%) loss=0.9418 lr=5.97e-05 gnorm=3.17 tok/s=12127 eta=2h00m33s
+[medmcqa] ep28 step 107456/152080 (71%) loss=0.9636 lr=5.95e-05 gnorm=2.97 tok/s=12045 eta=1h59m56s
+[medmcqa] ep28 step 107556/152080 (71%) loss=0.9434 lr=5.92e-05 gnorm=2.89 tok/s=11998 eta=1h59m25s
+[medmcqa] ep28 step 107656/152080 (71%) loss=0.9816 lr=5.90e-05 gnorm=3.01 tok/s=11931 eta=1h58m54s
+[medmcqa] ep28 step 107756/152080 (71%) loss=0.9616 lr=5.88e-05 gnorm=2.75 tok/s=12095 eta=1h58m21s
+[medmcqa] ep28 step 107856/152080 (71%) loss=0.9589 lr=5.85e-05 gnorm=3.12 tok/s=11962 eta=1h57m58s
+[medmcqa] ep28 step 107956/152080 (71%) loss=0.9262 lr=5.83e-05 gnorm=2.89 tok/s=11771 eta=1h57m41s
+[medmcqa] ep28 step 108056/152080 (71%) loss=0.9602 lr=5.80e-05 gnorm=3.20 tok/s=11812 eta=1h57m25s
+[medmcqa] ep28 step 108156/152080 (71%) loss=0.9668 lr=5.78e-05 gnorm=2.91 tok/s=11940 eta=1h57m05s
+[medmcqa] ep28 step 108256/152080 (71%) loss=0.9814 lr=5.75e-05 gnorm=3.05 tok/s=11911 eta=1h56m47s
+[medmcqa] ep28 step 108356/152080 (71%) loss=0.9659 lr=5.73e-05 gnorm=2.98 tok/s=11911 eta=1h56m29s
+[medmcqa] ep28 step 108456/152080 (71%) loss=0.9784 lr=5.70e-05 gnorm=3.35 tok/s=11672 eta=1h56m16s
+[medmcqa] ep28 step 108556/152080 (71%) loss=0.9811 lr=5.68e-05 gnorm=2.99 tok/s=11919 eta=1h55m55s
+[medmcqa] ep28 step 108656/152080 (71%) loss=0.9792 lr=5.66e-05 gnorm=3.02 tok/s=12204 eta=1h55m30s
+[medmcqa] ep28 step 108756/152080 (72%) loss=0.9840 lr=5.63e-05 gnorm=3.04 tok/s=11923 eta=1h55m12s
+[medmcqa] ep28 step 108856/152080 (72%) loss=0.9835 lr=5.61e-05 gnorm=2.93 tok/s=11905 eta=1h54m53s
+[medmcqa] ep28 step 108956/152080 (72%) loss=0.9561 lr=5.58e-05 gnorm=2.95 tok/s=12090 eta=1h54m33s
+[medmcqa] ep28 step 109056/152080 (72%) loss=0.9943 lr=5.56e-05 gnorm=3.40 tok/s=11905 eta=1h54m17s
+[medmcqa] ep28 step 109156/152080 (72%) loss=0.9900 lr=5.53e-05 gnorm=3.49 tok/s=11747 eta=1h54m04s
+[medmcqa] ep28 step 109256/152080 (72%) loss=0.9775 lr=5.51e-05 gnorm=3.20 tok/s=11959 eta=1h53m46s
+[medmcqa] ep28 step 109356/152080 (72%) loss=1.0087 lr=5.49e-05 gnorm=3.17 tok/s=12076 eta=1h53m27s
+[medmcqa] ep28 step 109456/152080 (72%) loss=1.0099 lr=5.46e-05 gnorm=3.43 tok/s=11662 eta=1h53m14s
+[medmcqa] ep28 step 109556/152080 (72%) loss=1.0190 lr=5.44e-05 gnorm=3.31 tok/s=11710 eta=1h52m58s
+[medmcqa] ep28 step 109656/152080 (72%) loss=0.9935 lr=5.41e-05 gnorm=3.13 tok/s=11846 eta=1h52m42s
+[medmcqa] ep28 step 109756/152080 (72%) loss=1.0317 lr=5.39e-05 gnorm=3.09 tok/s=11922 eta=1h52m22s
+[medmcqa] ep28 step 109856/152080 (72%) loss=0.9810 lr=5.37e-05 gnorm=3.52 tok/s=11818 eta=1h52m07s
+[medmcqa] ep28 step 109956/152080 (72%) loss=1.0508 lr=5.34e-05 gnorm=3.54 tok/s=12158 eta=1h51m47s
+[medmcqa] ep28 step 110056/152080 (72%) loss=1.0446 lr=5.32e-05 gnorm=3.61 tok/s=12057 eta=1h51m30s
+[medmcqa] ep28 step 110156/152080 (72%) loss=1.0169 lr=5.30e-05 gnorm=3.22 tok/s=11902 eta=1h51m14s
+[medmcqa] ep28 step 110256/152080 (72%) loss=0.9938 lr=5.27e-05 gnorm=3.25 tok/s=12005 eta=1h50m57s
+[medmcqa] ep28 done loss=0.9685 gnorm=3.09 lr_end=5.27e-05 tok/s=11864 time=10m05s
+[medmcqa] ep28 eval medmcqa acc=34.99% loss=4.0000 n=4170
+[medmcqa] ep28 eval medqa acc=28.44% loss=4.4238 n=1273
+[medmcqa] ep29 step 110358/152080 (73%) loss=0.8676 lr=5.25e-05 gnorm=2.99 tok/s=11451 eta=1h54m13s
+[medmcqa] ep29 step 110458/152080 (73%) loss=0.8722 lr=5.22e-05 gnorm=3.00 tok/s=11398 eta=1h54m15s
+[medmcqa] ep29 step 110558/152080 (73%) loss=0.8875 lr=5.20e-05 gnorm=2.68 tok/s=11891 eta=1h52m46s
+[medmcqa] ep29 step 110658/152080 (73%) loss=0.8838 lr=5.18e-05 gnorm=3.03 tok/s=11897 eta=1h51m59s
+[medmcqa] ep29 step 110758/152080 (73%) loss=0.8489 lr=5.15e-05 gnorm=2.95 tok/s=12110 eta=1h50m49s
+[medmcqa] ep29 step 110858/152080 (73%) loss=0.8911 lr=5.13e-05 gnorm=3.09 tok/s=12153 eta=1h49m54s
+[medmcqa] ep29 step 110958/152080 (73%) loss=0.9118 lr=5.11e-05 gnorm=2.69 tok/s=12071 eta=1h49m24s
+[medmcqa] ep29 step 111058/152080 (73%) loss=0.8913 lr=5.08e-05 gnorm=3.00 tok/s=12169 eta=1h48m46s
+[medmcqa] ep29 step 111158/152080 (73%) loss=0.9069 lr=5.06e-05 gnorm=2.79 tok/s=12077 eta=1h48m17s
+[medmcqa] ep29 step 111258/152080 (73%) loss=0.8907 lr=5.04e-05 gnorm=2.88 tok/s=12228 eta=1h47m48s
+[medmcqa] ep29 step 111358/152080 (73%) loss=0.8932 lr=5.01e-05 gnorm=2.93 tok/s=12130 eta=1h47m21s
+[medmcqa] ep29 step 111458/152080 (73%) loss=0.9295 lr=4.99e-05 gnorm=3.01 tok/s=11947 eta=1h47m03s
+[medmcqa] ep29 step 111558/152080 (73%) loss=0.9516 lr=4.97e-05 gnorm=2.92 tok/s=12137 eta=1h46m40s
+[medmcqa] ep29 step 111658/152080 (73%) loss=0.9322 lr=4.94e-05 gnorm=2.86 tok/s=11972 eta=1h46m23s
+[medmcqa] ep29 step 111758/152080 (73%) loss=0.9836 lr=4.92e-05 gnorm=2.99 tok/s=12182 eta=1h45m59s
+[medmcqa] ep29 step 111858/152080 (74%) loss=0.9412 lr=4.90e-05 gnorm=2.98 tok/s=12154 eta=1h45m34s
+[medmcqa] ep29 step 111958/152080 (74%) loss=0.9093 lr=4.88e-05 gnorm=3.02 tok/s=12004 eta=1h45m11s
+[medmcqa] ep29 step 112058/152080 (74%) loss=0.9618 lr=4.85e-05 gnorm=3.00 tok/s=12138 eta=1h44m49s
+[medmcqa] ep29 step 112158/152080 (74%) loss=0.9163 lr=4.83e-05 gnorm=3.33 tok/s=12042 eta=1h44m33s
+[medmcqa] ep29 step 112258/152080 (74%) loss=0.9558 lr=4.81e-05 gnorm=3.03 tok/s=11803 eta=1h44m23s
+[medmcqa] ep29 step 112358/152080 (74%) loss=0.8941 lr=4.78e-05 gnorm=3.18 tok/s=12216 eta=1h44m06s
+[medmcqa] ep29 step 112458/152080 (74%) loss=0.9539 lr=4.76e-05 gnorm=3.09 tok/s=12138 eta=1h43m47s
+[medmcqa] ep29 step 112558/152080 (74%) loss=0.9147 lr=4.74e-05 gnorm=2.90 tok/s=12093 eta=1h43m30s
+[medmcqa] ep29 step 112658/152080 (74%) loss=0.9397 lr=4.72e-05 gnorm=3.07 tok/s=12087 eta=1h43m13s
+[medmcqa] ep29 step 112758/152080 (74%) loss=0.9307 lr=4.69e-05 gnorm=2.86 tok/s=11753 eta=1h43m03s
+[medmcqa] ep29 step 112858/152080 (74%) loss=0.9454 lr=4.67e-05 gnorm=2.92 tok/s=12245 eta=1h42m47s
+[medmcqa] ep29 step 112958/152080 (74%) loss=0.9398 lr=4.65e-05 gnorm=2.79 tok/s=12094 eta=1h42m28s
+[medmcqa] ep29 step 113058/152080 (74%) loss=0.9899 lr=4.63e-05 gnorm=2.86 tok/s=12071 eta=1h42m09s
+[medmcqa] ep29 step 113158/152080 (74%) loss=0.9362 lr=4.60e-05 gnorm=3.05 tok/s=12205 eta=1h41m50s
+[medmcqa] ep29 step 113258/152080 (74%) loss=0.9679 lr=4.58e-05 gnorm=3.07 tok/s=12227 eta=1h41m32s
+[medmcqa] ep29 step 113358/152080 (75%) loss=0.9643 lr=4.56e-05 gnorm=2.97 tok/s=12263 eta=1h41m15s
+[medmcqa] ep29 step 113458/152080 (75%) loss=0.9155 lr=4.54e-05 gnorm=2.96 tok/s=12343 eta=1h40m56s
+[medmcqa] ep29 step 113558/152080 (75%) loss=0.9422 lr=4.52e-05 gnorm=3.35 tok/s=12288 eta=1h40m37s
+[medmcqa] ep29 step 113658/152080 (75%) loss=0.9091 lr=4.49e-05 gnorm=3.96 tok/s=12283 eta=1h40m18s
+[medmcqa] ep29 step 113758/152080 (75%) loss=0.9397 lr=4.47e-05 gnorm=3.41 tok/s=12221 eta=1h40m00s
+[medmcqa] ep29 step 113858/152080 (75%) loss=0.9398 lr=4.45e-05 gnorm=2.87 tok/s=12110 eta=1h39m44s
+[medmcqa] ep29 step 113958/152080 (75%) loss=0.9295 lr=4.43e-05 gnorm=3.03 tok/s=12131 eta=1h39m25s
+[medmcqa] ep29 step 114058/152080 (75%) loss=0.9587 lr=4.41e-05 gnorm=3.62 tok/s=12127 eta=1h39m07s
+[medmcqa] ep29 done loss=0.9312 gnorm=3.02 lr_end=4.40e-05 tok/s=12073 time=9m54s
+[medmcqa] ep29 eval medmcqa acc=34.44% loss=4.0375 n=4170
+[medmcqa] ep29 eval medqa acc=26.39% loss=4.4781 n=1273
+[medmcqa] ep30 step 114160/152080 (75%) loss=0.8392 lr=4.38e-05 gnorm=2.86 tok/s=11720 eta=1h42m48s
+[medmcqa] ep30 step 114260/152080 (75%) loss=0.8464 lr=4.36e-05 gnorm=2.57 tok/s=11905 eta=1h41m01s
+[medmcqa] ep30 step 114360/152080 (75%) loss=0.8516 lr=4.34e-05 gnorm=2.60 tok/s=12127 eta=1h39m42s
+[medmcqa] ep30 step 114460/152080 (75%) loss=0.8763 lr=4.32e-05 gnorm=3.18 tok/s=12042 eta=1h39m01s
+[medmcqa] ep30 step 114560/152080 (75%) loss=0.9192 lr=4.30e-05 gnorm=2.87 tok/s=12064 eta=1h38m33s
+[medmcqa] ep30 step 114660/152080 (75%) loss=0.8628 lr=4.27e-05 gnorm=2.84 tok/s=12054 eta=1h38m02s
+[medmcqa] ep30 step 114760/152080 (75%) loss=0.8913 lr=4.25e-05 gnorm=2.56 tok/s=12315 eta=1h37m31s
+[medmcqa] ep30 step 114860/152080 (76%) loss=0.8944 lr=4.23e-05 gnorm=3.53 tok/s=12167 eta=1h37m08s
+[medmcqa] ep30 step 114960/152080 (76%) loss=0.9233 lr=4.21e-05 gnorm=3.06 tok/s=11992 eta=1h36m54s
+[medmcqa] ep30 step 115060/152080 (76%) loss=0.8821 lr=4.19e-05 gnorm=2.76 tok/s=12317 eta=1h36m32s
+[medmcqa] ep30 step 115160/152080 (76%) loss=0.9148 lr=4.17e-05 gnorm=3.29 tok/s=12109 eta=1h36m11s
+[medmcqa] ep30 step 115260/152080 (76%) loss=0.8721 lr=4.14e-05 gnorm=3.06 tok/s=12148 eta=1h35m52s
+[medmcqa] ep30 step 115360/152080 (76%) loss=0.8952 lr=4.12e-05 gnorm=3.28 tok/s=11882 eta=1h35m39s
+[medmcqa] ep30 step 115460/152080 (76%) loss=0.8654 lr=4.10e-05 gnorm=2.89 tok/s=12202 eta=1h35m23s
+[medmcqa] ep30 step 115560/152080 (76%) loss=0.9050 lr=4.08e-05 gnorm=3.08 tok/s=12246 eta=1h35m03s
+[medmcqa] ep30 step 115660/152080 (76%) loss=0.8542 lr=4.06e-05 gnorm=2.92 tok/s=12006 eta=1h34m50s
+[medmcqa] ep30 step 115760/152080 (76%) loss=0.8582 lr=4.04e-05 gnorm=3.00 tok/s=12051 eta=1h34m38s
+[medmcqa] ep30 step 115860/152080 (76%) loss=0.9089 lr=4.02e-05 gnorm=2.64 tok/s=11884 eta=1h34m25s
+[medmcqa] ep30 step 115960/152080 (76%) loss=0.9173 lr=4.00e-05 gnorm=2.94 tok/s=11947 eta=1h34m12s
+[medmcqa] ep30 step 116060/152080 (76%) loss=0.9070 lr=3.97e-05 gnorm=2.71 tok/s=12254 eta=1h33m55s
+[medmcqa] ep30 step 116160/152080 (76%) loss=0.8985 lr=3.95e-05 gnorm=2.74 tok/s=12083 eta=1h33m38s
+[medmcqa] ep30 step 116260/152080 (76%) loss=0.9184 lr=3.93e-05 gnorm=2.94 tok/s=12060 eta=1h33m22s
+[medmcqa] ep30 step 116360/152080 (77%) loss=0.9276 lr=3.91e-05 gnorm=2.94 tok/s=11860 eta=1h33m10s
+[medmcqa] ep30 step 116460/152080 (77%) loss=0.9233 lr=3.89e-05 gnorm=3.03 tok/s=12390 eta=1h32m51s
+[medmcqa] ep30 step 116560/152080 (77%) loss=0.8748 lr=3.87e-05 gnorm=3.03 tok/s=12014 eta=1h32m34s
+[medmcqa] ep30 step 116660/152080 (77%) loss=0.9017 lr=3.85e-05 gnorm=3.09 tok/s=12151 eta=1h32m20s
+[medmcqa] ep30 step 116760/152080 (77%) loss=0.9485 lr=3.83e-05 gnorm=3.33 tok/s=12125 eta=1h32m03s
+[medmcqa] ep30 step 116860/152080 (77%) loss=0.8928 lr=3.81e-05 gnorm=2.86 tok/s=12128 eta=1h31m46s
+[medmcqa] ep30 step 116960/152080 (77%) loss=0.9191 lr=3.79e-05 gnorm=2.92 tok/s=12160 eta=1h31m30s
+[medmcqa] ep30 step 117060/152080 (77%) loss=0.9581 lr=3.77e-05 gnorm=2.83 tok/s=12207 eta=1h31m13s
+[medmcqa] ep30 step 117160/152080 (77%) loss=0.8845 lr=3.75e-05 gnorm=3.02 tok/s=12172 eta=1h30m56s
+[medmcqa] ep30 step 117260/152080 (77%) loss=0.9418 lr=3.73e-05 gnorm=3.17 tok/s=12094 eta=1h30m40s
+[medmcqa] ep30 step 117360/152080 (77%) loss=0.9244 lr=3.71e-05 gnorm=2.77 tok/s=12176 eta=1h30m23s
+[medmcqa] ep30 step 117460/152080 (77%) loss=0.9437 lr=3.68e-05 gnorm=3.36 tok/s=11994 eta=1h30m08s
+[medmcqa] ep30 step 117560/152080 (77%) loss=0.9299 lr=3.66e-05 gnorm=3.24 tok/s=11598 eta=1h29m59s
+[medmcqa] ep30 step 117660/152080 (77%) loss=0.9139 lr=3.64e-05 gnorm=2.86 tok/s=11524 eta=1h29m50s
+[medmcqa] ep30 step 117760/152080 (77%) loss=0.9179 lr=3.62e-05 gnorm=2.97 tok/s=11759 eta=1h29m40s
+[medmcqa] ep30 step 117860/152080 (77%) loss=0.8929 lr=3.60e-05 gnorm=2.83 tok/s=11361 eta=1h29m31s
+[medmcqa] ep30 done loss=0.8960 gnorm=2.95 lr_end=3.60e-05 tok/s=12032 time=9m56s
+[medmcqa] ep30 eval medmcqa acc=35.42% loss=4.0650 n=4170
+[medmcqa] ep30 eval medqa acc=26.32% loss=4.5164 n=1273
+[medmcqa] ep31 step 117962/152080 (78%) loss=0.8268 lr=3.58e-05 gnorm=2.60 tok/s=11617 eta=1h32m56s
+[medmcqa] ep31 step 118062/152080 (78%) loss=0.8163 lr=3.56e-05 gnorm=2.59 tok/s=11686 eta=1h32m31s
+[medmcqa] ep31 step 118162/152080 (78%) loss=0.8241 lr=3.54e-05 gnorm=2.67 tok/s=11682 eta=1h32m09s
+[medmcqa] ep31 step 118262/152080 (78%) loss=0.8181 lr=3.52e-05 gnorm=2.57 tok/s=11681 eta=1h31m44s
+[medmcqa] ep31 step 118362/152080 (78%) loss=0.8234 lr=3.50e-05 gnorm=2.16 tok/s=11890 eta=1h31m05s
+[medmcqa] ep31 step 118462/152080 (78%) loss=0.8465 lr=3.48e-05 gnorm=2.73 tok/s=11862 eta=1h30m35s
+[medmcqa] ep31 step 118562/152080 (78%) loss=0.8190 lr=3.46e-05 gnorm=2.83 tok/s=11827 eta=1h30m07s
+[medmcqa] ep31 step 118662/152080 (78%) loss=0.8271 lr=3.44e-05 gnorm=2.71 tok/s=11973 eta=1h29m41s
+[medmcqa] ep31 step 118762/152080 (78%) loss=0.8275 lr=3.42e-05 gnorm=2.74 tok/s=11601 eta=1h29m31s
+[medmcqa] ep31 step 118862/152080 (78%) loss=0.8596 lr=3.40e-05 gnorm=2.75 tok/s=11794 eta=1h29m12s
+[medmcqa] ep31 step 118962/152080 (78%) loss=0.8519 lr=3.38e-05 gnorm=3.11 tok/s=11718 eta=1h28m59s
+[medmcqa] ep31 step 119062/152080 (78%) loss=0.8208 lr=3.36e-05 gnorm=2.67 tok/s=11609 eta=1h28m47s
+[medmcqa] ep31 step 119162/152080 (78%) loss=0.8546 lr=3.35e-05 gnorm=2.80 tok/s=11994 eta=1h28m24s
+[medmcqa] ep31 step 119262/152080 (78%) loss=0.8809 lr=3.33e-05 gnorm=3.00 tok/s=11949 eta=1h27m59s
+[medmcqa] ep31 step 119362/152080 (78%) loss=0.8974 lr=3.31e-05 gnorm=2.83 tok/s=11818 eta=1h27m37s
+[medmcqa] ep31 step 119462/152080 (79%) loss=0.8562 lr=3.29e-05 gnorm=2.87 tok/s=11752 eta=1h27m18s
+[medmcqa] ep31 step 119562/152080 (79%) loss=0.8647 lr=3.27e-05 gnorm=2.87 tok/s=11724 eta=1h27m03s
+[medmcqa] ep31 step 119662/152080 (79%) loss=0.8886 lr=3.25e-05 gnorm=2.96 tok/s=11901 eta=1h26m43s
+[medmcqa] ep31 step 119762/152080 (79%) loss=0.8389 lr=3.23e-05 gnorm=2.86 tok/s=11919 eta=1h26m25s
+[medmcqa] ep31 step 119862/152080 (79%) loss=0.8654 lr=3.21e-05 gnorm=2.77 tok/s=11883 eta=1h26m06s
+[medmcqa] ep31 step 119962/152080 (79%) loss=0.8412 lr=3.19e-05 gnorm=2.87 tok/s=11710 eta=1h25m52s
+[medmcqa] ep31 step 120062/152080 (79%) loss=0.8761 lr=3.17e-05 gnorm=3.14 tok/s=11798 eta=1h25m36s
+[medmcqa] ep31 step 120162/152080 (79%) loss=0.8836 lr=3.15e-05 gnorm=2.75 tok/s=11924 eta=1h25m19s
+[medmcqa] ep31 step 120262/152080 (79%) loss=0.8757 lr=3.13e-05 gnorm=2.83 tok/s=12018 eta=1h24m57s
+[medmcqa] ep31 step 120362/152080 (79%) loss=0.8788 lr=3.11e-05 gnorm=2.78 tok/s=11640 eta=1h24m45s
+[medmcqa] ep31 step 120462/152080 (79%) loss=0.9176 lr=3.10e-05 gnorm=2.79 tok/s=11879 eta=1h24m24s
+[medmcqa] ep31 step 120562/152080 (79%) loss=0.8852 lr=3.08e-05 gnorm=2.88 tok/s=12025 eta=1h24m04s
+[medmcqa] ep31 step 120662/152080 (79%) loss=0.9052 lr=3.06e-05 gnorm=3.35 tok/s=12135 eta=1h23m44s
+[medmcqa] ep31 step 120762/152080 (79%) loss=0.8819 lr=3.04e-05 gnorm=3.06 tok/s=12060 eta=1h23m23s
+[medmcqa] ep31 step 120862/152080 (79%) loss=0.8663 lr=3.02e-05 gnorm=3.26 tok/s=12051 eta=1h23m02s
+[medmcqa] ep31 step 120962/152080 (80%) loss=0.8895 lr=3.00e-05 gnorm=3.17 tok/s=11987 eta=1h22m44s
+[medmcqa] ep31 step 121062/152080 (80%) loss=0.8919 lr=2.98e-05 gnorm=2.96 tok/s=11989 eta=1h22m26s
+[medmcqa] ep31 step 121162/152080 (80%) loss=0.9025 lr=2.96e-05 gnorm=3.31 tok/s=11807 eta=1h22m11s
+[medmcqa] ep31 step 121262/152080 (80%) loss=0.8459 lr=2.95e-05 gnorm=2.93 tok/s=11706 eta=1h21m57s
+[medmcqa] ep31 step 121362/152080 (80%) loss=0.8775 lr=2.93e-05 gnorm=2.93 tok/s=11775 eta=1h21m40s
+[medmcqa] ep31 step 121462/152080 (80%) loss=0.8854 lr=2.91e-05 gnorm=2.62 tok/s=11832 eta=1h21m23s
+[medmcqa] ep31 step 121562/152080 (80%) loss=0.8860 lr=2.89e-05 gnorm=2.99 tok/s=12088 eta=1h21m05s
+[medmcqa] ep31 step 121662/152080 (80%) loss=0.8957 lr=2.87e-05 gnorm=2.92 tok/s=11992 eta=1h20m48s
+[medmcqa] ep31 done loss=0.8615 gnorm=2.89 lr_end=2.87e-05 tok/s=11849 time=10m05s
+[medmcqa] ep31 eval medmcqa acc=34.92% loss=4.1043 n=4170
+[medmcqa] ep31 eval medqa acc=26.39% loss=4.5661 n=1273
+[medmcqa] ep32 step 121764/152080 (80%) loss=0.7759 lr=2.85e-05 gnorm=2.51 tok/s=11649 eta=1h21m30s
+[medmcqa] ep32 step 121864/152080 (80%) loss=0.7964 lr=2.84e-05 gnorm=2.45 tok/s=11678 eta=1h21m07s
+[medmcqa] ep32 step 121964/152080 (80%) loss=0.7779 lr=2.82e-05 gnorm=2.42 tok/s=11727 eta=1h21m29s
+[medmcqa] ep32 step 122064/152080 (80%) loss=0.7995 lr=2.80e-05 gnorm=2.66 tok/s=11552 eta=1h21m20s
+[medmcqa] ep32 step 122164/152080 (80%) loss=0.7952 lr=2.78e-05 gnorm=2.46 tok/s=11451 eta=1h21m10s
+[medmcqa] ep32 step 122264/152080 (80%) loss=0.8299 lr=2.76e-05 gnorm=2.91 tok/s=11705 eta=1h20m43s
+[medmcqa] ep32 step 122364/152080 (80%) loss=0.8102 lr=2.75e-05 gnorm=2.57 tok/s=11973 eta=1h20m10s
+[medmcqa] ep32 step 122464/152080 (81%) loss=0.8239 lr=2.73e-05 gnorm=2.70 tok/s=11998 eta=1h19m38s
+[medmcqa] ep32 step 122564/152080 (81%) loss=0.8093 lr=2.71e-05 gnorm=2.91 tok/s=12072 eta=1h19m07s
+[medmcqa] ep32 step 122664/152080 (81%) loss=0.8126 lr=2.69e-05 gnorm=2.67 tok/s=12026 eta=1h18m38s
+[medmcqa] ep32 step 122764/152080 (81%) loss=0.8301 lr=2.67e-05 gnorm=3.03 tok/s=12082 eta=1h18m16s
+[medmcqa] ep32 step 122864/152080 (81%) loss=0.8414 lr=2.66e-05 gnorm=2.88 tok/s=11916 eta=1h17m56s
+[medmcqa] ep32 step 122964/152080 (81%) loss=0.8536 lr=2.64e-05 gnorm=2.66 tok/s=11785 eta=1h17m36s
+[medmcqa] ep32 step 123064/152080 (81%) loss=0.8406 lr=2.62e-05 gnorm=2.82 tok/s=11920 eta=1h17m15s
+[medmcqa] ep32 step 123164/152080 (81%) loss=0.8291 lr=2.60e-05 gnorm=2.99 tok/s=12038 eta=1h16m53s
+[medmcqa] ep32 step 123264/152080 (81%) loss=0.8462 lr=2.59e-05 gnorm=2.72 tok/s=12056 eta=1h16m32s
+[medmcqa] ep32 step 123364/152080 (81%) loss=0.8358 lr=2.57e-05 gnorm=2.66 tok/s=11856 eta=1h16m13s
+[medmcqa] ep32 step 123464/152080 (81%) loss=0.8417 lr=2.55e-05 gnorm=2.95 tok/s=12005 eta=1h15m53s
+[medmcqa] ep32 step 123564/152080 (81%) loss=0.8304 lr=2.53e-05 gnorm=2.86 tok/s=12001 eta=1h15m33s
+[medmcqa] ep32 step 123664/152080 (81%) loss=0.8241 lr=2.52e-05 gnorm=2.68 tok/s=11947 eta=1h15m14s
+[medmcqa] ep32 step 123764/152080 (81%) loss=0.8488 lr=2.50e-05 gnorm=2.64 tok/s=11854 eta=1h15m00s
+[medmcqa] ep32 step 123864/152080 (81%) loss=0.8668 lr=2.48e-05 gnorm=2.75 tok/s=11974 eta=1h14m42s
+[medmcqa] ep32 step 123964/152080 (82%) loss=0.8454 lr=2.47e-05 gnorm=2.85 tok/s=12056 eta=1h14m25s
+[medmcqa] ep32 step 124064/152080 (82%) loss=0.8225 lr=2.45e-05 gnorm=2.71 tok/s=11517 eta=1h14m15s
+[medmcqa] ep32 step 124164/152080 (82%) loss=0.8335 lr=2.43e-05 gnorm=2.90 tok/s=11665 eta=1h14m02s
+[medmcqa] ep32 step 124264/152080 (82%) loss=0.8489 lr=2.42e-05 gnorm=2.87 tok/s=11808 eta=1h13m46s
+[medmcqa] ep32 step 124364/152080 (82%) loss=0.8330 lr=2.40e-05 gnorm=2.95 tok/s=11763 eta=1h13m33s
+[medmcqa] ep32 step 124464/152080 (82%) loss=0.8219 lr=2.38e-05 gnorm=2.77 tok/s=12112 eta=1h13m16s
+[medmcqa] ep32 step 124564/152080 (82%) loss=0.8145 lr=2.36e-05 gnorm=2.96 tok/s=12028 eta=1h12m58s
+[medmcqa] ep32 step 124664/152080 (82%) loss=0.8536 lr=2.35e-05 gnorm=2.77 tok/s=11924 eta=1h12m41s
+[medmcqa] ep32 step 124764/152080 (82%) loss=0.8114 lr=2.33e-05 gnorm=2.76 tok/s=11752 eta=1h12m26s
+[medmcqa] ep32 step 124864/152080 (82%) loss=0.8550 lr=2.31e-05 gnorm=2.69 tok/s=11869 eta=1h12m10s
+[medmcqa] ep32 step 124964/152080 (82%) loss=0.8550 lr=2.30e-05 gnorm=2.62 tok/s=11759 eta=1h11m56s
+[medmcqa] ep32 step 125064/152080 (82%) loss=0.8162 lr=2.28e-05 gnorm=2.98 tok/s=11630 eta=1h11m41s
+[medmcqa] ep32 step 125164/152080 (82%) loss=0.8452 lr=2.27e-05 gnorm=2.95 tok/s=12030 eta=1h11m24s
+[medmcqa] ep32 step 125264/152080 (82%) loss=0.8431 lr=2.25e-05 gnorm=3.09 tok/s=11757 eta=1h11m09s
+[medmcqa] ep32 step 125364/152080 (82%) loss=0.8495 lr=2.23e-05 gnorm=3.11 tok/s=12055 eta=1h10m51s
+[medmcqa] ep32 step 125464/152080 (82%) loss=0.8494 lr=2.22e-05 gnorm=2.89 tok/s=12191 eta=1h10m33s
+[medmcqa] ep32 done loss=0.8309 gnorm=2.83 lr_end=2.22e-05 tok/s=11872 time=10m04s
+[medmcqa] ep32 eval medmcqa acc=35.13% loss=4.1310 n=4170
+[medmcqa] ep32 eval medqa acc=25.77% loss=4.6020 n=1273
+[medmcqa] ep33 step 125566/152080 (83%) loss=0.7249 lr=2.20e-05 gnorm=2.31 tok/s=11578 eta=1h12m31s
+[medmcqa] ep33 step 125666/152080 (83%) loss=0.7508 lr=2.18e-05 gnorm=2.59 tok/s=11833 eta=1h11m04s
+[medmcqa] ep33 step 125766/152080 (83%) loss=0.7706 lr=2.17e-05 gnorm=2.42 tok/s=12150 eta=1h10m10s
+[medmcqa] ep33 step 125866/152080 (83%) loss=0.8147 lr=2.15e-05 gnorm=2.47 tok/s=11976 eta=1h09m34s
+[medmcqa] ep33 step 125966/152080 (83%) loss=0.7781 lr=2.14e-05 gnorm=2.74 tok/s=12052 eta=1h09m09s
+[medmcqa] ep33 step 126066/152080 (83%) loss=0.7686 lr=2.12e-05 gnorm=2.74 tok/s=11769 eta=1h08m51s
+[medmcqa] ep33 step 126166/152080 (83%) loss=0.7740 lr=2.10e-05 gnorm=2.67 tok/s=11779 eta=1h08m35s
+[medmcqa] ep33 step 126266/152080 (83%) loss=0.7799 lr=2.09e-05 gnorm=2.73 tok/s=11964 eta=1h08m15s
+[medmcqa] ep33 step 126366/152080 (83%) loss=0.7724 lr=2.07e-05 gnorm=2.69 tok/s=11827 eta=1h08m02s
+[medmcqa] ep33 step 126466/152080 (83%) loss=0.7805 lr=2.06e-05 gnorm=2.64 tok/s=12021 eta=1h07m42s
+[medmcqa] ep33 step 126566/152080 (83%) loss=0.7872 lr=2.04e-05 gnorm=2.75 tok/s=12195 eta=1h07m16s
+[medmcqa] ep33 step 126666/152080 (83%) loss=0.8011 lr=2.03e-05 gnorm=3.09 tok/s=11649 eta=1h07m07s
+[medmcqa] ep33 step 126766/152080 (83%) loss=0.8234 lr=2.01e-05 gnorm=2.91 tok/s=12278 eta=1h06m45s
+[medmcqa] ep33 step 126866/152080 (83%) loss=0.8036 lr=1.99e-05 gnorm=2.71 tok/s=12294 eta=1h06m22s
+[medmcqa] ep33 step 126966/152080 (83%) loss=0.8011 lr=1.98e-05 gnorm=3.03 tok/s=12050 eta=1h06m04s
+[medmcqa] ep33 step 127066/152080 (84%) loss=0.7911 lr=1.96e-05 gnorm=2.90 tok/s=12168 eta=1h05m45s
+[medmcqa] ep33 step 127166/152080 (84%) loss=0.8050 lr=1.95e-05 gnorm=2.51 tok/s=12284 eta=1h05m27s
+[medmcqa] ep33 step 127266/152080 (84%) loss=0.7857 lr=1.93e-05 gnorm=2.61 tok/s=12114 eta=1h05m10s
+[medmcqa] ep33 step 127366/152080 (84%) loss=0.8263 lr=1.92e-05 gnorm=2.83 tok/s=11983 eta=1h04m52s
+[medmcqa] ep33 step 127466/152080 (84%) loss=0.7792 lr=1.90e-05 gnorm=2.83 tok/s=11941 eta=1h04m36s
+[medmcqa] ep33 step 127566/152080 (84%) loss=0.8031 lr=1.89e-05 gnorm=2.62 tok/s=11954 eta=1h04m21s
+[medmcqa] ep33 step 127666/152080 (84%) loss=0.8024 lr=1.87e-05 gnorm=2.72 tok/s=11956 eta=1h04m06s
+[medmcqa] ep33 step 127766/152080 (84%) loss=0.7895 lr=1.86e-05 gnorm=2.55 tok/s=12053 eta=1h03m50s
+[medmcqa] ep33 step 127866/152080 (84%) loss=0.8089 lr=1.84e-05 gnorm=2.48 tok/s=12130 eta=1h03m33s
+[medmcqa] ep33 step 127966/152080 (84%) loss=0.7951 lr=1.83e-05 gnorm=2.71 tok/s=12173 eta=1h03m15s
+[medmcqa] ep33 step 128066/152080 (84%) loss=0.8242 lr=1.81e-05 gnorm=2.78 tok/s=12324 eta=1h02m57s
+[medmcqa] ep33 step 128166/152080 (84%) loss=0.7833 lr=1.80e-05 gnorm=2.96 tok/s=12114 eta=1h02m38s
+[medmcqa] ep33 step 128266/152080 (84%) loss=0.8175 lr=1.78e-05 gnorm=2.88 tok/s=12249 eta=1h02m20s
+[medmcqa] ep33 step 128366/152080 (84%) loss=0.8438 lr=1.77e-05 gnorm=3.09 tok/s=12207 eta=1h02m02s
+[medmcqa] ep33 step 128466/152080 (84%) loss=0.7902 lr=1.75e-05 gnorm=2.83 tok/s=11999 eta=1h01m47s
+[medmcqa] ep33 step 128566/152080 (85%) loss=0.8334 lr=1.74e-05 gnorm=3.12 tok/s=12367 eta=1h01m28s
+[medmcqa] ep33 step 128666/152080 (85%) loss=0.8478 lr=1.73e-05 gnorm=2.66 tok/s=12237 eta=1h01m10s
+[medmcqa] ep33 step 128766/152080 (85%) loss=0.8217 lr=1.71e-05 gnorm=2.79 tok/s=12248 eta=1h00m53s
+[medmcqa] ep33 step 128866/152080 (85%) loss=0.8486 lr=1.70e-05 gnorm=3.17 tok/s=12314 eta=1h00m35s
+[medmcqa] ep33 step 128966/152080 (85%) loss=0.8316 lr=1.68e-05 gnorm=3.06 tok/s=11993 eta=1h00m19s
+[medmcqa] ep33 step 129066/152080 (85%) loss=0.8233 lr=1.67e-05 gnorm=3.12 tok/s=12033 eta=1h00m04s
+[medmcqa] ep33 step 129166/152080 (85%) loss=0.8047 lr=1.65e-05 gnorm=2.67 tok/s=11882 eta=59m49s
+[medmcqa] ep33 step 129266/152080 (85%) loss=0.8478 lr=1.64e-05 gnorm=2.74 tok/s=12080 eta=59m33s
+[medmcqa] ep33 done loss=0.8030 gnorm=2.76 lr_end=1.64e-05 tok/s=12056 time=9m55s
+[medmcqa] ep33 eval medmcqa acc=34.41% loss=4.1637 n=4170
+[medmcqa] ep33 eval medqa acc=26.39% loss=4.6376 n=1273
+[medmcqa] ep34 step 129368/152080 (85%) loss=0.7294 lr=1.63e-05 gnorm=2.71 tok/s=11677 eta=1h00m43s
+[medmcqa] ep34 step 129468/152080 (85%) loss=0.7241 lr=1.61e-05 gnorm=2.87 tok/s=12136 eta=59m29s
+[medmcqa] ep34 step 129568/152080 (85%) loss=0.7593 lr=1.60e-05 gnorm=2.43 tok/s=12189 eta=58m52s
+[medmcqa] ep34 step 129668/152080 (85%) loss=0.6934 lr=1.58e-05 gnorm=2.59 tok/s=12268 eta=58m18s
+[medmcqa] ep34 step 129768/152080 (85%) loss=0.7750 lr=1.57e-05 gnorm=2.82 tok/s=12295 eta=57m58s
+[medmcqa] ep34 step 129868/152080 (85%) loss=0.7641 lr=1.56e-05 gnorm=2.66 tok/s=12067 eta=57m52s
+[medmcqa] ep34 step 129968/152080 (85%) loss=0.7550 lr=1.54e-05 gnorm=2.47 tok/s=11786 eta=57m47s
+[medmcqa] ep34 step 130068/152080 (86%) loss=0.7515 lr=1.53e-05 gnorm=2.84 tok/s=11848 eta=57m36s
+[medmcqa] ep34 step 130168/152080 (86%) loss=0.7905 lr=1.51e-05 gnorm=2.76 tok/s=12125 eta=57m13s
+[medmcqa] ep34 step 130268/152080 (86%) loss=0.7558 lr=1.50e-05 gnorm=2.51 tok/s=11990 eta=57m00s
+[medmcqa] ep34 step 130368/152080 (86%) loss=0.7558 lr=1.49e-05 gnorm=2.59 tok/s=11775 eta=56m57s
+[medmcqa] ep34 step 130468/152080 (86%) loss=0.7781 lr=1.47e-05 gnorm=2.50 tok/s=12048 eta=56m39s
+[medmcqa] ep34 step 130568/152080 (86%) loss=0.7572 lr=1.46e-05 gnorm=2.90 tok/s=12163 eta=56m20s
+[medmcqa] ep34 step 130668/152080 (86%) loss=0.7329 lr=1.45e-05 gnorm=2.79 tok/s=12056 eta=56m03s
+[medmcqa] ep34 step 130768/152080 (86%) loss=0.7518 lr=1.43e-05 gnorm=2.50 tok/s=12225 eta=55m45s
+[medmcqa] ep34 step 130868/152080 (86%) loss=0.7768 lr=1.42e-05 gnorm=2.67 tok/s=11888 eta=55m30s
+[medmcqa] ep34 step 130968/152080 (86%) loss=0.7909 lr=1.41e-05 gnorm=2.56 tok/s=12018 eta=55m14s
+[medmcqa] ep34 step 131068/152080 (86%) loss=0.7740 lr=1.39e-05 gnorm=2.81 tok/s=12167 eta=54m57s
+[medmcqa] ep34 step 131168/152080 (86%) loss=0.7532 lr=1.38e-05 gnorm=2.61 tok/s=11989 eta=54m40s
+[medmcqa] ep34 step 131268/152080 (86%) loss=0.7765 lr=1.37e-05 gnorm=2.75 tok/s=11997 eta=54m24s
+[medmcqa] ep34 step 131368/152080 (86%) loss=0.7743 lr=1.36e-05 gnorm=2.87 tok/s=12104 eta=54m07s
+[medmcqa] ep34 step 131468/152080 (86%) loss=0.7649 lr=1.34e-05 gnorm=2.56 tok/s=12185 eta=53m49s
+[medmcqa] ep34 step 131568/152080 (87%) loss=0.7767 lr=1.33e-05 gnorm=2.81 tok/s=11981 eta=53m33s
+[medmcqa] ep34 step 131668/152080 (87%) loss=0.8077 lr=1.32e-05 gnorm=2.65 tok/s=12057 eta=53m17s
+[medmcqa] ep34 step 131768/152080 (87%) loss=0.7837 lr=1.30e-05 gnorm=2.51 tok/s=12183 eta=53m02s
+[medmcqa] ep34 step 131868/152080 (87%) loss=0.8122 lr=1.29e-05 gnorm=2.66 tok/s=12209 eta=52m46s
+[medmcqa] ep34 step 131968/152080 (87%) loss=0.7739 lr=1.28e-05 gnorm=2.89 tok/s=12223 eta=52m30s
+[medmcqa] ep34 step 132068/152080 (87%) loss=0.7736 lr=1.27e-05 gnorm=2.85 tok/s=12016 eta=52m15s
+[medmcqa] ep34 step 132168/152080 (87%) loss=0.7549 lr=1.25e-05 gnorm=2.59 tok/s=12038 eta=52m00s
+[medmcqa] ep34 step 132268/152080 (87%) loss=0.7653 lr=1.24e-05 gnorm=2.77 tok/s=11961 eta=51m45s
+[medmcqa] ep34 step 132368/152080 (87%) loss=0.7860 lr=1.23e-05 gnorm=2.69 tok/s=12124 eta=51m29s
+[medmcqa] ep34 step 132468/152080 (87%) loss=0.7156 lr=1.22e-05 gnorm=2.68 tok/s=12078 eta=51m13s
+[medmcqa] ep34 step 132568/152080 (87%) loss=0.7679 lr=1.21e-05 gnorm=2.90 tok/s=12193 eta=50m56s
+[medmcqa] ep34 step 132668/152080 (87%) loss=0.7773 lr=1.19e-05 gnorm=2.59 tok/s=12017 eta=50m40s
+[medmcqa] ep34 step 132768/152080 (87%) loss=0.7837 lr=1.18e-05 gnorm=2.90 tok/s=11607 eta=50m27s
+[medmcqa] ep34 step 132868/152080 (87%) loss=0.7766 lr=1.17e-05 gnorm=2.55 tok/s=11885 eta=50m13s
+[medmcqa] ep34 step 132968/152080 (87%) loss=0.7905 lr=1.16e-05 gnorm=3.10 tok/s=11980 eta=49m58s
+[medmcqa] ep34 step 133068/152080 (87%) loss=0.7806 lr=1.15e-05 gnorm=2.66 tok/s=11994 eta=49m42s
+[medmcqa] ep34 done loss=0.7778 gnorm=2.71 lr_end=1.14e-05 tok/s=12039 time=9m56s
+[medmcqa] ep34 eval medmcqa acc=34.46% loss=4.1941 n=4170
+[medmcqa] ep34 eval medqa acc=27.26% loss=4.6730 n=1273
+[medmcqa] ep35 step 133170/152080 (88%) loss=0.7067 lr=1.13e-05 gnorm=2.11 tok/s=11708 eta=50m51s
+[medmcqa] ep35 step 133270/152080 (88%) loss=0.7476 lr=1.12e-05 gnorm=2.15 tok/s=11591 eta=50m38s
+[medmcqa] ep35 step 133370/152080 (88%) loss=0.7537 lr=1.11e-05 gnorm=2.62 tok/s=11713 eta=50m23s
+[medmcqa] ep35 step 133470/152080 (88%) loss=0.7770 lr=1.10e-05 gnorm=2.85 tok/s=11873 eta=49m56s
+[medmcqa] ep35 step 133570/152080 (88%) loss=0.7424 lr=1.09e-05 gnorm=2.71 tok/s=11809 eta=49m35s
+[medmcqa] ep35 step 133670/152080 (88%) loss=0.7300 lr=1.07e-05 gnorm=2.55 tok/s=11815 eta=49m12s
+[medmcqa] ep35 step 133770/152080 (88%) loss=0.7530 lr=1.06e-05 gnorm=2.59 tok/s=11913 eta=48m51s
+[medmcqa] ep35 step 133870/152080 (88%) loss=0.7484 lr=1.05e-05 gnorm=2.69 tok/s=11884 eta=48m33s
+[medmcqa] ep35 step 133970/152080 (88%) loss=0.7546 lr=1.04e-05 gnorm=2.49 tok/s=11774 eta=48m21s
+[medmcqa] ep35 step 134070/152080 (88%) loss=0.7760 lr=1.03e-05 gnorm=2.59 tok/s=11802 eta=48m04s
+[medmcqa] ep35 step 134170/152080 (88%) loss=0.7317 lr=1.02e-05 gnorm=2.72 tok/s=11607 eta=47m50s
+[medmcqa] ep35 step 134270/152080 (88%) loss=0.7789 lr=1.01e-05 gnorm=2.91 tok/s=12023 eta=47m30s
+[medmcqa] ep35 step 134370/152080 (88%) loss=0.7770 lr=9.95e-06 gnorm=2.37 tok/s=11853 eta=47m13s
+[medmcqa] ep35 step 134470/152080 (88%) loss=0.7690 lr=9.84e-06 gnorm=2.79 tok/s=12017 eta=46m56s
+[medmcqa] ep35 step 134570/152080 (88%) loss=0.7822 lr=9.73e-06 gnorm=2.82 tok/s=11890 eta=46m38s
+[medmcqa] ep35 step 134670/152080 (89%) loss=0.7791 lr=9.62e-06 gnorm=2.62 tok/s=12028 eta=46m19s
+[medmcqa] ep35 step 134770/152080 (89%) loss=0.7778 lr=9.51e-06 gnorm=2.43 tok/s=11869 eta=46m01s
+[medmcqa] ep35 step 134870/152080 (89%) loss=0.7541 lr=9.41e-06 gnorm=2.77 tok/s=11963 eta=45m43s
+[medmcqa] ep35 step 134970/152080 (89%) loss=0.7566 lr=9.30e-06 gnorm=2.31 tok/s=12023 eta=45m25s
+[medmcqa] ep35 step 135070/152080 (89%) loss=0.7617 lr=9.19e-06 gnorm=2.80 tok/s=12028 eta=45m06s
+[medmcqa] ep35 step 135170/152080 (89%) loss=0.7604 lr=9.08e-06 gnorm=2.62 tok/s=11626 eta=44m52s
+[medmcqa] ep35 step 135270/152080 (89%) loss=0.7466 lr=8.98e-06 gnorm=2.89 tok/s=11713 eta=44m39s
+[medmcqa] ep35 step 135370/152080 (89%) loss=0.7416 lr=8.87e-06 gnorm=2.43 tok/s=12013 eta=44m22s
+[medmcqa] ep35 step 135470/152080 (89%) loss=0.7701 lr=8.77e-06 gnorm=2.47 tok/s=11886 eta=44m05s
+[medmcqa] ep35 step 135570/152080 (89%) loss=0.7619 lr=8.66e-06 gnorm=2.91 tok/s=12057 eta=43m50s
+[medmcqa] ep35 step 135670/152080 (89%) loss=0.7742 lr=8.56e-06 gnorm=2.71 tok/s=11847 eta=43m33s
+[medmcqa] ep35 step 135770/152080 (89%) loss=0.7541 lr=8.46e-06 gnorm=2.94 tok/s=11463 eta=43m20s
+[medmcqa] ep35 step 135870/152080 (89%) loss=0.7852 lr=8.35e-06 gnorm=2.49 tok/s=11942 eta=43m03s
+[medmcqa] ep35 step 135970/152080 (89%) loss=0.7690 lr=8.25e-06 gnorm=2.66 tok/s=11823 eta=42m46s
+[medmcqa] ep35 step 136070/152080 (89%) loss=0.7652 lr=8.15e-06 gnorm=2.74 tok/s=12228 eta=42m29s
+[medmcqa] ep35 step 136170/152080 (90%) loss=0.7689 lr=8.05e-06 gnorm=2.57 tok/s=11958 eta=42m12s
+[medmcqa] ep35 step 136270/152080 (90%) loss=0.7430 lr=7.95e-06 gnorm=2.64 tok/s=12030 eta=41m56s
+[medmcqa] ep35 step 136370/152080 (90%) loss=0.7779 lr=7.85e-06 gnorm=2.66 tok/s=11970 eta=41m39s
+[medmcqa] ep35 step 136470/152080 (90%) loss=0.7680 lr=7.75e-06 gnorm=2.78 tok/s=12084 eta=41m22s
+[medmcqa] ep35 step 136570/152080 (90%) loss=0.7639 lr=7.65e-06 gnorm=2.65 tok/s=11896 eta=41m07s
+[medmcqa] ep35 step 136670/152080 (90%) loss=0.7596 lr=7.56e-06 gnorm=2.53 tok/s=11911 eta=40m51s
+[medmcqa] ep35 step 136770/152080 (90%) loss=0.7504 lr=7.46e-06 gnorm=3.00 tok/s=11927 eta=40m34s
+[medmcqa] ep35 step 136870/152080 (90%) loss=0.7519 lr=7.36e-06 gnorm=3.37 tok/s=11716 eta=40m19s
+[medmcqa] ep35 done loss=0.7559 gnorm=2.65 lr_end=7.36e-06 tok/s=11874 time=10m04s
+[medmcqa] ep35 eval medmcqa acc=34.08% loss=4.2202 n=4170
+[medmcqa] ep35 eval medqa acc=26.47% loss=4.7068 n=1273
+[medmcqa] ep36 step 136972/152080 (90%) loss=0.6925 lr=7.27e-06 gnorm=2.37 tok/s=11653 eta=40m31s
+[medmcqa] ep36 step 137072/152080 (90%) loss=0.7044 lr=7.17e-06 gnorm=2.57 tok/s=11951 eta=39m39s
+[medmcqa] ep36 step 137172/152080 (90%) loss=0.7331 lr=7.08e-06 gnorm=2.61 tok/s=12126 eta=39m14s
+[medmcqa] ep36 step 137272/152080 (90%) loss=0.7264 lr=6.98e-06 gnorm=2.28 tok/s=12091 eta=39m00s
+[medmcqa] ep36 step 137372/152080 (90%) loss=0.7484 lr=6.89e-06 gnorm=2.37 tok/s=11904 eta=38m39s
+[medmcqa] ep36 step 137472/152080 (90%) loss=0.7224 lr=6.80e-06 gnorm=2.98 tok/s=11989 eta=38m20s
+[medmcqa] ep36 step 137572/152080 (90%) loss=0.7331 lr=6.70e-06 gnorm=2.85 tok/s=11726 eta=38m08s
+[medmcqa] ep36 step 137672/152080 (91%) loss=0.7165 lr=6.61e-06 gnorm=2.88 tok/s=11611 eta=38m04s
+[medmcqa] ep36 step 137772/152080 (91%) loss=0.7146 lr=6.52e-06 gnorm=2.86 tok/s=11535 eta=37m55s
+[medmcqa] ep36 step 137872/152080 (91%) loss=0.7669 lr=6.43e-06 gnorm=2.63 tok/s=11638 eta=37m45s
+[medmcqa] ep36 step 137972/152080 (91%) loss=0.7692 lr=6.34e-06 gnorm=2.71 tok/s=11680 eta=37m32s
+[medmcqa] ep36 step 138072/152080 (91%) loss=0.7400 lr=6.25e-06 gnorm=2.42 tok/s=11686 eta=37m17s
+[medmcqa] ep36 step 138172/152080 (91%) loss=0.7491 lr=6.17e-06 gnorm=2.54 tok/s=11779 eta=37m03s
+[medmcqa] ep36 step 138272/152080 (91%) loss=0.7427 lr=6.08e-06 gnorm=2.74 tok/s=11814 eta=36m47s
+[medmcqa] ep36 step 138372/152080 (91%) loss=0.7521 lr=5.99e-06 gnorm=2.92 tok/s=11693 eta=36m33s
+[medmcqa] ep36 step 138472/152080 (91%) loss=0.7355 lr=5.90e-06 gnorm=2.54 tok/s=11652 eta=36m18s
+[medmcqa] ep36 step 138572/152080 (91%) loss=0.7257 lr=5.82e-06 gnorm=2.48 tok/s=11809 eta=36m01s
+[medmcqa] ep36 step 138672/152080 (91%) loss=0.7185 lr=5.73e-06 gnorm=2.59 tok/s=11671 eta=35m47s
+[medmcqa] ep36 step 138772/152080 (91%) loss=0.7392 lr=5.65e-06 gnorm=2.60 tok/s=11624 eta=35m31s
+[medmcqa] ep36 step 138872/152080 (91%) loss=0.7106 lr=5.56e-06 gnorm=2.79 tok/s=11794 eta=35m15s
+[medmcqa] ep36 step 138972/152080 (91%) loss=0.7185 lr=5.48e-06 gnorm=2.72 tok/s=11744 eta=34m59s
+[medmcqa] ep36 step 139072/152080 (91%) loss=0.7523 lr=5.40e-06 gnorm=2.42 tok/s=11534 eta=34m45s
+[medmcqa] ep36 step 139172/152080 (92%) loss=0.7583 lr=5.32e-06 gnorm=2.94 tok/s=11739 eta=34m30s
+[medmcqa] ep36 step 139272/152080 (92%) loss=0.7333 lr=5.23e-06 gnorm=2.72 tok/s=11795 eta=34m14s
+[medmcqa] ep36 step 139372/152080 (92%) loss=0.7162 lr=5.15e-06 gnorm=2.25 tok/s=11723 eta=33m58s
+[medmcqa] ep36 step 139472/152080 (92%) loss=0.7458 lr=5.07e-06 gnorm=2.47 tok/s=11805 eta=33m42s
+[medmcqa] ep36 step 139572/152080 (92%) loss=0.7252 lr=4.99e-06 gnorm=2.84 tok/s=11601 eta=33m28s
+[medmcqa] ep36 step 139672/152080 (92%) loss=0.7527 lr=4.91e-06 gnorm=2.56 tok/s=11400 eta=33m13s
+[medmcqa] ep36 step 139772/152080 (92%) loss=0.7086 lr=4.84e-06 gnorm=2.50 tok/s=11655 eta=32m58s
+[medmcqa] ep36 step 139872/152080 (92%) loss=0.7132 lr=4.76e-06 gnorm=2.65 tok/s=11880 eta=32m42s
+[medmcqa] ep36 step 139972/152080 (92%) loss=0.7443 lr=4.68e-06 gnorm=2.75 tok/s=11700 eta=32m25s
+[medmcqa] ep36 step 140072/152080 (92%) loss=0.7376 lr=4.60e-06 gnorm=2.54 tok/s=11721 eta=32m09s
+[medmcqa] ep36 step 140172/152080 (92%) loss=0.7595 lr=4.53e-06 gnorm=2.51 tok/s=11710 eta=31m53s
+[medmcqa] ep36 step 140272/152080 (92%) loss=0.7661 lr=4.45e-06 gnorm=2.84 tok/s=11547 eta=31m38s
+[medmcqa] ep36 step 140372/152080 (92%) loss=0.7519 lr=4.38e-06 gnorm=2.76 tok/s=11662 eta=31m24s
+[medmcqa] ep36 step 140472/152080 (92%) loss=0.7533 lr=4.30e-06 gnorm=2.67 tok/s=11449 eta=31m09s
+[medmcqa] ep36 step 140572/152080 (92%) loss=0.7376 lr=4.23e-06 gnorm=2.64 tok/s=11962 eta=30m52s
+[medmcqa] ep36 step 140672/152080 (92%) loss=0.7795 lr=4.16e-06 gnorm=2.72 tok/s=11848 eta=30m36s
+[medmcqa] ep36 done loss=0.7391 gnorm=2.61 lr_end=4.16e-06 tok/s=11733 time=10m11s
+[medmcqa] ep36 eval medmcqa acc=34.92% loss=4.2404 n=4170
+[medmcqa] ep36 eval medqa acc=26.71% loss=4.7217 n=1273
+[medmcqa] ep37 step 140774/152080 (93%) loss=0.7039 lr=4.08e-06 gnorm=2.38 tok/s=11740 eta=30m19s
+[medmcqa] ep37 step 140874/152080 (93%) loss=0.7312 lr=4.01e-06 gnorm=2.56 tok/s=11799 eta=29m59s
+[medmcqa] ep37 step 140974/152080 (93%) loss=0.7243 lr=3.94e-06 gnorm=3.26 tok/s=11781 eta=29m37s
+[medmcqa] ep37 step 141074/152080 (93%) loss=0.7357 lr=3.87e-06 gnorm=2.48 tok/s=11893 eta=29m23s
+[medmcqa] ep37 step 141174/152080 (93%) loss=0.7421 lr=3.80e-06 gnorm=2.39 tok/s=11736 eta=29m02s
+[medmcqa] ep37 step 141274/152080 (93%) loss=0.7131 lr=3.73e-06 gnorm=2.30 tok/s=11832 eta=28m43s
+[medmcqa] ep37 step 141374/152080 (93%) loss=0.7105 lr=3.66e-06 gnorm=2.55 tok/s=11828 eta=28m25s
+[medmcqa] ep37 step 141474/152080 (93%) loss=0.7382 lr=3.60e-06 gnorm=2.46 tok/s=11699 eta=28m12s
+[medmcqa] ep37 step 141574/152080 (93%) loss=0.7270 lr=3.53e-06 gnorm=2.81 tok/s=11944 eta=27m53s
+[medmcqa] ep37 step 141674/152080 (93%) loss=0.7182 lr=3.46e-06 gnorm=2.38 tok/s=12112 eta=27m35s
+[medmcqa] ep37 step 141774/152080 (93%) loss=0.7245 lr=3.40e-06 gnorm=2.46 tok/s=11702 eta=27m21s
+[medmcqa] ep37 step 141874/152080 (93%) loss=0.6989 lr=3.33e-06 gnorm=2.52 tok/s=11516 eta=27m08s
+[medmcqa] ep37 step 141974/152080 (93%) loss=0.7214 lr=3.27e-06 gnorm=2.50 tok/s=11680 eta=26m55s
+[medmcqa] ep37 step 142074/152080 (93%) loss=0.7326 lr=3.20e-06 gnorm=2.72 tok/s=11929 eta=26m38s
+[medmcqa] ep37 step 142174/152080 (93%) loss=0.7402 lr=3.14e-06 gnorm=2.24 tok/s=12196 eta=26m20s
+[medmcqa] ep37 step 142274/152080 (94%) loss=0.7359 lr=3.08e-06 gnorm=2.40 tok/s=12009 eta=26m03s
+[medmcqa] ep37 step 142374/152080 (94%) loss=0.7079 lr=3.01e-06 gnorm=2.36 tok/s=11802 eta=25m48s
+[medmcqa] ep37 step 142474/152080 (94%) loss=0.7392 lr=2.95e-06 gnorm=2.47 tok/s=11597 eta=25m34s
+[medmcqa] ep37 step 142574/152080 (94%) loss=0.7511 lr=2.89e-06 gnorm=2.57 tok/s=11643 eta=25m19s
+[medmcqa] ep37 step 142674/152080 (94%) loss=0.7401 lr=2.83e-06 gnorm=2.52 tok/s=11909 eta=25m03s
+[medmcqa] ep37 step 142774/152080 (94%) loss=0.7381 lr=2.77e-06 gnorm=2.51 tok/s=11974 eta=24m46s
+[medmcqa] ep37 step 142874/152080 (94%) loss=0.7308 lr=2.71e-06 gnorm=2.44 tok/s=11900 eta=24m30s
+[medmcqa] ep37 step 142974/152080 (94%) loss=0.7352 lr=2.65e-06 gnorm=2.55 tok/s=11806 eta=24m13s
+[medmcqa] ep37 step 143074/152080 (94%) loss=0.7233 lr=2.60e-06 gnorm=2.36 tok/s=11832 eta=23m57s
+[medmcqa] ep37 step 143174/152080 (94%) loss=0.7263 lr=2.54e-06 gnorm=2.49 tok/s=12007 eta=23m41s
+[medmcqa] ep37 step 143274/152080 (94%) loss=0.6960 lr=2.48e-06 gnorm=2.67 tok/s=12077 eta=23m24s
+[medmcqa] ep37 step 143374/152080 (94%) loss=0.7261 lr=2.43e-06 gnorm=2.51 tok/s=11768 eta=23m08s
+[medmcqa] ep37 step 143474/152080 (94%) loss=0.7490 lr=2.37e-06 gnorm=2.55 tok/s=11505 eta=22m53s
+[medmcqa] ep37 step 143574/152080 (94%) loss=0.7170 lr=2.32e-06 gnorm=3.05 tok/s=11888 eta=22m38s
+[medmcqa] ep37 step 143674/152080 (94%) loss=0.7214 lr=2.26e-06 gnorm=2.76 tok/s=11524 eta=22m22s
+[medmcqa] ep37 step 143774/152080 (95%) loss=0.7270 lr=2.21e-06 gnorm=2.78 tok/s=11705 eta=22m07s
+[medmcqa] ep37 step 143874/152080 (95%) loss=0.7343 lr=2.16e-06 gnorm=2.43 tok/s=11740 eta=21m51s
+[medmcqa] ep37 step 143974/152080 (95%) loss=0.7072 lr=2.10e-06 gnorm=2.49 tok/s=11982 eta=21m34s
+[medmcqa] ep37 step 144074/152080 (95%) loss=0.7618 lr=2.05e-06 gnorm=2.64 tok/s=12079 eta=21m18s
+[medmcqa] ep37 step 144174/152080 (95%) loss=0.7531 lr=2.00e-06 gnorm=2.66 tok/s=12052 eta=21m01s
+[medmcqa] ep37 step 144274/152080 (95%) loss=0.7380 lr=1.95e-06 gnorm=2.72 tok/s=12277 eta=20m44s
+[medmcqa] ep37 step 144374/152080 (95%) loss=0.7083 lr=1.90e-06 gnorm=2.93 tok/s=11946 eta=20m28s
+[medmcqa] ep37 step 144474/152080 (95%) loss=0.7072 lr=1.85e-06 gnorm=2.22 tok/s=11701 eta=20m12s
+[medmcqa] ep37 done loss=0.7266 gnorm=2.56 lr_end=1.85e-06 tok/s=11843 time=10m06s
+[medmcqa] ep37 eval medmcqa acc=34.80% loss=4.2555 n=4170
+[medmcqa] ep37 eval medqa acc=26.94% loss=4.7387 n=1273
+[medmcqa] ep38 step 144576/152080 (95%) loss=0.6701 lr=1.80e-06 gnorm=2.39 tok/s=11817 eta=20m08s
+[medmcqa] ep38 step 144676/152080 (95%) loss=0.6967 lr=1.76e-06 gnorm=2.69 tok/s=11994 eta=19m34s
+[medmcqa] ep38 step 144776/152080 (95%) loss=0.7169 lr=1.71e-06 gnorm=2.62 tok/s=12018 eta=19m14s
+[medmcqa] ep38 step 144876/152080 (95%) loss=0.7571 lr=1.66e-06 gnorm=2.31 tok/s=12105 eta=18m56s
+[medmcqa] ep38 step 144976/152080 (95%) loss=0.7448 lr=1.62e-06 gnorm=2.70 tok/s=12010 eta=18m41s
+[medmcqa] ep38 step 145076/152080 (95%) loss=0.7088 lr=1.57e-06 gnorm=2.25 tok/s=11839 eta=18m30s
+[medmcqa] ep38 step 145176/152080 (95%) loss=0.7248 lr=1.53e-06 gnorm=2.39 tok/s=11616 eta=18m18s
+[medmcqa] ep38 step 145276/152080 (96%) loss=0.7058 lr=1.48e-06 gnorm=2.86 tok/s=11529 eta=18m05s
+[medmcqa] ep38 step 145376/152080 (96%) loss=0.7091 lr=1.44e-06 gnorm=2.33 tok/s=12132 eta=17m48s
+[medmcqa] ep38 step 145476/152080 (96%) loss=0.7256 lr=1.40e-06 gnorm=2.98 tok/s=11787 eta=17m31s
+[medmcqa] ep38 step 145576/152080 (96%) loss=0.6981 lr=1.36e-06 gnorm=2.74 tok/s=11780 eta=17m14s
+[medmcqa] ep38 step 145676/152080 (96%) loss=0.7339 lr=1.31e-06 gnorm=2.35 tok/s=11708 eta=17m00s
+[medmcqa] ep38 step 145776/152080 (96%) loss=0.7250 lr=1.27e-06 gnorm=2.41 tok/s=11795 eta=16m44s
+[medmcqa] ep38 step 145876/152080 (96%) loss=0.7467 lr=1.23e-06 gnorm=2.21 tok/s=11953 eta=16m28s
+[medmcqa] ep38 step 145976/152080 (96%) loss=0.7035 lr=1.19e-06 gnorm=2.58 tok/s=11756 eta=16m11s
+[medmcqa] ep38 step 146076/152080 (96%) loss=0.7027 lr=1.16e-06 gnorm=2.35 tok/s=11958 eta=15m55s
+[medmcqa] ep38 step 146176/152080 (96%) loss=0.7297 lr=1.12e-06 gnorm=2.34 tok/s=12253 eta=15m37s
+[medmcqa] ep38 step 146276/152080 (96%) loss=0.7076 lr=1.08e-06 gnorm=2.48 tok/s=11993 eta=15m21s
+[medmcqa] ep38 step 146376/152080 (96%) loss=0.7170 lr=1.04e-06 gnorm=2.36 tok/s=11723 eta=15m06s
+[medmcqa] ep38 step 146476/152080 (96%) loss=0.7287 lr=1.01e-06 gnorm=2.36 tok/s=11748 eta=14m51s
+[medmcqa] ep38 step 146576/152080 (96%) loss=0.7463 lr=9.71e-07 gnorm=2.40 tok/s=11757 eta=14m35s
+[medmcqa] ep38 step 146676/152080 (96%) loss=0.7402 lr=9.36e-07 gnorm=2.33 tok/s=11860 eta=14m19s
+[medmcqa] ep38 step 146776/152080 (97%) loss=0.7087 lr=9.02e-07 gnorm=2.62 tok/s=11783 eta=14m03s
+[medmcqa] ep38 step 146876/152080 (97%) loss=0.6859 lr=8.69e-07 gnorm=2.40 tok/s=12163 eta=13m46s
+[medmcqa] ep38 step 146976/152080 (97%) loss=0.7174 lr=8.36e-07 gnorm=2.40 tok/s=11977 eta=13m30s
+[medmcqa] ep38 step 147076/152080 (97%) loss=0.7053 lr=8.03e-07 gnorm=2.77 tok/s=11811 eta=13m14s
+[medmcqa] ep38 step 147176/152080 (97%) loss=0.7208 lr=7.71e-07 gnorm=2.54 tok/s=12130 eta=12m58s
+[medmcqa] ep38 step 147276/152080 (97%) loss=0.7360 lr=7.40e-07 gnorm=2.60 tok/s=12128 eta=12m42s
+[medmcqa] ep38 step 147376/152080 (97%) loss=0.7209 lr=7.10e-07 gnorm=2.52 tok/s=12335 eta=12m26s
+[medmcqa] ep38 step 147476/152080 (97%) loss=0.7157 lr=6.80e-07 gnorm=2.75 tok/s=11971 eta=12m10s
+[medmcqa] ep38 step 147576/152080 (97%) loss=0.7358 lr=6.51e-07 gnorm=2.81 tok/s=12070 eta=11m54s
+[medmcqa] ep38 step 147676/152080 (97%) loss=0.6902 lr=6.22e-07 gnorm=2.34 tok/s=11692 eta=11m38s
+[medmcqa] ep38 step 147776/152080 (97%) loss=0.7355 lr=5.94e-07 gnorm=2.37 tok/s=11778 eta=11m22s
+[medmcqa] ep38 step 147876/152080 (97%) loss=0.7430 lr=5.67e-07 gnorm=2.85 tok/s=11781 eta=11m07s
+[medmcqa] ep38 step 147976/152080 (97%) loss=0.7463 lr=5.40e-07 gnorm=2.62 tok/s=11770 eta=10m51s
+[medmcqa] ep38 step 148076/152080 (97%) loss=0.7186 lr=5.14e-07 gnorm=2.33 tok/s=11623 eta=10m35s
+[medmcqa] ep38 step 148176/152080 (97%) loss=0.7300 lr=4.89e-07 gnorm=2.67 tok/s=11850 eta=10m20s
+[medmcqa] ep38 step 148276/152080 (97%) loss=0.6877 lr=4.64e-07 gnorm=2.47 tok/s=11982 eta=10m04s
+[medmcqa] ep38 done loss=0.7183 gnorm=2.53 lr_end=4.64e-07 tok/s=11893 time=10m03s
+[medmcqa] ep38 eval medmcqa acc=34.70% loss=4.2631 n=4170
+[medmcqa] ep38 eval medqa acc=26.94% loss=4.7444 n=1273
+[medmcqa] ep39 step 148378/152080 (98%) loss=0.7497 lr=4.40e-07 gnorm=2.51 tok/s=11628 eta=10m03s
+[medmcqa] ep39 step 148478/152080 (98%) loss=0.7047 lr=4.16e-07 gnorm=2.67 tok/s=11583 eta=9m43s
+[medmcqa] ep39 step 148578/152080 (98%) loss=0.7132 lr=3.94e-07 gnorm=2.59 tok/s=12025 eta=9m19s
+[medmcqa] ep39 step 148678/152080 (98%) loss=0.7314 lr=3.71e-07 gnorm=2.54 tok/s=12064 eta=9m00s
+[medmcqa] ep39 step 148778/152080 (98%) loss=0.7013 lr=3.50e-07 gnorm=2.48 tok/s=12123 eta=8m43s
+[medmcqa] ep39 step 148878/152080 (98%) loss=0.7152 lr=3.29e-07 gnorm=2.82 tok/s=12077 eta=8m26s
+[medmcqa] ep39 step 148978/152080 (98%) loss=0.7126 lr=3.09e-07 gnorm=2.34 tok/s=11969 eta=8m11s
+[medmcqa] ep39 step 149078/152080 (98%) loss=0.7041 lr=2.89e-07 gnorm=2.32 tok/s=12026 eta=7m55s
+[medmcqa] ep39 step 149178/152080 (98%) loss=0.7170 lr=2.70e-07 gnorm=2.37 tok/s=11935 eta=7m40s
+[medmcqa] ep39 step 149278/152080 (98%) loss=0.7347 lr=2.52e-07 gnorm=2.32 tok/s=11714 eta=7m25s
+[medmcqa] ep39 step 149378/152080 (98%) loss=0.7155 lr=2.34e-07 gnorm=2.40 tok/s=11671 eta=7m10s
+[medmcqa] ep39 step 149478/152080 (98%) loss=0.7007 lr=2.17e-07 gnorm=2.44 tok/s=12020 eta=6m53s
+[medmcqa] ep39 step 149578/152080 (98%) loss=0.7020 lr=2.01e-07 gnorm=2.89 tok/s=12038 eta=6m37s
+[medmcqa] ep39 step 149678/152080 (98%) loss=0.7137 lr=1.85e-07 gnorm=2.37 tok/s=12018 eta=6m21s
+[medmcqa] ep39 step 149778/152080 (98%) loss=0.7073 lr=1.70e-07 gnorm=2.71 tok/s=12108 eta=6m04s
+[medmcqa] ep39 step 149878/152080 (99%) loss=0.6913 lr=1.56e-07 gnorm=2.41 tok/s=12136 eta=5m48s
+[medmcqa] ep39 step 149978/152080 (99%) loss=0.7060 lr=1.42e-07 gnorm=2.44 tok/s=12285 eta=5m32s
+[medmcqa] ep39 step 150078/152080 (99%) loss=0.7103 lr=1.29e-07 gnorm=2.46 tok/s=12150 eta=5m16s
+[medmcqa] ep39 step 150178/152080 (99%) loss=0.7430 lr=1.16e-07 gnorm=2.56 tok/s=12172 eta=5m00s
+[medmcqa] ep39 step 150278/152080 (99%) loss=0.6929 lr=1.04e-07 gnorm=2.87 tok/s=12134 eta=4m44s
+[medmcqa] ep39 step 150378/152080 (99%) loss=0.6891 lr=9.31e-08 gnorm=2.49 tok/s=12084 eta=4m28s
+[medmcqa] ep39 step 150478/152080 (99%) loss=0.6980 lr=8.24e-08 gnorm=2.57 tok/s=12282 eta=4m12s
+[medmcqa] ep39 step 150578/152080 (99%) loss=0.6936 lr=7.25e-08 gnorm=2.66 tok/s=12113 eta=3m56s
+[medmcqa] ep39 step 150678/152080 (99%) loss=0.7276 lr=6.32e-08 gnorm=2.27 tok/s=12236 eta=3m40s
+[medmcqa] ep39 step 150778/152080 (99%) loss=0.7026 lr=5.45e-08 gnorm=2.38 tok/s=12240 eta=3m24s
+[medmcqa] ep39 step 150878/152080 (99%) loss=0.7126 lr=4.64e-08 gnorm=2.35 tok/s=12096 eta=3m08s
+[medmcqa] ep39 step 150978/152080 (99%) loss=0.7404 lr=3.90e-08 gnorm=2.42 tok/s=12311 eta=2m52s
+[medmcqa] ep39 step 151078/152080 (99%) loss=0.7239 lr=3.23e-08 gnorm=2.87 tok/s=12267 eta=2m37s
+[medmcqa] ep39 step 151178/152080 (99%) loss=0.7201 lr=2.62e-08 gnorm=2.47 tok/s=12027 eta=2m21s
+[medmcqa] ep39 step 151278/152080 (99%) loss=0.7160 lr=2.07e-08 gnorm=2.65 tok/s=11863 eta=2m05s
+[medmcqa] ep39 step 151378/152080 (100%) loss=0.6913 lr=1.59e-08 gnorm=2.50 tok/s=11831 eta=1m50s
+[medmcqa] ep39 step 151478/152080 (100%) loss=0.7065 lr=1.17e-08 gnorm=2.28 tok/s=12042 eta=1m34s
+[medmcqa] ep39 step 151578/152080 (100%) loss=0.6890 lr=8.12e-09 gnorm=2.30 tok/s=11590 eta=1m18s
+[medmcqa] ep39 step 151678/152080 (100%) loss=0.7280 lr=5.21e-09 gnorm=2.83 tok/s=11841 eta=1m03s
+[medmcqa] ep39 step 151778/152080 (100%) loss=0.7186 lr=2.95e-09 gnorm=2.60 tok/s=11822 eta=0m47s
+[medmcqa] ep39 step 151878/152080 (100%) loss=0.7127 lr=1.32e-09 gnorm=2.33 tok/s=11907 eta=0m31s
+[medmcqa] ep39 step 151978/152080 (100%) loss=0.7279 lr=3.40e-10 gnorm=2.14 tok/s=11944 eta=0m16s
+[medmcqa] ep39 step 152078/152080 (100%) loss=0.7511 lr=2.89e-13 gnorm=2.68 tok/s=12206 eta=0m00s
+[medmcqa] ep39 done loss=0.7136 gnorm=2.50 lr_end=3.21e-14 tok/s=12013 time=9m57s
+[medmcqa] ep39 eval medmcqa acc=34.75% loss=4.2646 n=4170
+[medmcqa] ep39 eval medqa acc=26.79% loss=4.7467 n=1273
+
+=== stage medqa  n=10178 (epoch 0+) | 212 opt/epoch x 40 epochs = 8480 steps, lr 0.0003 cosine, warmup 200 ===
+[medqa] ep0 step 100/8480 (1%) loss=3.5246 lr=1.50e-04 gnorm=2.32 tok/s=48218 eta=24m58s
+[medqa] ep0 step 200/8480 (2%) loss=2.7412 lr=3.00e-04 gnorm=1.89 tok/s=54316 eta=23m20s
+[medqa] ep0 done loss=3.0807 gnorm=2.62 lr_end=3.00e-04 tok/s=51346 time=0m35s
+[medqa] ep0 eval medmcqa acc=26.74% loss=3.6831 n=4170
+[medqa] ep0 eval medqa acc=22.23% loss=2.5804 n=1273
+[medqa] ep1 step 312/8480 (4%) loss=2.3759 lr=3.00e-04 gnorm=1.79 tok/s=52799 eta=22m13s
+[medqa] ep1 step 412/8480 (5%) loss=2.2623 lr=3.00e-04 gnorm=1.65 tok/s=52707 eta=22m01s
+[medqa] ep1 done loss=2.2828 gnorm=1.73 lr_end=2.99e-04 tok/s=52830 time=0m34s
+[medqa] ep1 eval medmcqa acc=28.90% loss=3.8572 n=4170
+[medqa] ep1 eval medqa acc=24.74% loss=2.3800 n=1273
+[medqa] ep2 step 524/8480 (6%) loss=1.9174 lr=2.99e-04 gnorm=1.48 tok/s=52456 eta=21m41s
+[medqa] ep2 step 624/8480 (7%) loss=1.9669 lr=2.98e-04 gnorm=1.47 tok/s=53994 eta=21m16s
+[medqa] ep2 done loss=1.9249 gnorm=1.59 lr_end=2.98e-04 tok/s=53289 time=0m34s
+[medqa] ep2 eval medmcqa acc=28.61% loss=4.0904 n=4170
+[medqa] ep2 eval medqa acc=25.06% loss=2.3472 n=1273
+[medqa] ep3 step 736/8480 (9%) loss=1.6093 lr=2.97e-04 gnorm=1.60 tok/s=54978 eta=20m22s
+[medqa] ep3 step 836/8480 (10%) loss=1.6827 lr=2.96e-04 gnorm=1.60 tok/s=53993 eta=20m14s
+[medqa] ep3 done loss=1.6284 gnorm=1.56 lr_end=2.96e-04 tok/s=54526 time=0m33s
+[medqa] ep3 eval medmcqa acc=30.86% loss=4.3332 n=4170
+[medqa] ep3 eval medqa acc=28.04% loss=2.3694 n=1273
+[medqa] ep4 step 948/8480 (11%) loss=1.3587 lr=2.94e-04 gnorm=1.58 tok/s=52573 eta=20m27s
+[medqa] ep4 step 1048/8480 (12%) loss=1.3893 lr=2.92e-04 gnorm=1.66 tok/s=53355 eta=20m11s
+[medqa] ep4 done loss=1.3513 gnorm=1.59 lr_end=2.92e-04 tok/s=53120 time=0m34s
+[medqa] ep4 eval medmcqa acc=29.35% loss=4.5578 n=4170
+[medqa] ep4 eval medqa acc=28.44% loss=2.4554 n=1273
+[medqa] ep5 step 1160/8480 (14%) loss=1.0668 lr=2.90e-04 gnorm=1.61 tok/s=53076 eta=19m49s
+[medqa] ep5 step 1260/8480 (15%) loss=1.1755 lr=2.88e-04 gnorm=1.64 tok/s=54957 eta=19m16s
+[medqa] ep5 done loss=1.0954 gnorm=1.62 lr_end=2.88e-04 tok/s=54115 time=0m33s
+[medqa] ep5 eval medmcqa acc=29.42% loss=4.8085 n=4170
+[medqa] ep5 eval medqa acc=26.63% loss=2.5833 n=1273
+[medqa] ep6 step 1372/8480 (16%) loss=0.8209 lr=2.85e-04 gnorm=1.61 tok/s=54012 eta=18m52s
+[medqa] ep6 step 1472/8480 (17%) loss=0.9053 lr=2.83e-04 gnorm=1.75 tok/s=54721 eta=18m34s
+[medqa] ep6 done loss=0.8691 gnorm=1.63 lr_end=2.83e-04 tok/s=54470 time=0m33s
+[medqa] ep6 eval medmcqa acc=28.63% loss=5.0290 n=4170
+[medqa] ep6 eval medqa acc=27.26% loss=2.7247 n=1273
+[medqa] ep7 step 1584/8480 (19%) loss=0.6206 lr=2.80e-04 gnorm=1.62 tok/s=54171 eta=18m14s
+[medqa] ep7 step 1684/8480 (20%) loss=0.7251 lr=2.77e-04 gnorm=1.82 tok/s=53730 eta=18m09s
+[medqa] ep7 done loss=0.6785 gnorm=1.61 lr_end=2.77e-04 tok/s=53948 time=0m33s
+[medqa] ep7 eval medmcqa acc=28.66% loss=5.2464 n=4170
+[medqa] ep7 eval medqa acc=26.16% loss=2.8956 n=1273
+[medqa] ep8 step 1796/8480 (21%) loss=0.4927 lr=2.73e-04 gnorm=1.58 tok/s=53456 eta=17m58s
+[medqa] ep8 step 1896/8480 (22%) loss=0.5597 lr=2.70e-04 gnorm=1.73 tok/s=55029 eta=17m29s
+[medqa] ep8 done loss=0.5268 gnorm=1.56 lr_end=2.70e-04 tok/s=54334 time=0m33s
+[medqa] ep8 eval medmcqa acc=29.18% loss=5.4152 n=4170
+[medqa] ep8 eval medqa acc=27.18% loss=3.0512 n=1273
+[medqa] ep9 step 2008/8480 (24%) loss=0.3749 lr=2.66e-04 gnorm=1.51 tok/s=52566 eta=17m43s
+[medqa] ep9 step 2108/8480 (25%) loss=0.4441 lr=2.62e-04 gnorm=1.61 tok/s=53085 eta=17m21s
+[medqa] ep9 done loss=0.4148 gnorm=1.50 lr_end=2.62e-04 tok/s=52960 time=0m34s
+[medqa] ep9 eval medmcqa acc=27.75% loss=5.5903 n=4170
+[medqa] ep9 eval medqa acc=28.12% loss=3.2066 n=1273
+[medqa] ep10 step 2220/8480 (26%) loss=0.2993 lr=2.58e-04 gnorm=1.45 tok/s=52575 eta=17m08s
+[medqa] ep10 step 2320/8480 (27%) loss=0.3655 lr=2.54e-04 gnorm=1.58 tok/s=52963 eta=16m49s
+[medqa] ep10 done loss=0.3356 gnorm=1.42 lr_end=2.54e-04 tok/s=52873 time=0m34s
+[medqa] ep10 eval medmcqa acc=27.34% loss=5.7340 n=4170
+[medqa] ep10 eval medqa acc=26.32% loss=3.3373 n=1273
+[medqa] ep11 step 2432/8480 (29%) loss=0.2632 lr=2.49e-04 gnorm=1.33 tok/s=53494 eta=16m12s
+[medqa] ep11 step 2532/8480 (30%) loss=0.3020 lr=2.45e-04 gnorm=1.50 tok/s=54969 eta=15m47s
+[medqa] ep11 done loss=0.2790 gnorm=1.34 lr_end=2.45e-04 tok/s=54340 time=0m33s
+[medqa] ep11 eval medmcqa acc=29.52% loss=5.8528 n=4170
+[medqa] ep11 eval medqa acc=25.92% loss=3.4374 n=1273
+[medqa] ep12 step 2644/8480 (31%) loss=0.2186 lr=2.40e-04 gnorm=1.31 tok/s=52622 eta=16m02s
+[medqa] ep12 step 2744/8480 (32%) loss=0.2581 lr=2.35e-04 gnorm=1.40 tok/s=52598 eta=15m43s
+[medqa] ep12 done loss=0.2365 gnorm=1.26 lr_end=2.35e-04 tok/s=52667 time=0m34s
+[medqa] ep12 eval medmcqa acc=26.91% loss=5.9631 n=4170
+[medqa] ep12 eval medqa acc=27.57% loss=3.5510 n=1273
+[medqa] ep13 step 2856/8480 (34%) loss=0.1913 lr=2.30e-04 gnorm=1.20 tok/s=51956 eta=15m32s
+[medqa] ep13 step 2956/8480 (35%) loss=0.2216 lr=2.25e-04 gnorm=1.33 tok/s=52664 eta=15m12s
+[medqa] ep13 done loss=0.2068 gnorm=1.19 lr_end=2.25e-04 tok/s=52453 time=0m34s
+[medqa] ep13 eval medmcqa acc=27.58% loss=6.0642 n=4170
+[medqa] ep13 eval medqa acc=27.18% loss=3.6160 n=1273
+[medqa] ep14 step 3068/8480 (36%) loss=0.1700 lr=2.20e-04 gnorm=1.16 tok/s=53754 eta=14m28s
+[medqa] ep14 step 3168/8480 (37%) loss=0.1940 lr=2.15e-04 gnorm=1.20 tok/s=53838 eta=14m12s
+[medqa] ep14 done loss=0.1818 gnorm=1.11 lr_end=2.14e-04 tok/s=53943 time=0m33s
+[medqa] ep14 eval medmcqa acc=26.88% loss=6.1424 n=4170
+[medqa] ep14 eval medqa acc=26.71% loss=3.6809 n=1273
+[medqa] ep15 step 3280/8480 (39%) loss=0.1488 lr=2.09e-04 gnorm=1.02 tok/s=52331 eta=14m18s
+[medqa] ep15 step 3380/8480 (40%) loss=0.1727 lr=2.03e-04 gnorm=1.11 tok/s=53268 eta=13m55s
+[medqa] ep15 done loss=0.1622 gnorm=1.03 lr_end=2.03e-04 tok/s=52862 time=0m34s
+[medqa] ep15 eval medmcqa acc=26.62% loss=6.2019 n=4170
+[medqa] ep15 eval medqa acc=25.77% loss=3.7596 n=1273
+[medqa] ep16 step 3492/8480 (41%) loss=0.1370 lr=1.97e-04 gnorm=0.97 tok/s=52290 eta=13m45s
+[medqa] ep16 step 3592/8480 (42%) loss=0.1539 lr=1.92e-04 gnorm=0.99 tok/s=52328 eta=13m26s
+[medqa] ep16 done loss=0.1470 gnorm=0.97 lr_end=1.91e-04 tok/s=52445 time=0m34s
+[medqa] ep16 eval medmcqa acc=28.20% loss=6.2656 n=4170
+[medqa] ep16 eval medqa acc=26.08% loss=3.8029 n=1273
+[medqa] ep17 step 3704/8480 (44%) loss=0.1244 lr=1.86e-04 gnorm=0.91 tok/s=52891 eta=12m58s
+[medqa] ep17 step 3804/8480 (45%) loss=0.1392 lr=1.80e-04 gnorm=0.93 tok/s=54314 eta=12m35s
+[medqa] ep17 done loss=0.1328 gnorm=0.90 lr_end=1.80e-04 tok/s=53623 time=0m34s
+[medqa] ep17 eval medmcqa acc=28.08% loss=6.3043 n=4170
+[medqa] ep17 eval medqa acc=27.10% loss=3.8575 n=1273
+[medqa] ep18 step 3916/8480 (46%) loss=0.1126 lr=1.74e-04 gnorm=0.85 tok/s=53752 eta=12m13s
+[medqa] ep18 step 4016/8480 (47%) loss=0.1277 lr=1.68e-04 gnorm=0.89 tok/s=54129 eta=11m54s
+[medqa] ep18 done loss=0.1205 gnorm=0.83 lr_end=1.68e-04 tok/s=54040 time=0m33s
+[medqa] ep18 eval medmcqa acc=27.17% loss=6.3752 n=4170
+[medqa] ep18 eval medqa acc=27.73% loss=3.8968 n=1273
+[medqa] ep19 step 4128/8480 (49%) loss=0.1003 lr=1.62e-04 gnorm=0.73 tok/s=53174 eta=11m48s
+[medqa] ep19 step 4228/8480 (50%) loss=0.1150 lr=1.56e-04 gnorm=0.80 tok/s=53618 eta=11m28s
+[medqa] ep19 done loss=0.1104 gnorm=0.75 lr_end=1.56e-04 tok/s=53526 time=0m34s
+[medqa] ep19 eval medmcqa acc=27.05% loss=6.4051 n=4170
+[medqa] ep19 eval medqa acc=24.67% loss=3.9412 n=1273
+[medqa] ep20 step 4340/8480 (51%) loss=0.0958 lr=1.50e-04 gnorm=0.68 tok/s=54399 eta=10m57s
+[medqa] ep20 step 4440/8480 (52%) loss=0.1068 lr=1.44e-04 gnorm=0.78 tok/s=54972 eta=10m38s
+[medqa] ep20 done loss=0.1020 gnorm=0.70 lr_end=1.44e-04 tok/s=54756 time=0m33s
+[medqa] ep20 eval medmcqa acc=28.01% loss=6.4586 n=4170
+[medqa] ep20 eval medqa acc=26.08% loss=3.9800 n=1273
+[medqa] ep21 step 4552/8480 (54%) loss=0.0903 lr=1.38e-04 gnorm=0.65 tok/s=54084 eta=10m28s
+[medqa] ep21 step 4652/8480 (55%) loss=0.0992 lr=1.32e-04 gnorm=0.70 tok/s=53835 eta=10m13s
+[medqa] ep21 done loss=0.0946 gnorm=0.64 lr_end=1.32e-04 tok/s=53950 time=0m33s
+[medqa] ep21 eval medmcqa acc=26.31% loss=6.5116 n=4170
+[medqa] ep21 eval medqa acc=26.32% loss=4.0066 n=1273
+[medqa] ep22 step 4764/8480 (56%) loss=0.0809 lr=1.26e-04 gnorm=0.55 tok/s=52982 eta=10m09s
+[medqa] ep22 step 4864/8480 (57%) loss=0.0893 lr=1.20e-04 gnorm=0.58 tok/s=53334 eta=9m49s
+[medqa] ep22 done loss=0.0880 gnorm=0.58 lr_end=1.20e-04 tok/s=53114 time=0m34s
+[medqa] ep22 eval medmcqa acc=27.94% loss=6.5254 n=4170
+[medqa] ep22 eval medqa acc=25.84% loss=4.0428 n=1273
+[medqa] ep23 step 4976/8480 (59%) loss=0.0821 lr=1.14e-04 gnorm=0.58 tok/s=54787 eta=9m14s
+[medqa] ep23 step 5076/8480 (60%) loss=0.0846 lr=1.09e-04 gnorm=0.60 tok/s=53069 eta=9m06s
+[medqa] ep23 done loss=0.0822 gnorm=0.52 lr_end=1.08e-04 tok/s=53855 time=0m34s
+[medqa] ep23 eval medmcqa acc=27.79% loss=6.5417 n=4170
+[medqa] ep23 eval medqa acc=26.08% loss=4.0719 n=1273
+[medqa] ep24 step 5188/8480 (61%) loss=0.0736 lr=1.03e-04 gnorm=0.45 tok/s=52869 eta=8m55s
+[medqa] ep24 step 5288/8480 (62%) loss=0.0776 lr=9.73e-05 gnorm=0.48 tok/s=54154 eta=8m35s
+[medqa] ep24 done loss=0.0777 gnorm=0.47 lr_end=9.66e-05 tok/s=53566 time=0m34s
+[medqa] ep24 eval medmcqa acc=26.38% loss=6.6034 n=4170
+[medqa] ep24 eval medqa acc=26.39% loss=4.1019 n=1273
+[medqa] ep25 step 5400/8480 (64%) loss=0.0708 lr=9.13e-05 gnorm=0.41 tok/s=54641 eta=8m08s
+[medqa] ep25 step 5500/8480 (65%) loss=0.0752 lr=8.61e-05 gnorm=0.47 tok/s=53876 eta=7m54s
+[medqa] ep25 done loss=0.0740 gnorm=0.43 lr_end=8.55e-05 tok/s=54280 time=0m33s
+[medqa] ep25 eval medmcqa acc=28.18% loss=6.6220 n=4170
+[medqa] ep25 eval medqa acc=28.12% loss=4.1184 n=1273
+[medqa] ep26 step 5612/8480 (66%) loss=0.0682 lr=8.04e-05 gnorm=0.36 tok/s=54307 eta=7m36s
+[medqa] ep26 step 5712/8480 (67%) loss=0.0716 lr=7.54e-05 gnorm=0.37 tok/s=54722 eta=7m19s
+[medqa] ep26 done loss=0.0706 gnorm=0.38 lr_end=7.49e-05 tok/s=54534 time=0m33s
+[medqa] ep26 eval medmcqa acc=28.92% loss=6.6304 n=4170
+[medqa] ep26 eval medqa acc=26.63% loss=4.1487 n=1273
+[medqa] ep27 step 5824/8480 (69%) loss=0.0665 lr=7.00e-05 gnorm=0.30 tok/s=53644 eta=7m09s
+[medqa] ep27 step 5924/8480 (70%) loss=0.0700 lr=6.52e-05 gnorm=0.35 tok/s=53894 eta=6m51s
+[medqa] ep27 done loss=0.0679 gnorm=0.34 lr_end=6.47e-05 tok/s=53801 time=0m34s
+[medqa] ep27 eval medmcqa acc=28.78% loss=6.6716 n=4170
+[medqa] ep27 eval medqa acc=26.47% loss=4.1688 n=1273
+[medqa] ep28 step 6036/8480 (71%) loss=0.0632 lr=6.00e-05 gnorm=0.30 tok/s=54231 eta=6m30s
+[medqa] ep28 step 6136/8480 (72%) loss=0.0665 lr=5.56e-05 gnorm=0.36 tok/s=53695 eta=6m15s
+[medqa] ep28 done loss=0.0654 gnorm=0.32 lr_end=5.50e-05 tok/s=53976 time=0m33s
+[medqa] ep28 eval medmcqa acc=28.42% loss=6.6876 n=4170
+[medqa] ep28 eval medqa acc=26.71% loss=4.1915 n=1273
+[medqa] ep29 step 6248/8480 (74%) loss=0.0612 lr=5.07e-05 gnorm=0.26 tok/s=55008 eta=5m52s
+[medqa] ep29 step 6348/8480 (75%) loss=0.0648 lr=4.65e-05 gnorm=0.28 tok/s=54207 eta=5m37s
+[medqa] ep29 done loss=0.0633 gnorm=0.29 lr_end=4.60e-05 tok/s=54542 time=0m33s
+[medqa] ep29 eval medmcqa acc=28.59% loss=6.7042 n=4170
+[medqa] ep29 eval medqa acc=25.77% loss=4.2117 n=1273
+[medqa] ep30 step 6460/8480 (76%) loss=0.0610 lr=4.20e-05 gnorm=0.27 tok/s=53630 eta=5m24s
+[medqa] ep30 step 6560/8480 (77%) loss=0.0619 lr=3.81e-05 gnorm=0.23 tok/s=54101 eta=5m07s
+[medqa] ep30 done loss=0.0615 gnorm=0.27 lr_end=3.77e-05 tok/s=54037 time=0m33s
+[medqa] ep30 eval medmcqa acc=28.61% loss=6.7258 n=4170
+[medqa] ep30 eval medqa acc=25.84% loss=4.2307 n=1273
+[medqa] ep31 step 6672/8480 (79%) loss=0.0586 lr=3.40e-05 gnorm=0.25 tok/s=53032 eta=4m54s
+[medqa] ep31 step 6772/8480 (80%) loss=0.0611 lr=3.04e-05 gnorm=0.21 tok/s=54706 eta=4m33s
+[medqa] ep31 done loss=0.0599 gnorm=0.25 lr_end=3.00e-05 tok/s=54040 time=0m33s
+[medqa] ep31 eval medmcqa acc=28.32% loss=6.7327 n=4170
+[medqa] ep31 eval medqa acc=26.08% loss=4.2421 n=1273
+[medqa] ep32 step 6884/8480 (81%) loss=0.0577 lr=2.67e-05 gnorm=0.26 tok/s=53495 eta=4m18s
+[medqa] ep32 step 6984/8480 (82%) loss=0.0583 lr=2.36e-05 gnorm=0.26 tok/s=53986 eta=4m00s
+[medqa] ep32 done loss=0.0585 gnorm=0.24 lr_end=2.32e-05 tok/s=53817 time=0m34s
+[medqa] ep32 eval medmcqa acc=28.85% loss=6.7554 n=4170
+[medqa] ep32 eval medqa acc=27.10% loss=4.2590 n=1273
+[medqa] ep33 step 7096/8480 (84%) loss=0.0567 lr=2.02e-05 gnorm=0.20 tok/s=52498 eta=3m47s
+[medqa] ep33 step 7196/8480 (85%) loss=0.0577 lr=1.75e-05 gnorm=0.24 tok/s=52614 eta=3m31s
+[medqa] ep33 done loss=0.0570 gnorm=0.24 lr_end=1.72e-05 tok/s=52709 time=0m34s
+[medqa] ep33 eval medmcqa acc=28.25% loss=6.7719 n=4170
+[medqa] ep33 eval medqa acc=26.55% loss=4.2727 n=1273
+[medqa] ep34 step 7308/8480 (86%) loss=0.0541 lr=1.46e-05 gnorm=0.22 tok/s=54403 eta=3m07s
+[medqa] ep34 step 7408/8480 (87%) loss=0.0586 lr=1.23e-05 gnorm=0.23 tok/s=54201 eta=2m50s
+[medqa] ep34 done loss=0.0558 gnorm=0.24 lr_end=1.20e-05 tok/s=54356 time=0m33s
+[medqa] ep34 eval medmcqa acc=28.92% loss=6.7816 n=4170
+[medqa] ep34 eval medqa acc=26.55% loss=4.2826 n=1273
+[medqa] ep35 step 7520/8480 (89%) loss=0.0520 lr=9.86e-06 gnorm=0.23 tok/s=53053 eta=2m36s
+[medqa] ep35 step 7620/8480 (90%) loss=0.0540 lr=7.93e-06 gnorm=0.26 tok/s=53558 eta=2m19s
+[medqa] ep35 done loss=0.0547 gnorm=0.24 lr_end=7.72e-06 tok/s=53437 time=0m34s
+[medqa] ep35 eval medmcqa acc=28.75% loss=6.7920 n=4170
+[medqa] ep35 eval medqa acc=26.55% loss=4.2933 n=1273
+[medqa] ep36 step 7732/8480 (91%) loss=0.0539 lr=6.02e-06 gnorm=0.23 tok/s=52553 eta=2m02s
+[medqa] ep36 step 7832/8480 (92%) loss=0.0549 lr=4.52e-06 gnorm=0.22 tok/s=53872 eta=1m45s
+[medqa] ep36 done loss=0.0537 gnorm=0.23 lr_end=4.36e-06 tok/s=53294 time=0m34s
+[medqa] ep36 eval medmcqa acc=28.49% loss=6.7984 n=4170
+[medqa] ep36 eval medqa acc=26.55% loss=4.3015 n=1273
+[medqa] ep37 step 7944/8480 (94%) loss=0.0526 lr=3.10e-06 gnorm=0.23 tok/s=52960 eta=1m28s
+[medqa] ep37 step 8044/8480 (95%) loss=0.0530 lr=2.06e-06 gnorm=0.24 tok/s=54240 eta=1m10s
+[medqa] ep37 done loss=0.0530 gnorm=0.23 lr_end=1.95e-06 tok/s=53594 time=0m34s
+[medqa] ep37 eval medmcqa acc=28.44% loss=6.8007 n=4170
+[medqa] ep37 eval medqa acc=26.71% loss=4.3065 n=1273
+[medqa] ep38 step 8156/8480 (96%) loss=0.0508 lr=1.14e-06 gnorm=0.23 tok/s=52980 eta=0m52s
+[medqa] ep38 step 8256/8480 (97%) loss=0.0522 lr=5.46e-07 gnorm=0.23 tok/s=53278 eta=0m36s
+[medqa] ep38 done loss=0.0525 gnorm=0.23 lr_end=4.90e-07 tok/s=53235 time=0m34s
+[medqa] ep38 eval medmcqa acc=28.78% loss=6.8023 n=4170
+[medqa] ep38 eval medqa acc=26.55% loss=4.3089 n=1273
+[medqa] ep39 step 8368/8480 (99%) loss=0.0529 lr=1.38e-07 gnorm=0.22 tok/s=53046 eta=0m18s
+[medqa] ep39 step 8468/8480 (100%) loss=0.0526 lr=1.82e-09 gnorm=0.24 tok/s=54484 eta=0m01s
+[medqa] ep39 done loss=0.0522 gnorm=0.23 lr_end=1.08e-11 tok/s=53799 time=0m34s
+[medqa] ep39 eval medmcqa acc=28.80% loss=6.8029 n=4170
+[medqa] ep39 eval medqa acc=26.47% loss=4.3094 n=1273
+[test medmcqa] acc=28.71% loss=6.8024 n=4170
+[test medqa] acc=26.63% loss=4.3091 n=1273
+
+wrote runs/baseline_40ep/results.json

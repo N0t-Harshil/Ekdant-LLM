@@ -163,15 +163,16 @@ def fmt_duration(seconds: float) -> str:
 
 def train_stage(model, loader, opt, device, epoch, scaler, autocast,
                 opt_step, total_opt, base_lr, warmup, accum,
-                stage_name="", log_every=100):
+                stage_name="", log_every=100, answer_weight=0.0):
     """One epoch. LR is set per optimizer step, not per epoch (the old
     per-epoch counter made warmup never complete — fixed; see run.md §8).
 
     Emits a progress line every ``log_every`` optimizer steps:
         [stage] ep0 step 1200/3809 (32%) loss=.. lr=.. gnorm=.. tok/s=.. eta=..
-    ``loss`` is an EMA of the per-batch CE; ``gnorm`` is the pre-clip global
-    grad norm (clip threshold 1.0 — a sustained value far above 1 means the
-    clip is active every step; near 0 means training has stalled).
+    ``loss`` is an EMA of the per-batch CE (LM loss + ``answer_weight`` ×
+    answer-letter CE when that weight is > 0); ``gnorm`` is the pre-clip
+    global grad norm (clip threshold 1.0 — a sustained value far above 1
+    means the clip is active every step; near 0 means training stalled).
     """
     model.train()
     total, ntok, steps, nsamp = 0.0, 0, 0, 0
@@ -184,7 +185,10 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
     for batch in loader:
         batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
         with autocast():
-            out = model(batch["input_ids"], labels=batch["labels"])
+            out = model(batch["input_ids"], labels=batch["labels"],
+                        answer_pos=batch["answer_pos"],
+                        answer_ids=batch["answer_ids"],
+                        answer_weight=answer_weight)
             loss = out.loss / accum
         scaler.scale(loss).backward()
         bsz_tok = int(batch["attention_mask"].sum())
@@ -224,14 +228,18 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, autocast) -> Dict[str, float]:
+def evaluate(model, loader, device, autocast,
+             answer_weight: float = 0.0) -> Dict[str, float]:
     model.eval()
     correct = seen = 0
     loss_sum = n = 0
     for batch in loader:
         batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
         with autocast():
-            out = model(batch["input_ids"], labels=batch["labels"])
+            out = model(batch["input_ids"], labels=batch["labels"],
+                        answer_pos=batch["answer_pos"],
+                        answer_ids=batch["answer_ids"],
+                        answer_weight=answer_weight)
             logits = out.logits
         loss_sum += out.loss.item()
         n += 1
@@ -260,6 +268,12 @@ def main() -> None:
                          "default: same as --lr")
     ap.add_argument("--ft-epochs", type=int, default=None,
                     help="phase-2 epochs; default: same as --epochs")
+    ap.add_argument("--answer-weight", type=float, default=0.0,
+                    help="weight of the answer-letter CE added to the LM "
+                         "loss (0 = legacy pure LM loss; 10 recommended - "
+                         "the letter is only ~1 token in ~34 MedMCQA / "
+                         "~173 MedQA tokens, so plain CE dilutes the "
+                         "decision signal ~97-99%)")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--no-compile", action="store_true")
     ap.add_argument("--seed", type=int, default=17)
@@ -426,7 +440,7 @@ def main() -> None:
         tds = make_dataset("medmcqa", "validation", tokenizer, cfg, args.limit)
         tloader = build_dataloader(tds, cfg, args.batch_size, False, False,
                                    seed=args.seed, workers=0)
-        r = evaluate(raw, tloader, device, autocast)
+        r = evaluate(raw, tloader, device, autocast, args.answer_weight)
         results["phase1"] = {"medmcqa_val": r}
         log(f"[phase1 test medmcqa_val] acc={r['accuracy']*100:.2f}% "
             f"loss={r['loss']:.4f} n={r['n']}  "
@@ -466,7 +480,8 @@ def main() -> None:
                     model, loader, opt, device, epoch, scaler, autocast,
                     stage_opt_step, total_opt, stage_lr, args.warmup,
                     args.grad_accum, stage_name=stage_name,
-                    log_every=args.log_every)
+                    log_every=args.log_every,
+                    answer_weight=args.answer_weight)
                 opt_step = stage_opt_step  # for resume/ckpt bookkeeping
                 step += 1
                 completed = offsets[si] + epoch + 1
@@ -496,7 +511,8 @@ def main() -> None:
                         vloader = build_dataloader(vds, cfg, args.batch_size,
                                                    False, False,
                                                    seed=args.seed, workers=0)
-                        r = evaluate(raw, vloader, device, autocast)
+                        r = evaluate(raw, vloader, device, autocast,
+                                     args.answer_weight)
                         history[-1]["test"] = {"medmcqa_val": r}
                         results["test"] = {"medmcqa_val": r}
                         log(f"[{stage_name}] ep{epoch} eval medmcqa_val "
@@ -525,7 +541,8 @@ def main() -> None:
     val_ds = make_dataset("medmcqa", "validation", tokenizer, cfg, args.limit)
     val_loader = build_dataloader(val_ds, cfg, args.batch_size, False, False,
                                   seed=args.seed, workers=0)
-    scores = {"last.pt": evaluate(raw, val_loader, device, autocast)}
+    scores = {"last.pt": evaluate(raw, val_loader, device, autocast,
+                                  args.answer_weight)}
     last_state = {k: v.detach().cpu().clone()
                   for k, v in raw.state_dict().items()}
     best_path = os.path.join(args.out, "best.pt")
@@ -533,7 +550,8 @@ def main() -> None:
     if os.path.exists(best_path):
         bckpt = torch.load(best_path, map_location="cpu")
         raw.load_state_dict(bckpt["model"])
-        scores["best.pt"] = evaluate(raw, val_loader, device, autocast)
+        scores["best.pt"] = evaluate(raw, val_loader, device, autocast,
+                                     args.answer_weight)
     if is_main:
         parts = "  ".join(f"{k}={v['accuracy']*100:.2f}%"
                           for k, v in scores.items())
@@ -567,7 +585,7 @@ def main() -> None:
     for name, ds_ in finals:
         loader = build_dataloader(ds_, cfg, args.batch_size, False, False,
                                   seed=args.seed, workers=0)
-        r = evaluate(raw, loader, device, autocast)
+        r = evaluate(raw, loader, device, autocast, args.answer_weight)
         results["test"][name] = r
         if is_main:
             log(f"[test {name}] acc={r['accuracy']*100:.2f}% "

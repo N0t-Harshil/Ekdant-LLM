@@ -110,6 +110,7 @@ fair comparison.
 | `--epochs` | 3 | phase 1 (MedMCQA) epochs |
 | `--ft-lr` | `--lr` | **phase-2 (MedQA fine-tune) cosine base LR** — anti-overfit knob (e.g. `5e-5`); phase 1 never uses it |
 | `--ft-epochs` | `--epochs` | **phase-2 epochs** — cap the fine-tune (e.g. `10`) instead of replaying `--epochs` over 6,106 rows |
+| `--answer-weight` | 0.0 | adds `weight × CE(logits[answer_pos−1], answer_id)` to the LM loss — the letter is 1 token in ~34/173, so plain CE dilutes the decision ~97–99% (`10` recommended; `0` = legacy) |
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
 | `--log-every` | 100 | progress line every N optimizer steps: `step X/Y (%) loss lr gnorm tok/s eta` (`0` = summaries only) |
@@ -134,7 +135,8 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --eval-only    # re-
 `--resume` restores weights, step, epoch/stage position, and history from
 `last.pt`; the tokenizer and the exact `config.json` in `--out` are reused.
 Optimizer moments restart cold (small loss bump expected). Keep the same
-flags (esp. `--epochs` and `--ft-epochs`/`--ft-lr`, if used) as the
+flags (esp. `--epochs` and `--ft-epochs`/`--ft-lr`/`--answer-weight`, if
+used) as the
 original run. See [`../run.md`](../run.md) §4.
 
 ## Outputs
@@ -187,10 +189,12 @@ have converged and the sandbox is doing nothing — that is itself a result.
 
 ## Expected memory (per GPU)
 
-The collator pads to **batch max** (`data.py::collate`), and
-MedMCQA/MedQA prompts are only ~40–80 tokens — `max_seq_len` 2048 is a
-truncation cap that is never padded to. Training therefore uses a few
-thousand tokens per micro-batch: measured **6.3 optimizer steps/s at
+The collator pads to **batch max** (`data.py::collate`); measured with
+the real tokenizer on all four splits: MedMCQA p50=34 / p99=118 tokens,
+MedQA p50=173 / p99=364 (max 857 — **0 of 198k rows exceed the 2048
+cap**, so nothing is truncated or dropped). Training therefore uses a
+few hundred to a few thousand tokens per micro-batch: measured **6.3
+optimizer steps/s at
 batch 6 × accum 8 on a 16 GB T4** (fp16 fallback — T4 has no bf16).
 Memory only becomes a concern with genuinely long inputs (near 2048) or
 much larger batches — then lower `--batch-size` and raise
@@ -202,5 +206,5 @@ cost of the sandbox arm (≈1.5× baseline wall-clock).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 81 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 85 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```

@@ -39,7 +39,7 @@ The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → h
 2. **Phase 2 — MedQA fine-tune:** fine-tunes on the **60% partition** of MedQA train (6,106 of 10,178 rows; 128 opt/epoch) for `--epochs` epochs. The partition is `split_frac(train, FT_FRAC=0.6, --seed)` — identical rows for both A/B arms (fairness rule); the complementary **40% (4,072 rows) is never trained on**.
 3. **Final protocol:** better of `best.pt` vs `last.pt` on the untouched **MedMCQA validation** split (4,183 — the public test split ships `cop=-1`, unlabelled, T18; selection set, evaluated every phase-2 epoch via `--eval-every`) → benchmark the 40% MedQA partition **exactly once** (`medqa_bench`) + official MedQA test (`medqa_test`, also untouched) + selection score, all into `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected`).
 
-Data loads through `data.py::load_examples` (offline-first: cached loads skip the hub entirely); each example is formatted `question\nA. …\nAnswer: <letter>` and the answer-token index is cached (`answer_pos`). The collator pads to **batch max** (prompts ≈ 40–80 tokens; `max_seq_len` is a truncation cap) — measured 6.3 opt steps/s on a T4.
+Data loads through `data.py::load_examples` (offline-first: cached loads skip the hub entirely); each example is formatted `question\nA. …\nAnswer: <letter>` and the answer-token index is cached (`answer_pos`). The collator pads to **batch max** — measured with the real tokenizer on all four splits: MedMCQA p50=34 / p99=118, MedQA p50=173 / p99=364, max 857, **0 of 198k rows exceed the 2048 cap** (nothing truncated or dropped; full prompts verified by decode round-trip) — measured 6.3 opt steps/s on a T4. Note the model never receives `attention_mask`: padding is **right-side** and attention is **causal**, so real tokens cannot attend to pads (pads carry `-100` labels = no loss).
 
 **Tokenizer trained once, shared vocabulary.** On first run, a BPE tokenizer (NFD+lowercase, whitespace pre-tokenizer, `vocab_size` from config, special `<pad>/<bos>/<eos>/<unk>`) is trained on ≤20K MedMCQA train samples (prompt+answer), saved to `<out>/tokenizer.json`, and **reloaded if present** — both variants therefore see the same vocabulary (required for a fair A/B). `bind_letter_ids` resolves the A/B/C/D token ids for evaluation.
 
@@ -57,6 +57,7 @@ Data loads through `data.py::load_examples` (offline-first: cached loads skip th
 | `--epochs` | 3 | phase 1 (MedMCQA) epochs |
 | `--ft-lr` | `--lr` | **phase-2 (MedQA fine-tune) cosine base LR** — anti-overfit knob (e.g. `5e-5`); phase 1 never uses it |
 | `--ft-epochs` | `--epochs` | **phase-2 epochs** — cap the fine-tune (e.g. `10`) instead of replaying `--epochs` over 6,106 rows |
+| `--answer-weight` | 0.0 | adds `weight × CE(logits[answer_pos−1], answer_id)` to the LM loss (letter = 1 token in ~34/173 → plain CE dilutes the decision ~97–99%; `10` recommended; `0` = legacy) |
 | `--limit` | none | cap rows per dataset (smoke) |
 | `--no-compile` | off | skip `torch.compile` |
 | `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
@@ -80,6 +81,8 @@ Data loads through `data.py::load_examples` (offline-first: cached loads skip th
 
 Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_sbx · relu(rho_min − rho)²·mean`, where `rho = spread_ratio = trajectory_variance / mean(hT²)` comes from `Sandbox._aux`, `rho_min = 0.05`.
 
+Optional (`--answer-weight w`, default 0 = legacy): `+ w · CE(logits[answer_pos−1], answer_vocab_id)` — the answer letter is only **1 token in ~34 (MedMCQA) / ~173 (MedQA)**, so pure LM CE spends ~97–99% of its gradient on predicting question text (40-epoch pilot: train CE → ~0.05 while accuracy sat at ~35%). The term supervises the exact position/metric `evaluate()` scores, while the LM loss (needed by the sandbox's generation) is kept at full weight. Recommended campaign value: `10`.
+
 > [!warning] Weight mismatch: shipped `lambda_sbx` = **1.0** (`configs/*.json`), thesis spec `sandbox_weight` = **0.1**. The floor is a hinge (0 while healthy), so the practical effect is small — but any published run must state which λ it used. The term is a **spread floor**, never an agreement penalty `MSE(traj, consensus)` (that loss is minimized by the exact collapse it forbids — [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.2).
 
 ## 4. Known issues (open — see [10_Known_Issues](../07-Management/10_Known_Issues.md))
@@ -90,13 +93,14 @@ Shipped: `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100) + lambda_s
 4. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
 5. Not bugs but design gaps: diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute. *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
 6. **Phase-2 memorization risk — MITIGATED (per-phase knobs).** Phase 2 used to inherit `--lr`/`--epochs`, so the campaign recipe spent 12,800 steps @ 3e-4 on only 6,106 MedQA rows — the 40-epoch pilot (`runs/baseline_40ep`) memorized it (train CE → ~0.05, held-out MedQA stuck at chance ≈25%, MedMCQA validation decaying = forgetting). **`--ft-lr` / `--ft-epochs`** (defaults: `--lr`/`--epochs`, so unchanged unless passed) fine-tune only phase 2; recommended `--ft-lr 5e-5 --ft-epochs 10` (phase 2 = 1,280 steps) in [run.md](../run.md) §3. Regression: `tests/test_schedule.py` (`stage_hparams`, `stage_offsets`).
+7. **Supervision dilution — MITIGATED (`--answer-weight`).** Plain LM CE trains one answer token out of ~34 (MedMCQA) / ~173 (MedQA) — ~97–99% of the gradient goes to predicting question text, which is why the 40-epoch pilot's train CE collapsed to ~0.05 while letter accuracy plateaued at ~35%. The full prompt itself is intact (verified: 0 of 198k rows exceed `max_seq_len` 2048; decode round-trips complete). **`--answer-weight`** (default 0 = legacy) adds a re-weighted CE at the same position/metric as eval; recommended `10` in [run.md](../run.md) §3. Regression: `tests/test_model.py` (`test_answer_weight_*`), `tests/test_data.py` (`test_collate_carries_answer_vocab_ids`).
 6. **Eval hang before first result — FIXED (offline-first data loading).** Per-epoch evals called `load_dataset`, which performs a hub etag HEAD on every load; with bad connectivity that request stalls indefinitely (dead route, IPv6) and training appears frozen with no error line. `data.py` now defaults `HF_HUB_OFFLINE=1` (cache-only reads) and flips online only for a first-run download (`tests/test_data.py` locks the loader contract; the stall itself was reproduced live, not unit-testable).
 
 ## 5. Smoke test (Phase 8 substitute)
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 81 tests, CPU, ~10s
+pytest -q    # 85 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 
