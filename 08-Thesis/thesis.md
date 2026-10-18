@@ -1,9 +1,14 @@
-# Ekdant: Memory-Efficient Reasoning with Selective SSM Storage and Parallel Sandbox Consensus
+# Ekdant: A Parallel Sandbox with Anchored Gated Descent for Medical Multiple-Choice Reasoning
 
-**Harshil Gorasiya** — BEng Thesis, Hochschule Heilbronn
+**Harshil Gorasiya** — MSc Thesis, Hochschule Heilbronn
 Supervisor: [Supervisor 1] · Co-supervisor: [Supervisor 2]
 
 > Compiled from this vault. Canonical spec: [02_System_Architecture.md](../02-Architecture/02_System_Architecture.md). Sources: [01](../01-Introduction/01_Project_Overview.md) · [19](../03-Background/19_Thesis_Ch2_SSM_Storage_Papers.md) · [20](../03-Background/20_Thesis_Ch2_Sandbox_Papers.md) · [21](../04-Model-DeepDive/21_Thesis_Ch3_Layer1_SSM_Storage.md) · [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · [05-Data](../README.md) · [07](../06-Training-Eval/07_Training_Pipeline.md) · [12](../02-Architecture/12_Configuration_Guide.md) · [09/14](../README.md) · [11](../07-Management/11_Future_Work.md).
+
+> [!important] **Scope of the built system.** The evaluated model is `embed → T → L2 → head`
+> (windowed dense Transformer + parallel sandbox), trained from scratch at ~50M parameters on
+> MedMCQA then MedQA. The L1 selective-SSM storage layer and the M3 write-back are **specified
+> in this thesis but not implemented**; every L1 statement below is design, not result.
 
 > [!note] This file is the **condensed vault-linked outline**. The full article, with the
 > notation tables, proofs, prior-art audit and all 65 references, is [thesis.pdf](thesis.pdf),
@@ -30,6 +35,7 @@ The seven diagrams from the compiled article, exported at 240 dpi.
 **Fig. 2 — Three-stage forward pass.** Solid arrows are the forward chain; the dashed red edge is the
 M3 write-back that returns **L2's** consensus into L1's third state store (`S^sandbox`). L1 and L2 are
 separate stages; the store is SSM memory, the sandbox is the debate layer.
+*L1 and the write-back are design only; the built model is embed -> T -> L2 -> head.*
 
 ![Three-stage forward pass with the M3 write-back loop](figures/fig2.png)
 
@@ -49,7 +55,7 @@ collapse, so it can flag collapse without causing it.
 ![Spread floor g(rho) on a log axis](figures/fig5.png)
 
 **Fig. 6 — Inference state vs. sequence length.** Ekdant holds flat at 1.58 MB; full attention grows
-linearly, reaching 127x at T = 65536. *Analytic projection, not measured.*
+linearly, reaching 127x at T = 65536. *Analytic projection for the full design with L1, not measured and not the built model.*
 
 ![Inference state versus sequence length: Ekdant flat, full attention linear](figures/fig6.png)
 
@@ -67,22 +73,22 @@ peer-mean leaves it bit-identical to S = 0.
 
 **Problem.** Transformer decoders scale quadratically in sequence length (KV-cache growth); a monolithic stack hides which part reasons; softmax confidence is uncalibrated. Long inputs — codebases, records, papers with references — are exactly where reasoning matters and where attention costs most.
 
-**Idea: Ekdant.** Our two layers — ==L1 SSM Storage== (selective state-space memory) and ==L2 Sandbox== (K trajectories + debate/energy consensus) — joined by a ==dense Transformer stack T== (windowed GQA + SwiGLU, no MoE), at ==XS ≈12M==, ==S ≈21M== and ==M ≈46M==. Two losses: ==LM CE + sandbox spread floor==.
-- ==Layer 1 — SSM Storage (memory answer).== Selective state-space stack compresses any sequence into a fixed-size recurrent state. Linear-time training, ==O(1) inference==, no KV-cache. ([21](../04-Model-DeepDive/21_Thesis_Ch3_Layer1_SSM_Storage.md))
-- ==Layer 2 - Sandbox (reasoning answer).== L1 output expands into ==K parallel trajectories== that debate (cross-read + revise), then run ==anchored gated descent== on the energy `½‖T_k − a_t‖²` toward a token-conditioned anchor `a_t = W_a·hT_t`, and vote. Agreement is the observable confidence signal; collapse is policed by a spread *floor*, not an agreement penalty. ([22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md))
+**Idea: Ekdant.** Two layers — ==L1 SSM Storage== (selective state-space memory; *specified, not built*) and ==L2 Sandbox== (K trajectories + debate/energy consensus; *built*) — joined by a ==dense Transformer stack T== (windowed GQA + SwiGLU, no MoE; *built*). The evaluated model is the A/B pair ==50.09M (T + L2) vs 43.53M (T alone)== on medical multiple-choice QA. Losses: ==LM CE + answer-letter CE (`--answer-weight`) + sandbox spread floor==.
+- ==Layer 1 — SSM Storage (memory answer; design only).== Selective state-space stack compresses any sequence into a fixed-size recurrent state. Linear-time training, ==O(1) inference==, no KV-cache. ([21](../04-Model-DeepDive/21_Thesis_Ch3_Layer1_SSM_Storage.md))
+- ==Layer 2 - Sandbox (reasoning answer; built).== The T output expands into ==K parallel trajectories== that debate (cross-read + revise), then run ==anchored gated descent== on the energy `½‖T_k − a_t‖²` toward a token-conditioned anchor `a_t = W_a·hT_t`, and vote. Agreement is the observable confidence signal; collapse is policed by a spread *floor*, not an agreement penalty. ([22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md))
 
-Forward: `input_ids → embed+RoPE → SSMStack → TransformerStack → K trajectories → debate → anchored gated descent → consensus → vocab_head → logits`. Two losses: ==LM CE (w=1.0) + sandbox spread floor (w=0.1)==.
-- ==Why dense + windowed:== global attention's growing KV-cache is the wall from Ch.1; T keeps a fixed window (W=512), so memory stays bounded. No MoE — the sandbox is the mixture mechanism.
-- ==Bounded-memory story:== L1 fixed state + T window-bounded KV + dense FFN + K-bounded sandbox — peak memory flat in T.
+Built forward: `input_ids → embed → T (windowed GQA + SwiGLU) → K trajectories → debate → anchored gated descent → consensus → tied head → logits`. Full-design forward adds `SSMStack` before T and the M3 write-back.
+- ==Why dense + windowed:== global attention's growing KV-cache is the wall from Ch.1; T keeps a fixed window (W=512), so its cache stays bounded. No MoE — the sandbox is the mixture mechanism.
+- ==Bounded-memory story (full design):== L1 fixed state + T window-bounded KV + dense FFN + K-bounded sandbox — peak memory flat in T. Untested until L1 exists.
 
 **Research questions.**
-- ==RQ1 (memory):== Can fixed-size selective SSM replace the KV-cache at matched quality? Ablations: d_state; SSM vs. tiny-Transformer; memory-vs-length curve.
-- ==RQ2 (reasoning):== Do K trajectories with debate+consensus beat single-path decoding at matched compute? Ablations: K=1/4/8; rounds 0/2/3; steps 0/8; vs. self-consistency. **Runnable at XS/S** on perplexity, ARC-easy/HellaSwag/LAMBADA and synthetic known-answer multi-step items; GSM8K/HumanEval are ==scaling-held-out== because the smallest model reported past 80% GSM8K is 34B (arXiv:2312.09241).
-- ==RQ3 (honesty):== Does trajectory agreement predict correctness? Measure agreement-vs-accuracy calibration.
+- ==RQ1 (memory) — future work:== Can fixed-size selective SSM replace the KV-cache at matched quality? Needs L1; protocol pre-specified, not run here.
+- ==RQ2 (reasoning):== Does the same backbone with the K-trajectory sandbox beat the identical backbone without it on MedMCQA/MedQA letter accuracy? Architecture-matched (+6.56M params, extra compute), so a depth-/parameter-matched control is the informative follow-up. Ablations: K=1/4/8; rounds 0/2/3; steps 0/8; anchor vs peer-mean. GSM8K/HumanEval are ==scaling-held-out== because the smallest model reported past 80% GSM8K is 34B (arXiv:2312.09241).
+- ==RQ3 (honesty):== Does trajectory agreement predict correctness? Measure agreement-vs-accuracy calibration (needs sandbox diagnostics persisted to `results.json` — open item).
 
-**Contributions.** (1) Our three stages (SSM memory → dense T → sandbox reasoning) with no MoE. (2) In-graph debate plus anchored energy descent with cost-matched evaluation, and an audit proving the discarded peer-mean variant inert. (3) ==66-paper local library== ([proof index](../papers/Proof_Library/00_Proof_Index.md), [novelty audit](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md)) mapping every design choice to a downloaded source. (4) A production data pipeline (54 datasets, 8 stages).
+**Contributions.** (1) A minimal three-stage design (SSM memory → dense T → sandbox reasoning) with no MoE; T and L2 built and tested, L1 specified. (2) In-graph debate plus anchored energy descent with cost-matched evaluation, and an audit proving the discarded peer-mean variant inert. (3) ==66-paper local library== ([proof index](../papers/Proof_Library/00_Proof_Index.md), [novelty audit](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md)) mapping every design choice to a downloaded source. (4) A reproducible sequential MedMCQA → MedQA training/benchmark pipeline with a leakage-free protocol (seed-locked 60/40 MedQA split, untouched 40% benchmark, selection on MedMCQA validation).
 
-**Scope.** Text-only pretraining (+optional SFT/DPO); 5 benchmarks (HumanEval, GSM8K, MMLU, HellaSwag, ARC); honesty probes. Tools/multimodality/MoE out of scope.
+**Scope.** Text-only, trained from scratch on MedMCQA and MedQA; letter-accuracy evaluation; honesty probes. No tools, multimodality, MoE, SFT/DPO, or general-purpose LM claims.
 
 ---
 
@@ -102,68 +108,68 @@ Control: ==CoT single path (Wei et al. 2022, C1) = K=1==. Baseline: ==self-consi
 
 ### §D Why a dense Transformer backbone (T)
 
-T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xiong et al. 2020; Zhang & Sennrich 2019), with rotary positions (Su et al. 2021, extended per Peng et al. 2023), grouped queries (Shazeer 2019; Ainslie et al. 2023), gated feed-forward (Shazeer 2020), a Mistral-style fixed window (Jiang et al. 2023) computed with stock math in the FlashAttention lineage (Dao 2023) — adapted to XS/S/M dims, MoE deliberately omitted since the sandbox debates instead. Full vault: [25](../03-Background/25_Thesis_Ch2_Transformer_Papers.md).
+T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xiong et al. 2020; Zhang & Sennrich 2019), with rotary positions (Su et al. 2021, extended per Peng et al. 2023), grouped queries (Shazeer 2019; Ainslie et al. 2023), gated feed-forward (Shazeer 2020), a Mistral-style fixed window (Jiang et al. 2023) computed with stock math in the FlashAttention lineage (Dao 2023) — adapted to the 50M build (H=512, N_T=12), MoE deliberately omitted since the sandbox debates instead. Full vault: [25](../03-Background/25_Thesis_Ch2_Transformer_Papers.md).
 
 ---
 
 ## Ch.3 — Method (cite [02](../02-Architecture/02_System_Architecture.md))
 
-**System.** Four subsystems; model is the contribution: Data (`src/data/`, 12 modules) → Model (`src/ekdant/`, ==5 files==: `model.py`, `ssm_storage.py`, `transformer_stack.py`, `sandbox.py`, `output_head.py`) → Factory (`model_type="ekdant"`) → Training/eval (`src/training/`, `src/infrastructure/`, `src/evaluation/`, `scripts/`).
+**System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 89 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
 
-**L1 — SSM Storage.** `input_ids [B,T]` → tied embed `[B,T,H]` + RoPE (base 100K, window 4096, YaRN-extendable) → N aSSM blocks (shared trunk + 3 L1 state stores: content/control/sandbox — the third *is an L1 store*, not the L2 layer; per-channel Δ/B/C, scan, gating+residual+norm) → `h [B,T,H]` + pooled triple `compressed [B,3·d_state]` handed to T; the L2 consensus write-back returns via M3. Sizes — XS: H=256, d=96, N=2, V=32K · S: H=320, d=128, N=4, V=32K · M: H=512, d=256, N=4, V=32K; T=2048 all.
+**L1 — SSM Storage (design only, not built).** `input_ids [B,T]` → tied embed `[B,T,H]` + RoPE (base 100K, window 4096, YaRN-extendable) → N aSSM blocks (shared trunk + 3 L1 state stores: content/control/sandbox — the third *is an L1 store*, not the L2 layer; per-channel Δ/B/C, scan, gating+residual+norm) → `h [B,T,H]` + pooled triple `compressed [B,3·d_state]` handed to T; the L2 consensus write-back returns via M3. Design sizes — XS: H=256, d=96, N=2, V=32K · S: H=320, d=128, N=4, V=32K · M: H=512, d=256, N=4, V=32K; T=2048 all.
 
-**Layer T — Dense Transformer.** `h` → N identical blocks (XS: 3, S: 5, M: 6; windowed GQA W=512 + SwiGLU) → `hT`. KV bounded by W. Ablations: XS→S→M ladder, window 256/512.
+**Layer T — Dense Transformer (built).** embeddings → N_T=12 identical blocks (H=512, 8 heads / 2 KV heads, windowed GQA W=512 + SwiGLU 1024, RoPE, RMSNorm) → `hT`. KV bounded by W. 26.75M params. (Design sizes were N_T=3/5/6.)
 
-**L2 - Sandbox.** `hT` → ==K=4 diverse inits== `[K,B,T,H]` → R=2 debate rounds (cross-attention + revise) → ==S=8 anchored gated descent== (`a_t = W_a·hT_t`, per-trajectory gate `g_k`) → consensus `y` (mean default) → ==single dense `[H,V]` head== → logits. Monitors: `anchor_energy`, `trajectory_variance`, `spread_ratio ρ = trajectory_variance / mean(hT²)`. The only L2 training term is the floor `max(0, ρ_min − ρ)²` — zero unless the hypotheses collapse. A pull toward the *running mean* was tried first and **proved inert** (`logits(S=0) == logits(S=8)`); anchor + gate fixes it, and the inert variant is kept as a reported contrast ablation ([29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md)).
+**L2 - Sandbox (built, 6.56M params).** `hT` → ==K=4 diverse inits== `[K,B,T,H]` → R=2 debate rounds (cross-attention + revise) → ==S=8 anchored gated descent== (`a_t = W_a·hT_t`, per-trajectory gate `g_k`) → consensus `y` (mean default) → ==single dense `[H,V]` head== → logits. Monitors: `anchor_energy`, `trajectory_variance`, `spread_ratio ρ = trajectory_variance / mean(hT²)`. The only L2 training term is the floor `max(0, ρ_min − ρ)²` — zero unless the hypotheses collapse. A pull toward the *running mean* was tried first and **proved inert** (`logits(S=0) == logits(S=8)`); anchor + gate fixes it, and the inert variant is kept as a reported contrast ablation ([29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md)).
 
-**Losses.** `loss = lm_ce + 0.1 * max(0, 0.05 − ρ)²`, dense causal CE, head run once per micro-batch. The L2 term is a dimensionless collapse floor, deliberately **not** an agreement/MSE penalty — such a penalty is minimized by the very collapse it would be meant to detect.
+**Losses.** `loss = lm_ce + answer_weight · ce(answer letter) + 1.0 · max(0, 0.05 − ρ)²` (the floor exists only in the sandbox arm; shipped λ_sbx = 1.0, design value was 0.1; `--answer-weight 10` in the campaign), dense causal CE, head run once per micro-batch. The L2 term is a dimensionless collapse floor, deliberately **not** an agreement/MSE penalty — such a penalty is minimized by the very collapse it would be meant to detect. The answer-letter term exists because the letter is 1 token in ~34 (MedMCQA) / ~173 (MedQA), so plain CE dilutes the scored decision ~97–99% (T22).
+
+**Parameter split (measured).** Embeddings 16.78M · T 26.75M · L2 6.56M → sandbox 50.09M, baseline 43.53M. L2 is 2.3× the closed-form estimate (2.8M): full H×H q/k/v cross-projections and an H→2H→H MLP, untied across rounds.
 
 ---
 
 ## Ch.4 — Data
 
-Registry: ==54 primary (+4 fallback-only) entries, 8 categories==, weights sum to 1.0 (code 0.30, web 0.20, docs 0.15, wiki 0.10, math 0.10, science/books/knowledge 0.05 each). Pipeline (8 stages): registry → streaming with 4 driver families + fallbacks → 8-component quality + exact/fuzzy dedup + contamination filter → AST code filter + function sampling → boilerplate removal → adaptive weighted sampling → EOS-separated packing (==<5% padding==, `_segments`/`_avg_quality` metadata) → tokenization (32K thesis) → SHA256 disk cache → DataLoader. Docs: 18 scrapers; pipeline, stages and registry details: [05_Data_Pipeline.md](../05-Data/05_Data_Pipeline.md).
+Two public datasets, used in strict sequence ([05_Data_Pipeline.md](../05-Data/05_Data_Pipeline.md)):
+- ==MedMCQA== (`openlifescienceai/medmcqa`): 182,822 train rows → **182,496 labelled** (326 unlabelled dropped) for phase 1; 4,183-row labelled validation split is never trained on (selection set + retention). The public test split ships `cop = -1` and is **never scored** (T18).
+- ==MedQA== (`GBaker/MedQA-USMLE-4-options`): 10,178 train → seed-locked **60% fine-tune (6,106)** / **40% benchmark (4,072, untouched, scored once)**; official test (1,273) also untouched.
+- Prompt: question, four lettered options, `Answer:`; target is the letter token. Evaluation = argmax over the four letter logits at the answer position.
+- Lengths: MedMCQA p50/p99 = 34/118 tokens, MedQA p50/p99 = 173/364 (max 857); 0 of ~198k rows exceed 2048, so nothing is truncated.
+- Tokenizer: 32,768 BPE trained once on 20,000 MedMCQA prompts, shared by both arms.
 
 ---
 
 ## Ch.5 — Training
 
-Configs `config_ekdant_xs/s/m.yaml`: ==XS ≈12M / S ≈21M / M ≈46M, 1×A100, 50K steps==, lr 1e-4 cosine, warmup 3K, batch 4×accum 4 (eff 16; ~32K tok/step @2048), AdamW fused, wd 0.1, clip 1.0, BF16 `strategy: none`. Stages: pretrain 50K (must) → SFT (nice) → instruct (optional) → DPO-lite. Checkpointing: `models/ekdant/<stage>/` + `checkpoints/`, latest `checkpoint-*` wins. Smoke (Phase 8): 50 steps over the full L1 → T → L2 stack, loss decreases, save/load/resume +10, O(1) shape check. Knobs: [12](../02-Architecture/12_Configuration_Guide.md). Three sizes share one recipe; XS for smoke, S for ablations, M for the main run.
+Campaign recipe ([run.md](../run.md) §3), identical for both arms: phase 1 = all MedMCQA, 100 epochs, lr 3e-4 cosine, warmup 200; phase 2 = 60% MedQA, 10 epochs, lr 5e-5 (own cosine + warmup); **381,480 optimizer steps**; effective batch 48 (6 × 8 accum on one 16 GB T4); AdamW wd 0.1, betas (0.9, 0.95), clip 1.0, dropout 0.1, bf16/fp16 autocast, `--answer-weight 10`, seed 17 (also locks the 60/40 split). Anti-overfit knobs (`--ft-lr`, `--ft-epochs`) exist because a 40-epoch pilot memorised the small MedQA set (T21). Checkpoint = better of `best.pt` vs `last.pt` on untouched MedMCQA validation. Gate: 89-test suite + smoke run per arm. Knobs: [12](../02-Architecture/12_Configuration_Guide.md).
 
 ---
 
 ## Ch.6 — Evaluation & Results
 
-**Protocol** ([09](../06-Training-Eval/09_Validation_System.md)): corpus audit + 8 phases (registry load, doc build, doc quality, token distribution ±3%, decode inspection, packing <5%, fallback chain, smoke+resume). READY / WARNINGS / NOT READY.
+**Protocol** ([09](../06-Training-Eval/09_Validation_System.md)): letter-accuracy on `medqa_bench` (decision gate, 4,072 rows, scored once), official `medqa_test` (1,273), MedMCQA validation phase-1 vs final (retention). Chance = 25%.
 
-**Tables to fill (placeholders — record real numbers):**
+**Completed (pipeline-scale pilot, not a thesis result):** full 3-epoch A/B on a T4, one seed, jointly trained (predates the sequential protocol; MedQA stage ≈ 638 steps so it sits at chance).
 
-| Check | T=512 | T=2048 | T=4096 | Pass if |
-|---|---|---|---|---|
-| `compressed` shape | [B,288] | [B,288] | [B,288] | identical |
-| Peak memory | — GB | — GB | — GB | flat ±5% |
-| tok/s vs. FlashAttn-2 | — | — | — | report |
+| Arm | Params | MedMCQA val (4,170) | MedQA test (1,273) |
+|---|---|---|---|
+| Baseline (no L2) | 43.53M | 33.31% | 25.69% |
+| Sandbox (L2) | 50.09M | 32.01% | 26.08% |
 
-| Setting | GSM8K-s | HumanEval-s | Tokens | FLOPs |
-|---|---|---|---|---|
-| Greedy (K=1) | — | — | — | — |
-| Self-consistency K=4 | — | — | — | ==matched== |
-| Sandbox K=4 R=2 S=8 | — | — | — | ==matched== |
-| K=1/8, R=0/3, S=0/4 | — | — | — | ablations |
+MedMCQA gap 1.3 pts vs noise σ ≈ 0.7 → **a tie** at this scale (pre-committed to report it).
 
-Overturn per round (wrong→right vs. right→wrong); agreement-vs-accuracy calibration plot (RQ3); step-energy vs. final-vote rerank; 5-benchmark table (HumanEval/GSM8K/MMLU/HellaSwag/ARC).
+**Pending (`[PENDING]`):** 100-epoch campaign (both arms; `medqa_bench`, `medqa_test`, MedMCQA phase-1 → final); cost report (params, tokens×K, FLOPs, wall-clock); depth-/parameter-matched control; K/R/S ablations; ρ_min sweep and anchor-vs-peer-mean; agreement-vs-accuracy calibration (needs diagnostics logging); multi-seed variance; L1 layer-ladder step.
 
 ---
 
 ## Ch.7 — Future Work (from [11](../07-Management/11_Future_Work.md))
 
-Critical (defense): 10-step loss-drop test → O(1) proof → sandbox ablations incl. the `sandbox_rho_min` sweep and anchor-vs-peer-mean contrast (report ties honestly) → 50K run + 3 ckpts → corpus gaps. High: SFT mini-run, 5-benchmark + tiny-Transformer baseline, packing numbers, tidy tree, CI pytest. Medium: Triton scan kernel, 4K→16K RoPE test, custom tokenizer. Low/post-thesis: UI/API/quant/LoRA/Docker — deferred. Boundary: tools, multimodality, MoE, internalized debate each need their own RQ. Research ideas: SSM-vs-Transformer backbone; internalized debate distillation (Yi et al. 2026); energy vs. autoregressive reasoning.
+Critical (defense): run the 100-epoch campaign for both arms → persist sandbox diagnostics → depth-/parameter-matched control and K/R/S ablations (report ties honestly) → multi-seed. High: implement L1 (`ssm_storage.py`) and the O(1) proof + M3 write-back; resolve the L2 size overage. Medium: scale-up to a 500M-class model on a larger GPU. Boundary: tools, multimodality, MoE, internalized debate each need their own RQ.
 
 ---
 
 ## Limitations
-Small-SSM exact recall (B11); debate collapse/false consensus (watch variance); cost > gain regimes (C8 — report); streaming nondeterminism; single-run perf numbers. Log: [10](../07-Management/10_Known_Issues.md).
+No L1 (memory claim and RQ1 untested); 50M scale and one seed; architecture-matched, not parameter-matched; debate collapse/false consensus (watch ρ); cost > gain regimes (C8 — report); small MedQA fine-tune set; no custom kernels. Log: [10](../07-Management/10_Known_Issues.md).
 
 ## Reproducibility
-Pinned reqs + seed 42 + cache; one schema, three configs (xs/s/m); all ~13 knobs in 
-[12](../02-Architecture/12_Configuration_Guide.md); commands in [README](../README.md).
+Seed 17 (also locks the 60/40 MedQA partition); two configs differing only in `use_sandbox`; tokenizer saved per run; resume + `--eval-only`; 89 tests; commands in [run.md](../run.md) and [09-Code/README](../09-Code/README.md).

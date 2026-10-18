@@ -1,5 +1,5 @@
 % =====================================================================
-%  Ekdant -- BEng thesis draft, compiled from the research vault.
+%  Ekdant -- MSc thesis draft, compiled from the research vault.
 %  Build:  pdflatex thesis.tex   (run twice for hyperref / page refs)
 %  Companion markdown: thesis.md   (same content, vault links intact)
 %
@@ -94,11 +94,11 @@
 % so \title/\author/\date are deliberately not declared.
 
 \hypersetup{
-  pdftitle={Ekdant: Selective SSM Storage with a Parallel Sandbox for Memory-Efficient Reasoning},
+  pdftitle={Ekdant: A Parallel Sandbox with Anchored Gated Descent for Medical Multiple-Choice Reasoning},
   pdfauthor={Harshil Gorasiya},
-  pdfsubject={BEng thesis --- Hochschule Heilbronn},
-  pdfkeywords={selective state-space model, KV cache, sandbox, anchored gated descent,
-               memory-efficient reasoning, readout invariance},
+  pdfsubject={MSc thesis --- Hochschule Heilbronn},
+  pdfkeywords={windowed transformer, sandbox, anchored gated descent,
+               medical question answering, MedMCQA, MedQA, readout invariance},
 }
 
 \begin{document}
@@ -112,8 +112,8 @@
 {\color{ekLone}\rule{\textwidth}{1.4pt}}\\[0.5cm]
 {\Huge\bfseries Ekdant\par}
 \vspace{0.7cm}
-{\large Selective SSM Storage with a Parallel Sandbox\\[0.25cm]
-for Memory-Efficient Reasoning\par}
+{\large A Parallel Sandbox with Anchored Gated Descent\\[0.25cm]
+for Medical Multiple-Choice Reasoning\par}
 \vspace{0.6cm}
 {\color{ekLone}\rule{\textwidth}{1.4pt}}
 
@@ -121,8 +121,10 @@ for Memory-Efficient Reasoning\par}
 
 \begin{minipage}{0.82\textwidth}
 \centering\small
-Three-stage text model: a selective state-space store (L1), a windowed dense
-stack (T), and a parallel debate sandbox with anchored gated descent (L2).
+A windowed dense Transformer (T) topped by a parallel debate sandbox with
+anchored gated descent (L2), trained from scratch on MedMCQA and MedQA. The
+selective state-space store (L1) is specified in this document and left as
+future work.
 \end{minipage}
 
 \vfill
@@ -130,7 +132,7 @@ stack (T), and a parallel debate sandbox with anchored gated descent (L2).
 {\Large\bfseries Harshil Gorasiya\par}
 \vspace{0.7cm}
 
-{\large BEng Thesis\par}
+{\large MSc Thesis\par}
 \vspace{0.25cm}
 {\normalsize Hochschule Heilbronn\par}
 \vspace{0.6cm}
@@ -148,8 +150,9 @@ Co-supervisor:   & \textbf{[Supervisor 2]} \\
 {\small Compiled draft generated from the research vault --- \today\par}
 
 \vspace{0.8cm}
-{\small\itshape Every numeric claim is either a configuration value, a derived
-parameter count, a hand-worked derivation, or marked \texttt{[PENDING]}.\par}
+{\small\itshape Every numeric claim is either a configuration value, a measured parameter
+count, a hand-worked derivation, a logged run result, or marked
+\texttt{[PENDING]}.\par}
 \end{titlepage}
 
 % ---- abstract (roman numerals) --------------------------------------
@@ -167,18 +170,19 @@ routinely mistaken for certainty even though agreement is trivially maximized
 by collapsing all paths onto one answer.
 
 \noindent
-Ekdant is a three-stage text model that makes each of these addressable and,
+Ekdant is a three-stage design that makes each of these addressable and,
 crucially, makes its own design falsifiable. Stage L1 is a selective
 state-space layer with three L1 state stores (content, control, sandbox), giving
 linear-time training and a fixed-size inference state independent of sequence
-length. Stage T is a plain dense Transformer stack---windowed grouped-query
-attention with rotary positions and SwiGLU feed-forward blocks---whose only
-job is to bound the KV cache and provide local exact retrieval. Stage L2 is a
-sandbox: $K$ parallel trajectories that cross-read for $R$ debate rounds and
-then perform $S$ steps of \emph{anchored gated descent} on an explicit energy
-before a single dense head produces logits. A consensus signal is written back
-into the L1 sandbox store, closing a memory/reasoning loop. L1 and L2 are
-separate stages; the store is SSM memory, the sandbox is the debate layer.
+length; it is \emph{specified and analysed here but not implemented}. The
+built and evaluated model consists of the other two stages. Stage T is a plain
+dense Transformer stack---windowed grouped-query attention with rotary
+positions and SwiGLU feed-forward blocks---whose only job is to bound the KV
+cache and provide local exact retrieval. Stage L2 is a sandbox: $K$ parallel
+trajectories that cross-read for $R$ debate rounds and then perform $S$ steps
+of \emph{anchored gated descent} on an explicit energy before a single dense
+head produces logits. The sandbox is the debate layer; the L1 store is SSM
+memory, and the write-back that would couple them awaits L1.
 
 \noindent
 Two training signals are used, and the second one is the subject of a
@@ -191,8 +195,11 @@ update---descending toward the running mean of the trajectories---is
 and replaced it with an externally anchored, per-trajectory gated step that
 provably decreases each trajectory's energy and does move the readout. Both
 defects, their proofs, and their numerical consequences are reported rather
-than removed. Sizes are XS/S/M $\approx 12.4$/21.0/46.0M parameters, trained
-from scratch on a single GPU. Every falsifiable claim in the supporting vault
+than removed. The model is evaluated as an architecture-matched A/B pair at
+50.09M (with L2) versus 43.53M (the identical backbone without L2) parameters,
+trained from scratch on a single GPU: first on all of MedMCQA, then fine-tuned
+on a seed-locked 60\% of MedQA and benchmarked on the untouched 40\% plus the
+official MedQA test set. Every falsifiable claim in the supporting vault
 is backed by one of 66 locally stored papers or by an explicit hand
 derivation, and an explicit prior-art audit states which claims are \emph{not}
 novel---including a compute-matched study in our own library that reports no
@@ -248,7 +255,8 @@ collapse.
   \item \textbf{A minimal three-stage split} (L1 selective SSM storage $\to$
         T dense local attention $\to$ L2 parallel sandbox) in which each
         stage exists to solve one of P1--P3, and each can be ablated
-        independently at matched parameters and matched compute.
+        independently. The T and L2 stages are implemented and tested; L1 is
+        specified only, so P1 is addressed by design and not by experiment.
   \item \textbf{Anchored gated descent (AGD)} for stage L2, introduced to
         replace a peer-mean energy update that we prove is
         readout-invariant. AGD admits a monotone-energy proof
@@ -278,14 +286,17 @@ collapse.
 \subsection{Research questions}
 
 \begin{description}
-  \item[RQ1 (memory)] Does a fixed-size selective SSM state replace the KV
-    cache while preserving long-range recall, and what does it cost in exact
-    retrieval? Predicted outcome: recall is bounded, and we report the bound
-    rather than hide it.
-  \item[RQ2 (reasoning)] At matched parameters and matched block-pass budget,
-    do $K$ debating trajectories plus consensus beat (a) a single path, and
-    (b) a depth-matched model with no sandbox at all? The second control is
-    not optional; see Section~\ref{sec:counter-evidence}.
+  \item[RQ1 (memory; future work)] Does a fixed-size selective SSM state
+    replace the KV cache while preserving long-range recall, and what does it
+    cost in exact retrieval? This requires L1, which is not implemented, so
+    RQ1 is not tested in this thesis; the protocol is kept in
+    Section~\ref{sec:rq1} so the follow-up is pre-specified.
+  \item[RQ2 (reasoning)] On medical multiple-choice questions, does the same
+    backbone with the $K$-trajectory sandbox beat the identical backbone
+    without it? The built comparison is architecture-matched, not
+    parameter-matched (the sandbox arm carries $+6.56$M parameters and extra
+    compute), so a depth- or parameter-matched control remains the
+    informative follow-up; see Section~\ref{sec:counter-evidence}.
   \item[RQ3 (honesty)] Is trajectory agreement calibrated against per-example
     accuracy, and can collapse be detected early by a monitored statistic
     rather than discovered post hoc?
@@ -294,7 +305,9 @@ collapse.
 \subsection{Non-goals and scope}
 
 \noindent
-Ekdant is a text-only pretrained model studied at 12--46M parameters. It is
+Ekdant is a text-only model studied at the 50M-parameter scale and trained
+from scratch on two medical multiple-choice datasets (MedMCQA and MedQA); it
+is not a general-purpose language model. It is
 not a tool-using agent (the ReAct line of work \cite{yao2022react} is cited to
 draw this boundary explicitly), not multimodal, and not a mixture-of-experts
 model. At this scale, mixture-of-experts and sparse/dense hybrids add routing
@@ -313,11 +326,11 @@ reproducible and auditable at the cost of raw speed
 \rowcolor{ekHeadBG}\color{white}\textbf{Symbol} & \color{white}\textbf{Meaning} \\
 \midrule
 $B$ & batch size \\
-$T$ & sequence length (2048 at train time, 4096 window) \\
+$T$ & sequence length (maximum 2048; no training example is truncated) \\
 $V$ & vocabulary size (32768) \\
-$H$ & model width (256 / 320 / 512 for XS / S / M) \\
-$d$ & per-store state dimension $\sdim$ (96 / 128 / 256) \\
-$N$ & number of L1 blocks (2 / 4 / 4) \\
+$H$ & model width (512 as built; design sizes XS / S / M were 256 / 320 / 512) \\
+$d$ & per-store state dimension $\sdim$ (L1, design only: 96 / 128 / 256) \\
+$N$ & number of L1 blocks (design only: 2 / 4 / 4); the built model has $N_{\mathrm{T}}{=}12$ T blocks \\
 $K$ & number of sandbox trajectories (4) \\
 $R$ & number of debate rounds (2) \\
 $S$ & number of descent steps (8) \\
@@ -545,7 +558,7 @@ discusses the strongest published evidence against even this.
 \subsection{Overview}
 
 \noindent
-The forward pass is a single chain with no external calls:
+The full design is a single chain with no external calls:
 \begin{equation}
   \begin{split}
   \texttt{input\_ids} &\;\to\; \text{L1 (SSM storage)}
@@ -557,6 +570,18 @@ The forward pass is a single chain with no external calls:
 Shapes: L1 and T each map $[B,T,H] \to [B,T,H]$; L2 maps $[B,T,H] \to [B,T,H]$
 through $K$ trajectories of the same shape. No hidden states grow with $T$ at
 inference time.
+
+\paragraph{What is built.}
+The implementation evaluated in this thesis omits L1 and the M3 write-back:
+\begin{equation}
+  \texttt{input\_ids} \;\to\; \text{embed} \;\to\; \text{T (windowed dense)}
+  \;\to\; \text{L2 (sandbox)} \;\to\; \text{tied output head},
+  \label{eq:built}
+\end{equation}
+with a baseline arm that deletes L2 and nothing else. Stage T still bounds the
+KV cache at the window $W$; the $O(1)$-in-$T$ state claims in this section
+hold only for the full design with L1. Everything about L1 below is a
+specification, not a result.
 
 Figure~\ref{fig:pipeline} draws that chain, annotates what is bounded and what
 is not, and shows the one non-obvious edge: the M3 write-back that returns
@@ -617,7 +642,7 @@ consistently from this point on.}
   % ---------- row 1 ----------
   \node[ekbox, minimum width=13mm, minimum height=8mm] (ids) {\texttt{input\_ids}\\[-1pt]\scriptsize$[B,T]$};
   \node[ekbox, minimum width=15mm, minimum height=8mm, right=4mm of ids] (emb) {\textbf{embed}\\[-1pt]\scriptsize$+$ RoPE};
-  \node[ekstageL, right=5mm of emb, minimum width=44mm] (l1)
+  \node[ekstageL, dashed, right=5mm of emb, minimum width=44mm] (l1)
     {\textbf{Stage L1 --- SSM Storage}\\[2pt]
      \footnotesize 3 selective stores\\[-1pt]
      \scriptsize $\Delta_t,\Btr_t,\Cdim_t$; parallel scan\\[2pt]
@@ -650,7 +675,8 @@ consistently from this point on.}
     node[ektag, midway, fill=white, inner sep=1.5pt, align=center]
     {\textbf{M3 write-back}\\[-2pt] $\hat a \to$ L1 sandbox store} (l1.south west);
 \end{tikzpicture}
-\caption{The three-stage forward pass. Solid arrows are the forward chain; the
+\caption{The three-stage design (the dashed L1 box is specified but not built;
+the evaluated model is embed $\to$ T $\to$ L2 $\to$ head). Solid arrows are the forward chain; the
 dashed red edge is the M3 write-back, which carries L2's consensus back
 into L1's sandbox store, so that reasoning and memory are coupled rather than
 merely adjacent. The italic line inside each stage states that stage's memory
@@ -660,7 +686,12 @@ proportional to $K$ but never to $T$.}
 \label{fig:pipeline}
 \end{figure}
 
-\subsection{Layer 1: selective SSM storage}
+\subsection{Layer 1: selective SSM storage (specified, not implemented)}
+
+\noindent
+\emph{This subsection and Section~\ref{sec:m3} specify a design that is not
+part of the evaluated model. No result in this thesis depends on them.}
+
 
 \subsubsection{Discretization, and an honest note about conventions}
 \label{sec:discretization}
@@ -845,7 +876,7 @@ linear training, windowed attention'', not ``constant cost''.
 \subsection{Stage T: dense Transformer stack}
 
 \noindent
-$N_T$ identical blocks ($N_T = 3/5/6$ for XS/S/M), each pre-norm:
+$N_T$ identical blocks ($N_T = 3/5/6$ for the design sizes XS/S/M, $12$ as built), each pre-norm:
 \begin{equation}
   \begin{aligned}
   u_1 &= \Rt(x) + \mathrm{PE}, &
@@ -857,7 +888,7 @@ $N_T$ identical blocks ($N_T = 3/5/6$ for XS/S/M), each pre-norm:
 \end{equation}
 with $\mathrm{PE}$ the rotary injection and GQA restricted to the window
 $W$. All blocks are identical: no dense/sparse split, no sparse indexer, no
-experts. The rationale is that at 12--46M parameters those mechanisms add
+experts. The rationale is that at this scale (12--50M parameters) those mechanisms add
 machinery without the capacity to exploit it, and every ablation we can afford
 is better spent on the L2 question.
 
@@ -1072,7 +1103,7 @@ design undetectable.
     Collapse is $\rhodim \to 0$.
 \end{description}
 
-\subsection{The M3 write-back, and the causality rule}
+\subsection{The M3 write-back, and the causality rule (specified, not implemented)}
 \label{sec:m3}
 
 \noindent
@@ -1103,15 +1134,27 @@ constraints are enforced and are not negotiable:
 \label{sec:loss}
 
 \noindent
-There are exactly two training signals:
+There are two training signals plus one supervision re-weighting term:
 \begin{equation}
   \mathcal{L} \;=\; \lam_{\mathrm{lm}} \cdot \mathrm{CE}\bigl(\mathrm{shift}(\mathrm{logits}),\, \mathrm{shift}(\mathrm{labels})\bigr)
+  \;+\; \lam_{\mathrm{ans}} \cdot \mathrm{CE}\bigl(\mathrm{logits}_{p-1},\, y\bigr)
   \;+\; \lam_{\mathrm{sbx}} \cdot \bigl[\max\bigl(0,\, \rhodim_{\min} - \rhodim\bigr)\bigr]^2,
   \label{eq:loss}
 \end{equation}
-with $\lam_{\mathrm{lm}} = 1.0$, $\lam_{\mathrm{sbx}} = 0.1$,
-$\rhodim_{\min} = 0.05$. Cross-entropy is causal and the head runs once per
-micro-batch.
+with $\lam_{\mathrm{lm}} = 1.0$, $\lam_{\mathrm{sbx}} = 1.0$ (the shipped
+configuration; the original design value was $0.1$), $\rhodim_{\min} = 0.05$.
+The floor term exists only in the sandbox arm. Cross-entropy is causal and the
+head runs once per micro-batch.
+
+\noindent
+The middle term re-weights the decision that is actually scored. In this task
+the answer letter sits at position $p$ and is one token out of a median of
+about 34 (MedMCQA) or 173 (MedQA), so plain language-model cross-entropy spends
+roughly 97--99\% of its gradient on predicting question text. The extra term
+applies the cross-entropy of the letter prediction at the same position and
+metric as evaluation, with $\lam_{\mathrm{ans}} = 10$ in the campaign
+recipe (and $0$ recovers the plain language-model loss). It is applied
+identically to both arms.
 
 \noindent
 The second term is a \emph{floor}, not an agreement penalty. It is exactly
@@ -1219,8 +1262,9 @@ the same curve with the window removed, and it is the only term that grows.
 \end{axis}
 \end{tikzpicture}
 \caption{Analytic projection of the inference-side state footprint at
-configuration M ($H{=}512$, $N{=}4$ L1 layers, $N_{\mathrm{T}}{=}6$,
-$d_{\mathrm{state}}{=}256$, $2$ KV heads, bf16). Ekdant holds flat at
+configuration M of the \emph{full design with L1} ($H{=}512$, $N{=}4$ L1
+layers, $N_{\mathrm{T}}{=}6$, $d_{\mathrm{state}}{=}256$, $2$ KV heads, bf16;
+not the built model, whose cache is bounded by the window only). Ekdant holds flat at
 $1.58$ MB: a $6$ KB L1 recurrent
 state ($3 \cdot 256 \cdot 2$ bytes per L1 layer, over $N = 4$ layers) plus a
 KV window that saturates at $W = 512$. Full attention over the same
@@ -1231,9 +1275,38 @@ one term the architecture is designed to make constant.}
 \label{fig:memory}
 \end{figure}
 
-\paragraph{Parameters.}
+\paragraph{Parameters (as built).}
 Embeddings are tied at $V \cdot H$. One T block costs approximately
-$2.5H^2$ (grouped-query projections) $+\,3HI$ (SwiGLU with $I = 2H$).
+$2.5H^2$ (grouped-query projections) $+\,3HI$ (SwiGLU with $I = 2H$), which
+the code reproduces exactly (2{,}229{,}248 parameters per block at $H{=}512$).
+The A/B pair differs only in L2:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\rowcolor{ekHeadBG}\color{white}\textbf{Component} & \color{white}\textbf{Baseline (no L2)} & \color{white}\textbf{Sandbox} \\
+\midrule
+\rowcolor{ekEdge!12}Embeddings (tied) & 16.78M & 16.78M \\
+\rowcolor{ekRowT}T ($N_T{=}12$) & 26.75M & 26.75M \\
+\rowcolor{ekRow2}L2 & --- & 6.56M \\
+\midrule
+\rowcolor{ekEdge!25}\textbf{Total} & \textbf{43.53M} & \textbf{50.09M} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The comparison is therefore architecture-matched, not parameter-matched: the
+sandbox arm has 15\% more parameters and runs $K{\times}R{\times}S$ extra
+work per token. Counts are measured with \texttt{estimate\_model\_size}. L2 is
+$2.3\times$ the closed-form estimate below ($6.56$M versus $2.8$M): the build
+uses full $H{\times}H$ query/key/value cross-projections and an
+$H\to2H\to H$ MLP, untied across rounds, which the estimate undercounted.
+This is reported as a correction to the estimate, not as a change to the
+architecture.
+
+\paragraph{Parameters (design-time estimates for the full three-stage model).}
 
 \begin{center}
 \small
@@ -1253,8 +1326,9 @@ $2.5H^2$ (grouped-query projections) $+\,3HI$ (SwiGLU with $I = 2H$).
 \end{center}
 
 \noindent
-All figures are closed-form estimates and must be confirmed with the
-\texttt{estimate\_model\_size} utility before any results table is published.
+These design-time figures include L1 (not built) and a shallower T
+($N_T{=}3/5/6$ versus $12$ as built); they are closed-form estimates and are
+superseded by the measured table above for every result in this thesis.
 The L2 figure rose from $0.6$/$1.0$/$2.2$M when the peer-mean step was
 replaced by AGD, because the anchor $W_a \in \mathbb{R}^{H \times H}$ and gate
 $W_g \in \mathbb{R}^{2H \times H}$ are new parameters; the budget increase is
@@ -1467,7 +1541,9 @@ that will be over-interpreted. The fix is a strict separation between a
 \emph{runnable} decision set (perplexity, ARC-easy, HellaSwag, LAMBADA, and
 synthetic known-answer multi-step items) and a \emph{scaling-held-out} set
 (GSM8K, HumanEval, MMLU) that is reported but never used as a gate
-(Section~\ref{sec:eval}).
+(Section~\ref{sec:eval}). The built evaluation narrows the runnable set
+further to letter-accuracy on medical multiple-choice questions (MedMCQA and
+MedQA), where a 50M model can at least reach above-chance accuracy.
 
 \subsection{Defect 4: an ambiguous discretization convention}
 
@@ -1484,31 +1560,46 @@ which convention is in force before any number derived from either is quoted.
 % =====================================================================
 
 \noindent
-The corpus pipeline is a component of this thesis because
-reproducibility at this scale depends on data more than on architecture.
+The evaluated model is trained on two public medical multiple-choice datasets,
+used strictly in sequence and never jointly.
 
-\paragraph{Registry and mixture.}
-$54$ primary dataset entries (plus $4$ fallbacks) in $8$ categories whose
-target weights sum to $1.0$: code $30\%$, web text $20\%$, documentation $15\%$,
-wiki $10\%$, math $10\%$, science $5\%$, books $5\%$, structured knowledge
-$5\%$. Documentation is scraped from $18$ sources with per-source timeouts and
-a FineWeb-Edu fallback chain.
+\paragraph{MedMCQA.}
+\texttt{openlifescienceai/medmcqa}: 182{,}822 training rows, of which 326 carry
+no label, leaving \textbf{182{,}496 labelled rows} used for phase~1, and a
+labelled validation split of 4{,}183 rows. The public test split ships
+\texttt{cop}$=-1$ for every row (no released labels) and is therefore
+\emph{never scored}; an earlier version of the evaluator did score it and
+reported nothing more than each model's rate of predicting ``A''
+(Known Issues T18). The validation split is never trained on and doubles as
+the checkpoint-selection set.
 
-\paragraph{Eight pipeline stages.}
-(1) registry construction; (2) streaming with fallbacks; (3) quality,
-deduplication and contamination filtering; (4) abstract-syntax-tree filtering;
-(5) boilerplate stripping; (6) weighted sampling to hit the mixture;
-(7) sequence packing; (8) tokenization and caching.
+\paragraph{MedQA.}
+\texttt{GBaker/MedQA-USMLE-4-options}: 10{,}178 training rows and 1{,}273
+official test rows. A seed-locked permutation of the training rows gives a
+\textbf{60\% fine-tuning partition (6{,}106 rows)} and a complementary
+\textbf{40\% benchmark partition (4{,}072 rows)} that is never trained on and
+scored once. The official test split is also untouched. The same seed yields
+the identical partition for both arms.
 
-\paragraph{Packing.}
-Sequences are packed to $2048$ tokens with fewer than $5\%$ padding, achieved
-by segment-aware packing rather than naive concatenation.
+\paragraph{Prompt and target.}
+Every example is rendered as the question, four lettered options, and the
+string \texttt{Answer:}; the training target is the letter token that follows.
+Evaluation reads the logits at the single position that predicts that token
+and takes the argmax over the four letter tokens, so no free-form generation or
+option re-scoring is involved.
+
+\paragraph{Lengths.}
+Measured with the trained tokenizer, MedMCQA examples have median 34 and
+99th-percentile 118 tokens; MedQA examples have median 173, 99th-percentile 364
+and maximum 857 tokens. None of the 198{,}000 rows exceeds the 2048-token
+limit, so nothing is truncated or dropped. Batches are padded to the batch
+maximum.
 
 \paragraph{Tokenizer.}
-A $32{,}768$-entry byte-pair-encoding vocabulary is trained in-house
-\cite{sennrich2015bpe} on a registry sample deliberately skewed toward code to
-match the $0.30$ code weight, and the \emph{same} tokenizer is used for all
-three sizes so that comparisons are not confounded by tokenization.
+A $32{,}768$-entry byte-pair-encoding vocabulary \cite{sennrich2015bpe} is
+trained once on 20{,}000 MedMCQA training prompts (NFD-normalised, lower-cased,
+whitespace pre-tokenised) and then reused for the second phase and for both
+arms, so the comparison is not confounded by tokenization.
 
 % =====================================================================
 \section{Training}
@@ -1516,7 +1607,8 @@ three sizes so that comparisons are not confounded by tokenization.
 % =====================================================================
 
 \noindent
-All three sizes share one recipe, so that size is the only variable.
+Both arms share one recipe, so the presence of L2 is the only variable. The
+campaign recipe (see the runbook \texttt{run.md}) is:
 
 \begin{center}
 \small
@@ -1524,34 +1616,46 @@ All three sizes share one recipe, so that size is the only variable.
 \toprule
 Setting & Value \\
 \midrule
-Steps & $50{,}000$ \\
-Tokens & $\approx 1.64$B ($32{,}768$ tokens/step: batch $16 \times 2048$) \\
-Learning rate & $10^{-4}$, cosine decay \cite{loshchilov2016sgdr} \\
-Warmup & $3{,}000$ steps \\
-Effective batch & $16$ sequences ($4 \times 4$ accumulation, $1$ GPU) \\
-Optimizer & AdamW, decoupled weight decay $0.1$ \cite{loshchilov2017adamw} \\
+Phase 1 & all of MedMCQA, 100 epochs, learning rate $3\times10^{-4}$, cosine
+  decay \cite{loshchilov2016sgdr}, 200 warmup steps \\
+Phase 2 & 60\% of MedQA, 10 epochs, learning rate $5\times10^{-5}$ with its own
+  cosine schedule and warmup \\
+Optimizer steps & $381{,}480$ in total ($3{,}802$ per phase-1 epoch $\times 100$
+  plus $128$ per phase-2 epoch $\times 10$) \\
+Effective batch & $48$ sequences (batch $6$ $\times$ accumulation $8$ on one
+  16\,GB T4) \\
+Optimizer & AdamW, decoupled weight decay $0.1$, $\beta=(0.9,0.95)$
+  \cite{loshchilov2017adamw} \\
 Gradient clipping & $1.0$ \\
-Precision & BF16 parameters; scan state and $\Delta$ accumulation in FP32 \\
-Sequence length & $2048$ \\
-Hardware & $1 \times$ A100, no distributed strategy \\
+Dropout & $0.1$ (embedding) \\
+Precision & bf16 autocast where supported, fp16 with loss scaling otherwise
+  (the T4 has no bf16) \\
+Answer-letter weight & $\lam_{\mathrm{ans}}=10$ (Equation~\ref{eq:loss}) \\
+Sequence length & at most $2048$, padded to the batch maximum \\
+Seed & $17$ (also fixes the 60/40 MedQA partition) \\
+Hardware & $1\times$ T4, no distributed strategy \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \noindent
-The token budget is deliberately \emph{above} the compute-optimal ratio for
-these sizes \cite{hoffmann2022chinchilla}: at 12--46M parameters the
-model is in the over-trained regime, because the questions we ask
-(\emph{does the mechanism do anything at all?}) are not
-compute-limited questions, and a badly under-trained model would confound
-``the mechanism does not work'' with ``the model has not learned the task
-yet''. This choice is reported as a deviation from
-Hoffmann et al.~\cite{hoffmann2022chinchilla} rather than hidden.
+Two knobs exist purely to prevent memorisation of the small MedQA fine-tune
+set: the phase-2 learning rate and the phase-2 epoch cap. A 40-epoch pilot
+showed that replaying the phase-1 epoch count over only 6{,}106 rows at the
+full learning rate drove training cross-entropy to about $0.05$ while held-out
+accuracy stopped improving (Known Issues T21); the answer-letter weight
+addresses the separate dilution of the decision signal (T22). Both are applied
+to both arms. The phase-1 schedule restarts for phase~2, and a trailing
+partial gradient-accumulation group is flushed at the end of every epoch
+(T23).
 
 \noindent
-Stages proceed pretrain $\rightarrow$ SFT $\rightarrow$ DPO-lite
-\cite{rafailov2023dpo}. Checkpoints are written per stage, and a smoke test
-(50 steps, loss-drop check, save/load/resume, $O(1)$ shape assertions) must
+Phases run strictly in order: train on MedMCQA, record the MedMCQA validation
+score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
+that runs the final benchmark is the better of the best phase-2 checkpoint and
+the last checkpoint, judged on the untouched MedMCQA validation split, so the
+benchmark rows are never used for selection. A smoke test (a few hundred rows,
+one epoch, with save, resume and evaluation) and the 89-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1574,22 +1678,26 @@ failed evaluation:
 The third control exists because of Section~\ref{sec:counter-evidence}: when
 compute is moved into extra layers rather than into a refinement mechanism,
 depth often wins, and without this control the two are indistinguishable.
+The A/B actually run in this thesis is the weaker no-sandbox comparison at
+equal architecture; the first two comparisons concern generative decoding,
+which the letter-logit protocol does not use, and the depth- or
+parameter-matched control is open work.
 
-\subsection{Validation harness}
+\subsection{Validation and test harness}
 
 \noindent
-An eight-phase harness gates production readiness before any full pretraining:
-(1) dataset registry verification, expecting $>90\%$ available weight;
-(2) documentation build across $18$ sources; (3) documentation quality
-(duplicate rate $<5\%$, short-document rate $<10\%$); (4) token distribution
-within $\pm3\%$ of target per category; (5) decoded-sample inspection for
-malformed UTF-8, license spam, excessive newlines, repetition, and dirty
-padding; (6) packing quality with $<5\%$ padding; (7) fallback-chain
-verification; (8) checkpoint save/load/resume smoke test. The harness returns
-one of \textsc{ready}, \textsc{ready with minor warnings}, or \textsc{not ready}.
+Correctness is gated by an $89$-test CPU unit suite
+(\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
+stack, the data pipeline, the learning-rate schedule and the seed-locked
+evaluation split, and by a one-epoch smoke run of each arm that exercises
+training, resume and evaluation end to end. Held-out evaluation can be re-run
+on a saved checkpoint without training (\texttt{--eval-only}).
 
-\subsection{RQ1: memory}
+\subsection{RQ1: memory (protocol for future work)}
 \label{sec:rq1}
+
+\noindent
+\emph{These checks require L1 and are not run in this thesis.}
 
 \begin{enumerate}
   \item \textbf{Bounded-state proof.} Forward passes at
@@ -1608,21 +1716,14 @@ one of \textsc{ready}, \textsc{ready with minor warnings}, or \textsc{not ready}
 \subsection{RQ2: reasoning}
 
 \noindent
-Benchmarks are split by whether they can discriminate at this scale
+All scoring is letter-accuracy on held-out multiple-choice rows.
+Chance is $25\%$. The decision gate is the MedQA 40\% benchmark partition
+(\texttt{medqa\_bench}, 4{,}072 rows, scored once), with the official MedQA
+test split (1{,}273 rows) as a second untouched number. The MedMCQA validation
+split (4{,}183 rows) is the selection set, and its phase-1 versus final values
+measure how much the MedQA fine-tune erodes MedMCQA. Open-ended benchmarks
+(GSM8K, HumanEval, MMLU) are out of scope at this scale
 (Section~\ref{sec:defect3}).
-
-\begin{center}
-\small
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.24\linewidth}>{\raggedright\arraybackslash}p{0.46\linewidth}>{\raggedright\arraybackslash}p{0.22\linewidth}@{}}
-\toprule
-\rowcolor{ekHeadBG}\color{white}\textbf{Role} & \color{white}\textbf{Tasks} & \color{white}\textbf{Use} \\
-\midrule
-Runnable (XS/S/M) & validation and test perplexity; ARC-easy; HellaSwag;
-  LAMBADA; synthetic known-answer multi-step items & the \emph{decision gate} \\
-Scaling-held-out & GSM8K; HumanEval; MMLU & reported, never the gate \\
-\bottomrule
-\end{tabular}
-\end{center}
 
 \noindent
 Ablations, each mapped to a knob: $K \in \{1,4,8\}$ (with $K{=}1$ the
@@ -1638,6 +1739,10 @@ target, which isolates the correction of Defect~1.
   \item \textbf{Calibration.} Agreement $\hat a = 1/(1+V)$ plotted against
     per-example accuracy, with expected calibration error reported. This is the
     measurement that decides whether consensus is a usable confidence signal.
+    The sandbox emits $\hat a$'s ingredients (\texttt{anchor\_energy},
+    \texttt{trajectory\_variance}, \texttt{spread\_ratio}) per step, but they
+    are not yet persisted to \texttt{results.json}; logging them is an open
+    code item and RQ3 is untested until it is closed.
   \item \textbf{Collapse monitoring.} $\rhodim$ reported as a learning curve.
     A falling $\rhodim$ is the failure signal and must be visible in the
     training logs, not reconstructed afterwards.
@@ -1653,9 +1758,34 @@ target, which isolates the correction of Defect~1.
 \label{sec:results}
 
 \noindent
-All tables below are placeholders. They are included so the required content
-and its provenance are fixed in advance; no number is reported until the run
-produces it.
+\paragraph{Pipeline-scale pilot (completed).}
+A full 3-epoch A/B on a single T4 (full data, one seed, per-stage learning
+rate) is the only completed head-to-head run. It predates the sequential
+60/40 protocol, trained MedMCQA then MedQA jointly, and the MedQA stage was
+only about 638 optimizer steps, so the MedQA column sits at chance. It is
+reported as a pipeline check, not as a thesis result:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\rowcolor{ekHeadBG}\color{white}\textbf{Arm} & \color{white}\textbf{Params} & \color{white}\textbf{MedMCQA val (4{,}170)} & \color{white}\textbf{MedQA test (1{,}273)} \\
+\midrule
+Baseline (no L2) & 43.53M & 33.31\% & 25.69\% \\
+Sandbox (L2) & 50.09M & 32.01\% & 26.08\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The MedMCQA gap of 1.3 points is within about two noise standard deviations
+($\sigma\approx0.7$ points), so the two arms are statistically
+indistinguishable at this scale: a tie. Section~\ref{sec:counter-evidence}
+pre-committed to reporting a tie if that is what the data show.
+
+\paragraph{Pending tables.}
+The tables below are placeholders. They fix the required content and its
+provenance in advance; no number is reported until the run produces it.
 
 \begin{center}
 \small
@@ -1664,14 +1794,14 @@ produces it.
 \rowcolor{ekHeadBG}\color{white}\textbf{Table} & \color{white}\textbf{Status} \\
 \midrule
 \rowcolor{ekRowW}
-Parameter split per size & \textit{[PENDING]} --- confirm with \texttt{estimate\_model\_size} \\
-Peak memory at $T = 512/2048/4096$ & \textit{[PENDING]} --- bounded-state proof \\
-Tokens/sec versus exact attention & \textit{[PENDING]} \\
-Cost-matched greedy / self-consistency / sandbox / depth-matched & \textit{[PENDING]} \\
+100-epoch campaign: \texttt{medqa\_bench}, \texttt{medqa\_test}, MedMCQA phase-1 $\to$ final & \textit{[PENDING]} --- both arms, same seed \\
+Cost report: parameters, tokens$\times K$, FLOPs, wall-clock & \textit{[PENDING]} \\
+Depth- or parameter-matched control (no L2) & \textit{[PENDING]} \\
 $K, R, S$ ablations & \textit{[PENDING]} \\
 $\rhodim_{\min}$ sweep and anchor versus peer-mean & \textit{[PENDING]} \\
-Agreement--accuracy calibration (RQ3) & \textit{[PENDING]} \\
-Layer ladder: backbone-only $\rightarrow$ $+$L1 $\rightarrow$ $+$L1$+$L2 & \textit{[PENDING]} \\
+Agreement--accuracy calibration (RQ3) & \textit{[PENDING]} --- needs diagnostics logging \\
+Multi-seed variance & \textit{[PENDING]} \\
+Layer ladder: backbone-only $\to$ $+$L2 $\to$ $+$L1$+$L2 & \textit{[PENDING]} --- last step needs L1 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1721,37 +1851,43 @@ tie.
 \label{sec:limitations}
 
 \begin{description}
-  \item[Scale.] At 12--46M parameters, absolute benchmark numbers will be far
+  \item[Scale.] At the 50M-parameter scale, absolute benchmark numbers will be far
     below published frontier results. The claims are about \emph{mechanisms}
     moving a metric, never about state-of-the-art quality.
-  \item[Recall.] A fixed-size recurrent state is a lossy summary. Exact
-    associative recall is expected to lose to attention; we report the recall
-    probe rather than omit it \cite{lieber2024jamba}.
+  \item[No L1.] The selective-SSM storage layer is specified but not
+    built, so the memory claim (P1) and RQ1 are untested here. A fixed-size
+    recurrent state is a lossy summary, and exact associative recall is
+    expected to lose to attention \cite{lieber2024jamba}; the recall probe
+    stays in the protocol for that follow-up.
   \item[Collapse and false consensus.] K trajectories agreeing can be jointly
     wrong. $\rhodim$ detects \emph{collapse}, not \emph{error}; a diverse but
     uniformly wrong set will not trip the floor. This is why RQ3 measures
     calibration rather than assuming agreement implies correctness.
-  \item[Compute cost.] Stage L2 costs $\times(2.6)$ refinement passes over the
-    backbone at default settings \eqref{eq:l2-cost}. Gains must be reported
-    against self-consistency at equal budget, not against greedy.
-  \item[Single configuration.] One recipe, one seed ($42$) in the reported
+  \item[Compute cost.] Stage L2 adds $K{=}4$ trajectories, $R{=}2$ debate
+    rounds and $S{=}8$ descent steps per token \eqref{eq:l2-cost}; the
+    sandbox arm measured roughly $1.5\times$ the baseline's wall-clock on a
+    T4. Gains must be reported alongside parameters, tokens$\times K$ and
+    FLOPs, and the arms are architecture-matched, not parameter-matched.
+  \item[Single configuration.] One recipe, one seed ($17$) in the reported
     protocol. Run-to-run variance is not characterized; differences smaller
     than seed variance should not be interpreted.
-  \item[No kernels.] Plain PyTorch means the selective scan is
-    memory-bandwidth-bound and leaves throughput on the table. This is a
-    deliberate auditability trade, not an oversight.
-  \item[Deviation from compute-optimal scaling.] We train well past the
-    Chinchilla ratio \cite{hoffmann2022chinchilla} deliberately
-    (Section~\ref{sec:training}).
+  \item[No kernels.] Plain PyTorch (no \texttt{flash-attn}, \texttt{mamba-ssm}
+    or Triton) leaves throughput on the table. This is a deliberate
+    auditability trade, not an oversight.
+  \item[Small-data fine-tune.] The MedQA phase has only 6{,}106 rows, so the
+    recipe caps its learning rate and epochs to resist memorisation
+    (Section~\ref{sec:training}); the 3-epoch pilot's MedQA stage was too
+    short to leave chance level.
 \end{description}
 
 % =====================================================================
 \section{Reproducibility}
 
 \noindent
-Seed $42$; $\approx 13$ configuration knobs, each mapped to an ablation;
-pinned dependencies; a warm cache for the corpus; pinned tokenizer per run;
-and a claim-to-evidence index mapping every load-bearing statement to either a
+Seed $17$ (which also locks the 60/40 MedQA partition); a small set of
+configuration knobs, each mapped to an ablation; two committed configuration
+files that differ only in \texttt{use\_sandbox}; a tokenizer saved with each
+run; checkpoint resume; and a claim-to-evidence index mapping every load-bearing statement to either a
 locally stored paper or a hand derivation. The accompanying markdown
 (``\texttt{thesis.md}'') retains clickable links to the full vault, the paper
 library, and the per-claim proof index.
@@ -1769,10 +1905,14 @@ boxes.
 
 \noindent
 Ekdant separates three concerns that are usually entangled: bounded memory,
-auditable computation, and honest confidence. Stage L1 replaces the
-unbounded per-token cache with a fixed-size selective state; stage T restores
-bounded local exact retrieval; stage L2 makes reasoning inspectable by
-materializing several live hypotheses and lets them confront one another.
+auditable computation, and honest confidence. Stage L1 is specified to replace
+the unbounded per-token cache with a fixed-size selective state, and remains
+future work; stage T, as built, bounds the cache at a local window and
+restores exact local retrieval; stage L2, as built, makes reasoning
+inspectable by materializing several live hypotheses and lets them confront
+one another. On the one completed head-to-head run, the sandbox and its
+no-sandbox baseline tie at pipeline scale, which the thesis committed in
+advance to report as it stands.
 
 \noindent
 The substantive result of this thesis is as much about the corrections as

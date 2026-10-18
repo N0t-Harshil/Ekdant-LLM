@@ -1,21 +1,21 @@
-# Configuration Guide (Ekdant, three sizes: XS ≈12M, S ≈21M, M ≈46M)
+# Configuration Guide (Ekdant, 50M A/B)
 
-> [!note] **Two surfaces.** §1 is the **shipped** parameter surface: every knob in `09-Code/configs/sandbox_50m.json` and `baseline_50m.json` (read from the JSONs and `EkdantConfig`). §2–§4 are the **thesis-design** spec: the three YAML configs (`config_ekdant_xs/s/m.yaml`) are documented design, not files in this vault.
+> [!note] **Shipped surface.** §1 lists every knob in `09-Code/configs/sandbox_50m.json` and `baseline_50m.json` (read from the JSONs and `EkdantConfig`). §2 lists the training-time CLI flags. §3–§4 are as-built parameter math and the tokenizer. The earlier XS/S/M design sizes with L1 are summarised in §5 for the thesis only.
 
-## 1. Shipped configs (`09-Code/configs/*.json`)
+## 1. Model configs (`09-Code/configs/*.json`)
 
-Two JSONs, identical architecture — **only `use_sandbox` differs** (sandbox 50.09M / baseline 43.53M at N_T=12; delta = L2's measured 6.56M). Every knob maps 1:1 to an `EkdantConfig` field (`09-Code/src/ekdant/model.py`); unknown keys would raise in `from_dict`.
+Two JSONs, identical architecture — **only `use_sandbox` differs** (sandbox 50.09M / baseline 43.53M at N_T=12; delta = L2's measured 6.56M). Every knob maps 1:1 to an `EkdantConfig` field (`09-Code/src/ekdant/model.py`); unknown keys raise in `from_dict`.
 
 | Knob | `sandbox_50m.json` | `baseline_50m.json` | Meaning |
 |---|---|---|---|
 | `vocab_size` | 32768 | 32768 | embedding rows; must match the trained BPE tokenizer |
 | `dim` | 512 | 512 | model width H |
-| `n_t` | 12 | 12 | T dense blocks (thesis S/M: 5/6 — deeper backbone for the 50M run) |
+| `n_t` | 12 | 12 | T dense blocks |
 | `n_heads` | 8 | 8 | Q heads (head_dim = 64) |
 | `n_kv_heads` | 2 | 2 | KV heads (GQA 8:2) |
 | `window` | 512 | 512 | attention window W; KV bounded by W, never T |
 | `ffn_hidden` | 1024 | 1024 | SwiGLU inner width (2×dim) |
-| `max_seq_len` | 2048 | 2048 | dataset packing length (MCQ rows longer than this are dropped); matches the thesis 2048 spec |
+| `max_seq_len` | 2048 | 2048 | longest example kept (nothing is dropped on MedMCQA/MedQA — p99 is 118/364 tokens) |
 | `pad_id` | 0 | 0 | pad token id — overwritten at runtime from the trained tokenizer |
 | `use_sandbox` | **true** | **false** | **the only A/B difference** |
 | `n_sandbox` | 4 | 4 | K trajectories (inactive in baseline) |
@@ -23,52 +23,51 @@ Two JSONs, identical architecture — **only `use_sandbox` differs** (sandbox 50
 | `descent_steps` | 8 | 8 | S anchored-gated descent steps |
 | `eta` | 0.0625 | 0.0625 | descent step size (= the `0.5/descent_steps` default rule) |
 | `rho_min` | 0.05 | 0.05 | spread-floor threshold `ρ_min` |
-| `lambda_sbx` | 1.0 | 1.0 | spread-floor loss weight (shipped; thesis design uses 0.1) |
-| `readout` | `"mean"` | `"mean"` | consensus readout (`Sandbox` also accepts `"lowest_energy"`) |
+| `lambda_sbx` | 1.0 | 1.0 | spread-floor loss weight (original design value was 0.1) |
+| `readout` | `"mean"` | `"mean"` | consensus readout: `"mean"` or `"lowest_energy"` (validated identically by `EkdantConfig` and `Sandbox`) |
 | `dropout` | 0.1 | 0.1 | embedding dropout |
 
-`validate()` fills `eta` when null and enforces divisibility (`dim % n_heads`, `n_heads % n_kv_heads`). Training-time knobs (batch size, LR, warmup, epochs, seed) are **CLI flags** on `python -m ekdant.train`, not JSON keys — defaults and flags in [API_Reference.md](API_Reference.md); run guide in `09-Code/README.md`.
+`validate()` fills `eta` when null and enforces divisibility (`dim % n_heads`, `n_heads % n_kv_heads`) and the readout name.
 
-## 2. Thesis design size table (~13 knobs)
+## 2. Training flags (`python -m ekdant.train`)
 
-Three configs from one schema: `config_ekdant_xs.yaml` (XS, smoke/debug), `config_ekdant_s.yaml` (S, ablations), `config_ekdant_m.yaml` (M, main run). Same recipe — 50K steps, lr 1e-4 cosine, warmup 3K, eff batch 16, AdamW fused, wd 0.1, clip 1.0, BF16, single GPU. No MoE anywhere: the sandbox debates instead.
+Not JSON keys. Defaults and the campaign recipe:
 
-| Parameter | XS (≈12M) | S (≈21M) | M (≈46M) | Notes |
-|---|---|---|---|---|
-| `model.architecture.hidden_size` | 256 | 320 | 512 | Width; heads 8Q/2KV (dim 32 / 40 / 64) |
-| `model.architecture.vocab_size` | 32768 | 32768 | 32768 | Must match tokenizer |
-| `model.architecture.max_position_embeddings` | 4096 | 4096 | 4096 | Pretrain window |
-| `model.architecture.rope_theta` | 100K | 100K | 100K | Shared RoPE base (scaled for small head dims) |
-| `model.architecture.tie_word_embeddings` | true | true | true | Tied head saves 8.4M / 10.5M / 16.8M |
-| `model.architecture.d_state` | 96 | 128 | 256 | **L1 knob:** per-store dim (×3 stores: content/control/sandbox) |
-| `model.architecture.n_ssm_layers` | 2 | 4 | 4 | L1 depth |
-| `model.architecture.n_transformer_layers` | 3 | 5 | 6 | **T knob:** dense blocks, windowed GQA + SwiGLU |
-| `model.architecture.transformer_window` | 512 | 512 | 512 | T local window (KV bounded by W) |
-| `model.architecture.n_sandbox_paths` | 4 | 4 | 4 | **L2 knob:** K trajectories |
-| `model.architecture.n_debate_rounds` | 2 | 2 | 2 | L2 debate depth |
-| `model.architecture.sandbox_steps` | 8 | 8 | 8 | L2 anchored gated descent iterations (moves the readout; ablate 0/4/8) |
-| `model.architecture.sandbox_weight` | 0.1 | 0.1 | 0.1 | Weight on the spread floor `max(0, ρ_min − ρ)²` |
-| `model.architecture.sandbox_rho_min` | 0.05 | 0.05 | 0.05 | Collapse floor: min fraction of backbone activation energy the K hypotheses must keep spanning |
-| `training.max_seq_length` | 2048 | 2048 | 2048 | Packing length |
-| `training.pretrain.max_steps` | 50000 | 50000 | 50000 | Thesis run (~1.6B tokens @32K tok/step) |
-| `distributed.strategy` | `none` | `none` | `none` | Single GPU all sizes |
-| `data.use_registry` | true | true | true | Always true for thesis |
-| `output.model_dir` | `./models/ekdant-xs` | `./models/ekdant-s` | `./models/ekdant-m` | Per-size outputs |
+| Flag | Default | Campaign (`run.md` §3) |
+|---|---|---|
+| `--batch-size` / `--grad-accum` | 24 / 2 | 6 / 8 on a 16 GB T4 → effective 48 |
+| `--lr`, `--warmup` | 3e-4, 200 | 3e-4, 200 (cosine per phase) |
+| `--epochs` | 3 | 100 (phase 1, MedMCQA) |
+| `--ft-lr`, `--ft-epochs` | = `--lr`, = `--epochs` | 5e-5, 10 (phase 2, MedQA 60 %) |
+| `--answer-weight` | 0.0 | 10 |
+| `--seed` | 17 | 17 (also locks the 60/40 MedQA partition) |
+| `--eval-every` | 1 | 1 |
 
-That is the complete parameter surface — every knob maps to an ablation in [11](../07-Management/11_Future_Work.md).
+Full table: [API_Reference.md](API_Reference.md) and [`09-Code/README.md`](../09-Code/README.md). Fixed in code, not flags: AdamW (wd 0.1, betas 0.9/0.95), grad clip 1.0, bf16 autocast (fp16 fallback), `torch.compile` unless `--no-compile`.
 
-## 3. Param math (counted ≈, verify with `estimate_model_size`)
+## 3. Parameter math (as built — `estimate_model_size`)
 
-- Embed V·H tied: XS 8.4M · S 10.5M · M 16.8M.
-- aSSM block ≈ shared trunk + 3 heads (≈1.5× single-store): XS ≈ 1.5M · S ≈ 4.8M · M ≈ 13M.
-- T block ≈ 2.5H² GQA + 3·H·I SwiGLU (I=2H): XS ~0.6M ×3 ≈ 1.7M · S ~0.9M ×5 ≈ 4.4M · M ~2.2M ×6 ≈ 13.4M.
-- L2 ≈ diverse init + R=2 debate nets + anchor `W_a [H,H]` + gate `W_g [2H,H]`: XS ~0.8M · S ~1.3M · M ~2.8M. (Rose from 0.6/1.0/2.2M when the peer-mean pull was replaced by anchored gated descent.)
-- **Totals: XS ≈ 12M · S ≈ 21M · M ≈ 46M** (XS/S/M are size-class *labels*; the counts above are the actual budgets).
+- Embeddings, tied: V·H = 32768 × 512 = **16.78M**
+- T block: 2.5H² (GQA projections) + 3·H·I (SwiGLU, I = 2H) = **2,229,248**; × 12 = **26.75M**
+- L2: **6.56M** — `DiverseInit` K·H² + R debate rounds (full q/k/v H×H cross-projections, H→2H→H MLP, gate 2H→H, untied across rounds) + anchor W_a (H×H) and gate (2H→H)
+- **Totals: baseline 43.53M · sandbox 50.09M**
 
-**Effective batch:** `per_device × gpus × accum` = 4×1×4=16 (32,768 tok/step @2048). **RoPE:** base 100K, window 4096. YaRN frequency rescaling is implemented but **off by default** at XS/S/M, because `T ≤ 2048` is well inside the 4096 window; enable it only for longer-context runs and record the factors used.
+L2 is 2.3× the thesis closed-form estimate (2.8M): that estimate budgeted ~0.97M for debate across R=2 rounds; the build spends ~4.7M. **Decision pending before any results table is published:** slim/tie L2, or restate the estimate (the A/B itself is unaffected — the baseline just omits L2).
 
-## 4. Tokenizer (32K BPE, trained in-house — design; shipped 09-Code uses HF datasets' text with its own prompt/letter-token pipeline)
+**Effective batch:** `batch_size × grad_accum × n_gpu`. **RoPE:** base 100K.
 
-- Train custom 32K BPE with `src/tokenizer_trainer.py` (thesis-design path, not in this vault) on a registry sample (code-heavy to match the 0.30 code weight) — same tokenizer for XS/S/M so sizes stay comparable.
-- HF tokenizers only as a smoke-debug fallback, never the thesis runs (internal-only rule).
-- Validate: decode 20 samples clean (no U+FFFD), vocab file pinned per run in `output.model_dir`.
+## 4. Tokenizer (as built)
+
+32,768-entry BPE (HF `tokenizers`; NFD + lowercase, whitespace pre-tokenizer, `min_frequency=2`, specials `<pad> <bos> <eos> <unk>`), trained once per run directory on 20,000 MedMCQA training prompts and saved to `<out>/tokenizer.json`. Copy it into the second arm's `--out` before starting that arm to guarantee an identical vocabulary. Details: [05_Data_Pipeline](../05-Data/05_Data_Pipeline.md) §4.
+
+## 5. Design-time size table (thesis only — includes L1, not built)
+
+The original three-size design (XS ≈12M / S ≈21M / M ≈46M, 1× A100, 50K steps) is kept in the thesis (§Parameters) as a closed-form estimate for the **full three-stage model**. It is superseded by §3 for every result.
+
+| Knob | XS | S | M |
+|---|---|---|---|
+| width H | 256 | 320 | 512 |
+| L1 `d_state` / blocks | 96 / 2 | 128 / 4 | 256 / 4 |
+| T blocks | 3 | 5 | 6 |
+| L2 params (est.) | 0.8M | 1.3M | 2.8M |
+| Total (est.) | 12.4M | 21.0M | 46.0M |

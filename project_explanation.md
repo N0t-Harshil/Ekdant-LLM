@@ -1,8 +1,14 @@
 # Ekdant — Project Explanation
 
-**Harshil Gorasiya** · Msc Thesis, Hochschule Heilbronn
+**Harshil Gorasiya** · MSc Thesis, Hochschule Heilbronn
 Document: [thesis.pdf](08-Thesis/thesis.pdf) · Source: [thesis.tex](08-Thesis/thesis.tex) · Outline: [thesis.md](08-Thesis/thesis.md)
 
+> **What is built vs. designed.** The evaluated model is **T + L2** (embed → windowed dense
+> Transformer → parallel sandbox → head), ~50M parameters, trained from scratch on MedMCQA then
+> MedQA, as an architecture-matched A/B against the identical backbone without L2. **L1 (SSM
+> storage) and the M3 write-back are fully specified but not implemented** — the memory
+> numbers below are projections for the full design, and RQ1 is future work.
+>
 > This file explains the whole project end to end — why the two layers exist, how
 > they work, why they are separate, how they help, and how all the pieces connect.
 
@@ -17,7 +23,7 @@ into a fixed-size selective SSM state. **L2** is a parallel sandbox that runs se
 hypotheses against each other and refines them with a provable descent step. A small
 standard Transformer between them only bounds the attention window. L1 answers
 *what was said*, L2 answers *what to do*, and they are wired together by a single
-write-back edge. At 12M / 21M / 46M parameters the inference state stays **flat at
+write-back edge. For the full design (with L1), at 12M / 21M / 46M parameters the inference state is projected to stay **flat at
 1.58 MB** regardless of sequence length, and every design claim is backed by either a
 proof, a locally stored paper, or a number.
 
@@ -303,7 +309,7 @@ readout move *and* what holds `ρ` clear of the floor.
 
 ## 8. What helps us — numbers, RQs, and honest status
 
-**Memory (RQ1) — the headline.** At configuration M (H = 512, N = 4, N_T = 6,
+**Memory (RQ1) — the headline, for the full design with L1 (not built).** At configuration M (H = 512, N = 4, N_T = 6,
 d_state = 256, 2 KV heads, bf16):
 
 | | T = 2048 | T = 65536 |
@@ -317,18 +323,19 @@ W = 512. *Analytic projection, not a measurement.* Weights, activations and the
 K-trajectory scratch space are excluded — the figure isolates the one term the
 architecture is designed to make constant.
 
-**Size budget.** XS ≈ 12.4M · S ≈ 21.0M · M ≈ 46.0M. L2 rose from 0.6/1.0/2.2M to
+**Size budget (design-time, full model).** XS ≈ 12.4M · S ≈ 21.0M · M ≈ 46.0M. L2 rose from 0.6/1.0/2.2M to
 0.8/1.3/2.8M when peer-mean was replaced by AGD — the anchor `W_a` and gate `W_g`
 are new parameters, and that increase is the honest cost of the correction.
-*Closed-form estimates. Source code now exists: measured on the 50M A/B config, L2 = **6.56M** vs this 2.8M estimate — an open item (see README gaps).*
+*Closed-form estimates. What is built is the 50M A/B pair: sandbox **50.09M** vs baseline **43.53M**, with L2 measured at **6.56M** vs this 2.8M estimate — the thesis reports the measured numbers.*
 
 **The three research questions:**
-- **RQ1 (memory)** — Does a fixed-size SSM state replace the KV cache while
-  preserving long-range recall, and what does it cost? Predicted: recall is
-  bounded, and we report the bound.
-- **RQ2 (reasoning)** — At matched parameters and matched block-pass budget, do K
-  debating trajectories beat (a) a single path and (b) a depth-matched model with
-  *no sandbox at all*? The second control is not optional.
+- **RQ1 (memory) — future work** — Does a fixed-size SSM state replace the KV cache
+  while preserving long-range recall, and what does it cost? Needs L1; the
+  protocol is pre-specified and not run.
+- **RQ2 (reasoning)** — On MedMCQA/MedQA letter accuracy, does the same backbone
+  with K debating trajectories beat the identical backbone with *no sandbox at
+  all*? The built A/B is architecture-matched (+6.56M params), so a depth-/parameter-
+  matched control is the follow-up that makes a gain claim airtight.
 - **RQ3 (honesty)** — Is trajectory agreement calibrated against accuracy, and can
   collapse be detected early by a monitored statistic?
 
@@ -337,7 +344,7 @@ are new parameters, and that increase is the honest cost of the correction.
 | Done | Not done |
 |---|---|
 | ✅ Full thesis document: 26 pages, 7 figures, 65 references, 4 proofs, 0 build errors, 0 broken refs | ❌ Model source code: L2-only (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
-| ✅ Model code + **88 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on all of MedMCQA → seed-locked 60% MedQA fine-tune → untouched 40% benchmark, better-of checkpoint selection, anti-overfit knobs T21/T22) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
+| ✅ Model code + **89 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on all of MedMCQA → seed-locked 60% MedQA fine-tune → untouched 40% benchmark, better-of checkpoint selection, anti-overfit knobs T21/T22) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
 | ✅ Cost-matched protocol fixed *before* any run | ❌ Open code item: sandbox diagnostics not logged to `results.json` (LR-schedule warmup bug FIXED) |
@@ -376,23 +383,23 @@ What survives is narrower — stream separation helped (C21/C23), the
 recursive-refinement part is the hypothesis under test.
 
 **Q: Why no MoE?**
-At 12–46M parameters, routing machinery adds parameters without capacity to exploit
+At this scale (12–50M parameters), routing machinery adds parameters without capacity to exploit
 them. L2 spends them on hypothesis diversity instead — the sandbox *is* the mixture.
 
 **Q: Where is the code?**
 Implemented in `09-Code/src/ekdant/` — pure PyTorch: `model.py`, `transformer_stack.py`,
-`sandbox.py`, `output_head.py`, `train.py`, `data.py`, with **55 passing unit tests**
+`sandbox.py`, `output_head.py`, `train.py`, `data.py`, with **89 passing unit tests**
 (`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`,
-`test_data.py`, `test_schedule.py`) and
+`test_data.py`, `test_schedule.py`, `test_eval_split.py`) and
 architecture-matched A/B configs (`configs/sandbox_50m.json` vs `baseline_50m.json`,
 differing only in `use_sandbox`). It is **L2-only**: forward is embed → T (windowed
 dense) → L2 (sandbox) → head; the L1 SSM storage remains designed in the vault/thesis,
 not coded. **Full 3-epoch A/B executed on a T4** (one seed): MedMCQA val baseline
 33.31% vs sandbox 32.01%, MedQA 25.69% vs 26.08% — **a tie within noise at this
-scale** (publishable per the C24 framing); depth-matched control + K ablations +
-multi-seed are the remaining thesis experiments. Known open code item: sandbox
-diagnostics are computed but not logged. The `train.py` LR schedule bugs (warmup +
-stage-2 reset) are **fixed**.
+scale** (publishable per the C24 framing); the 100-epoch sequential campaign, depth-matched
+control, K ablations and multi-seed are the remaining thesis experiments. Known open
+code item: sandbox diagnostics are computed but not logged. The `train.py` LR schedule
+bugs (warmup + stage-2 reset) are **fixed**.
 
 **Q: What is the M3 write-back for?**
 So reasoning leaves a trace in memory. It is the only edge between L1 and L2,
@@ -417,11 +424,12 @@ Defect 2 (penalty collapses) ──proof──► floor, non-degenerate   ──
 Defect 3 (not measurable)  ──protocol─► cost-matched RQ2, ties ok
 Defect 4 (convention)      ──fixed────► explicit first-order ZOH
 
-RQ1 memory  ← Fig. 6 (1.58 MB flat vs 127×)
+RQ1 memory  ← Fig. 6 (1.58 MB flat vs 127×) — projection, needs L1
 RQ2 reasoning ← Fig. 7 (AGD vs inert peer-mean) + controls
 RQ3 honesty ← spread_ratio monitor, calibration plot
 ```
 
 **The claim in one line:** *Ekdant makes a model whose memory is bounded, whose
-reasoning is visible, and whose design is falsifiable — at 12–46M parameters, with
-every claim backed by a proof, a local paper, or a number.*
+reasoning is visible, and whose design is falsifiable — at the 50M scale, with
+every claim backed by a proof, a local paper, or a number* (memory by design, reasoning
+by experiment).

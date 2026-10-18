@@ -4,30 +4,21 @@
 
 `09-Code/src/ekdant/train.py` orchestrates Ekdant training (`python -m ekdant.train --variant sandbox|baseline`: **phase 1 MedMCQA train+test → phase 2 MedQA 60% fine-tune → 40% benchmark**, one invocation, never jointly trained): one architecture, two losses (LM CE + spread floor), A/B pretrain only. The SFT/instruct/DPO stages in §1 are thesis design, not shipped.
 
-## 1. Thesis design spec (Ch. 5 — documented, not all runnable)
+## 1. Design history (superseded)
 
-Config targets `config_ekdant_xs/s/m.yaml` (one schema, three sizes): XS ≈12M / S ≈21M / M ≈46M, 1× A100 80GB. **These YAMLs are not runnable files in this vault** — they are the thesis spec. The runnable configs are `09-Code/configs/{sandbox,baseline}_50m.json` (the 50.09M/43.53M A/B), loaded by `ekdant.train`.
-
-- **Arch (`ekdant`):** XS: H=256/V=32K/d=96/N_ssm=2/N_T=3/K=4 · S: H=320/V=32K/d=128/N_ssm=4/N_T=5/K=4 · M: H=512/V=32K/d=256/N_ssm=4/N_T=6/K=4 · all: rounds=2, sandbox_steps=8, seq 2048, rope_theta 100K, tie embeddings true.
-- **Train:** 50K steps, lr 1e-4 cosine, warmup 3K, batch 4 × accum 4 (eff 16), AdamW fused, wd 0.1, clip 1.0, BF16 single-GPU (`strategy: none`).
-- **Data:** registry mode, 54 primary / 8 cats, 8-stage step plan optional (or single 50K run for thesis simplicity).
-- **Losses:** `lm_weight=1.0`, `sandbox_weight=0.1`, `sandbox_rho_min=0.05` (shipped λ differs — §3). No `head_ce` flag (dense only). No aux dict beyond the three reported monitors.
-- **Stages:** 1. **Pretrain (must):** 50K causal LM + spread floor on the full registry weighted mix. 2. **SFT (nice):** 10–100K steps, lr 5e-6, prompt-masked labels. 3. **Instruct (optional):** skip unless examiner asks. 4. **Alignment (minimal):** DPO only, on 2-layer outputs.
-- **Pydantic path:** `ModelConfig → ModelArchitectureConfig(ekdant) → EkdantConfig`; validators cover `save_steps/total_limit` and `lr/warmup` sanity.
-- **Checkpointing (thesis spec):** `model.safetensors` + `config.json` + tokenizer + `training_args.bin` under `models/ekdant/<stage>/`; resume scans `checkpoint-*`; W&B/MLflow/TensorBoard trackers. *(Not in this vault — design only.)*
-- **Scale-up (optional):** same file with hidden 10240 / d_state 4096 / layers 6 / vocab 128K / seq 4096 / FSDP full-shard + CPU offload / 1M steps. No code change.
-
-**Forward + loss (the math the thesis defends):**
+The original thesis plan was a general pre-training run: three sizes (XS ≈12M / S ≈21M / M ≈46M) with an L1 SSM front end, 50K steps on a 54-dataset code/web/docs mixture, then SFT and DPO-lite, driven by `config_ekdant_xs/s/m.yaml`. None of that exists in this repo. The project narrowed to a single **50M-class T + L2 A/B on medical multiple-choice QA**; L1 is a specified extension, not code. The shipped model and loss:
 
 ```
-h, compressed = ssm_storage(input_ids)      # L1 — thesis design only, not in code
-hT = transformer_stack(h)                   # T: dense windowed blocks
-y, sandbox_aux = sandbox(hT)                # L2 direct handoff
-logits = output_head(y)                     # tied single projection
-loss = lm_weight*CE(shift(logits), shift(labels)) + sandbox_weight * max(0, rho_min - rho)**2
+x  = embed(input_ids)
+hT = transformer_stack(x)            # T: 12 dense windowed blocks (H=512, W=512)
+y, aux = sandbox(hT)                 # L2 (sandbox arm only)
+logits = output_head(ln_f(y))        # tied single projection
+loss = CE(shift(logits), shift(labels))
+     + answer_weight * CE(logits[answer_pos-1], answer_letter)     # --answer-weight, 0 = off
+     + lambda_sbx * relu(rho_min - rho)**2                         # sandbox arm only, rho = spread_ratio
 ```
 
-The shipped code (`09-Code/src/ekdant/model.py`) runs **embed → T → L2 → head** (the `ssm_storage` line is L1 — thesis design only) and its loss is CE + `lambda_sbx · relu(rho_min − spread_ratio)²` from `aux`.
+Runnable configs are `09-Code/configs/{sandbox,baseline}_50m.json`. The L1 line `h, compressed = ssm_storage(input_ids)` of the full design is not in code.
 
 ## 2. Shipped runner (`09-Code/src/ekdant/train.py`)
 
@@ -91,17 +82,17 @@ Optional (`--answer-weight w`, default 0 = legacy): `+ w · CE(logits[answer_pos
 2. **Sandbox diagnostics computed but never logged.** `ModelOutput.aux` carries `anchor_energy`, `trajectory_variance`, `spread_ratio`, `per_trajectory_retention`, `anchor_distance`, but `train_stage` ignores `out.aux` — history now carries `loss`/`lr`/`gnorm` per epoch, but still no ρ trace for any run (the collapse monitor the thesis requires). Fix: accumulate `aux` scalars per epoch and append to history.
 3. **Train-loss scale bug — FIXED.** The epoch mean divided Σ(loss × batch_size) by the batch *count*, so every pre-fix train loss was inflated ×`--batch-size` (e.g. "22.28" at batch 6 ≈ true 3.7 — consistent with eval CE ≈ 3.2–3.6). Fixed to a true sample mean; eval losses were always correct; same-batch comparisons are unaffected.
 4. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
-5. Not bugs but design gaps: diagnostics (§4.2); harness Phase 8 (`09_Validation_System.md`) is SKIPPED — the smoke run below is the substitute. *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
+5. Not bugs but design gaps: diagnostics (§4.2); the smoke run below plus the unit suite is the validation harness (`09_Validation_System.md`). *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
 6. **Phase-2 memorization risk — MITIGATED (per-phase knobs).** Phase 2 used to inherit `--lr`/`--epochs`, so the campaign recipe spent 12,800 steps @ 3e-4 on only 6,106 MedQA rows — the 40-epoch pilot (`runs/baseline_40ep`) memorized it (train CE → ~0.05, held-out MedQA stuck at chance ≈25%, MedMCQA validation decaying = forgetting). **`--ft-lr` / `--ft-epochs`** (defaults: `--lr`/`--epochs`, so unchanged unless passed) fine-tune only phase 2; recommended `--ft-lr 5e-5 --ft-epochs 10` (phase 2 = 1,280 steps) in [run.md](../run.md) §3. Regression: `tests/test_schedule.py` (`stage_hparams`, `stage_offsets`).
 7. **Supervision dilution — MITIGATED (`--answer-weight`).** Plain LM CE trains one answer token out of ~34 (MedMCQA) / ~173 (MedQA) — ~97–99% of the gradient goes to predicting question text, which is why the 40-epoch pilot's train CE collapsed to ~0.05 while letter accuracy plateaued at ~35%. The full prompt itself is intact (verified: 0 of 198k rows exceed `max_seq_len` 2048; decode round-trips complete). **`--answer-weight`** (default 0 = legacy) adds a re-weighted CE at the same position/metric as eval; recommended `10` in [run.md](../run.md) §3. Regression: `tests/test_model.py` (`test_answer_weight_*`), `tests/test_data.py` (`test_collate_carries_answer_vocab_ids`).
 8. **Training-loop correctness (accum tail / eval loss / A/B shuffle) — FIXED (T23).** (a) The trailing partial grad-accumulation group was never stepped and leaked its grads into the next epoch's first step (small `--limit` runs fired **zero** optimizer steps per epoch); now flushed with a proper unscale/clip/step at each epoch end. (b) Eval loss was a per-batch mean — now a true sample mean (batch-size weighted). (c) Shuffle order diverged between A/B arms (global RNG + different model-init consumption) — now a dedicated `--seed`-locked generator. Regression: `tests/test_schedule.py`, `tests/test_data.py` (T23 rows).
-6. **Eval hang before first result — FIXED (offline-first data loading).** Per-epoch evals called `load_dataset`, which performs a hub etag HEAD on every load; with bad connectivity that request stalls indefinitely (dead route, IPv6) and training appears frozen with no error line. `data.py` now defaults `HF_HUB_OFFLINE=1` (cache-only reads) and flips online only for a first-run download (`tests/test_data.py` locks the loader contract; the stall itself was reproduced live, not unit-testable).
+9. **Eval hang before first result — FIXED (offline-first data loading).** Per-epoch evals called `load_dataset`, which performs a hub etag HEAD on every load; with bad connectivity that request stalls indefinitely (dead route, IPv6) and training appears frozen with no error line. `data.py` now defaults `HF_HUB_OFFLINE=1` (cache-only reads) and flips online only for a first-run download (`tests/test_data.py` locks the loader contract; the stall itself was reproduced live, not unit-testable).
 
-## 5. Smoke test (Phase 8 substitute)
+## 5. Smoke test
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 88 tests, CPU, ~10s
+pytest -q    # 89 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 

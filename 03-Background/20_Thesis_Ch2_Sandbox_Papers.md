@@ -155,7 +155,7 @@
 
 **Consequence for the thesis claim.** Do **not** claim that multi-hypothesis in-model reasoning is new.
 Claim the *combination*: multi-trajectory tensor-level debate placed **after** a dense backbone, with a
-consensus head whose output is written back into an SSM store (M3), at 12–46M parameters trained
+consensus head whose output is written back into an SSM store (M3), at 12–50M parameters trained
 from scratch. Name C21 and C25/C26 as the closest ancestors and state the differences explicitly.
 
 ## How to cite this section (template)

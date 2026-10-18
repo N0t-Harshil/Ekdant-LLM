@@ -387,7 +387,7 @@ original run; changing them changes the pair arithmetic. Examples:
 ```bash
 cd 09-Code
 pip install -e .[dev]
-python -m pytest            # 88 tests
+python -m pytest            # 89 tests
 ```
 
 Covers: config/param accounting, T block (causal+window mask exactness,
@@ -486,7 +486,7 @@ new `medqa_bench`.)*
 **No significant difference between arms** at this scale (MedMCQA gap 1.3
 pts, noise σ≈0.7%; MedQA pinned at chance 25% — stage 2 is only ~638
 optimizer steps). A tie is a publishable outcome (C24 framing, see
-[11_Future_Work](../07-Management/11_Future_Work.md)). Note the mild
+[11_Future_Work](07-Management/11_Future_Work.md)). Note the mild
 sequential-fine-tuning erosion of MedMCQA after the MedQA stage
 (33.81→33.31, 34.15→32.01). These are pipeline-scale numbers, not thesis
 results: 1 seed, 3 epochs, ~50M params, architecture-matched. Historical
@@ -547,7 +547,7 @@ names — that is the checkpoint the `medqa_bench` number belongs to.
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-python -m pytest                                        # 88 unit tests
+python -m pytest                                        # 89 unit tests
 # full A/B (one arm at a time)
 torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox  --out runs/sandbox
 torchrun --nproc_per_node=4 -m ekdant.train --variant baseline --out runs/baseline

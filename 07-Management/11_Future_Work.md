@@ -2,37 +2,33 @@
 
 ## Critical (must finish for thesis defense)
 
-- **Build Ekdant L1+T+L2 + 10-step loss-decrease test** — **PARTIALLY DONE:** T+L2 built and shipped L2-only at `09-Code/src/ekdant/{model,transformer_stack,sandbox,output_head,data,train}.py`; 88 tests pass in `09-Code/tests/{test_model,test_sandbox,test_transformer,test_data,test_schedule,test_eval_split}.py` (forward shapes, grads through T+L2, loss decrease, data-schema regression, benchmark half-split). **Remains:** L1 (`ssm_storage`) integration into `model.py` — not in the code (L1 stays in the vault/thesis design docs for now); the full L1+T+L2 grad/loss check lands with it.
-- **Internal-only L1+T+L2** — **mostly done for the shipped package:** pure-PyTorch scan/debate, zero third-party kernels (no `mamba-ssm`/`flash-attn`/`triton`), allowlist enforced by import-guard tests (`test_model_has_no_blocked_imports`, `test_no_blocked_imports_in_ekdant_package`); L1 half pending (see above), per [23](../02-Architecture/02_System_Architecture.md).
-- **O(1) memory proof** — same `compressed[B,3·d_state]` triple shape + flat peak memory for T=512/2048/4096. Table in thesis. **Blocked on L1** (no `ssm_storage` in the code yet).
-- **Sandbox ablation** - K=1 vs. 4 vs. 8 and rounds 0 vs. 2 on the XS/S-runnable set (perplexity, ARC-easy/HellaSwag/LAMBADA, synthetic known-answer multi-step). GSM8K/HumanEval are ==scaling-held-out== — at 12–46M params they sit at the floor and cannot decide the claim ([29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.3). If K=1 ties, report it honestly.
-- **Depth-matched control (new, forced by C24)** — a plain Transformer with the **same parameter count and the same block-pass budget but no L2**. **Still open:** the shipped A/B is architecture-matched only (sandbox 50.09M vs baseline 43.53M — the 6.56M delta is L2 itself), so it cannot separate a gain from L2 against a gain from spending the same compute on more untied depth, which is exactly what C24 (arXiv:2603.08082) found winning. C24 also reports the full Autoregressive TRM giving **no consistent benefit**, so a tie is a publishable outcome and must be reported if it is what we measure.
-- **Energy-mechanism ablation (new)** - anchored gated descent vs. the discarded peer-mean pull (expect: the peer-mean pull leaves logits bit-identical), `sandbox_steps` ∈ {0,4,8}, and a `sandbox_rho_min` sweep ∈ {0.01, 0.05, 0.2} to show the floor trading collapse-risk against forced agreement.
-- **Transformer ablation** — T blocks (XS: 3, S: 5, M: 6), window 256/512, XS→S→M ladder, on recall probe + reasoning samples.
-- **Layer-addition ladder (the core proof)** — backbone-only → +L1 → +L1+L2 at matched params/FLOPs on recall probe + GSM8K/HumanEval samples; every gain must be attributable to the added layer. **Needs L1 integration first** (current code is T+L2 only).
-- **50K foundation runs + checkpoints** — end-to-end on the runnable configs `09-Code/configs/{sandbox,baseline}_50m.json` (the `config_ekdant_xs/s/m.yaml` sizes are thesis-documented specs). **Full 3-epoch A/B EXECUTED on a T4** (full data, one seed, per-stage LR fix): MedMCQA val 33.31% (baseline) vs 32.01% (sandbox), MedQA 25.69% vs 26.08% — **a tie within noise at this scale** (publishable per the C24 framing). Checkpoints + `results.json` in `runs/{baseline,sandbox}_full/` on the training box. Remaining: depth-matched (param-matched, no-L2) control, K=1/4/8 ablations, thesis-config sizes, multi-seed.
-- **Fix doc scraping gaps for corpus chapter** — PyTorch mirror, PostgreSQL sitemap (keep from old list; data chapter needs full corpus).
+- **100-epoch campaign, both arms** — `run.md` §3: phase 1 = MedMCQA (100 epochs), phase 2 = 60 % MedQA (`--ft-lr 5e-5 --ft-epochs 10`), `--answer-weight 10`, 381,480 steps (~17 h baseline + ~26 h sandbox on a T4). Fills the Ch. 6 tables (`medqa_bench`, `medqa_test`, MedMCQA phase-1 → final). If the arms tie, report the tie (C24 framing).
+- **Persist sandbox diagnostics** — `anchor_energy`, `trajectory_variance`, `spread_ratio` are computed in `aux` but `train.py` does not write them to `results.json`. Needed for the ρ trace, the collapse check (T8) and RQ3 calibration.
+- **Depth-/parameter-matched control (forced by C24)** — a plain Transformer with the same parameter count (or block-pass budget) and no L2. The shipped A/B is architecture-matched only (50.09M vs 43.53M; the 6.56M delta is L2), so it cannot separate a gain from L2 from a gain from spending the same compute on more untied depth, which is what C24 (arXiv:2603.08082) found winning. C24 also reports **no consistent benefit** for the full Autoregressive TRM, so a tie is publishable.
+- **Sandbox ablations** — K = 1/4/8, rounds 0/2/3, steps 0/4/8, `rho_min` ∈ {0.01, 0.05, 0.2}, and anchored descent vs. the discarded peer-mean pull (expect: peer-mean leaves the logits bit-identical).
+- **Multi-seed** — one seed (17) cannot put an error bar on the gap; the pilot's noise σ was ≈ 0.7 pt on MedMCQA validation.
+- **Resolve the L2 size overage** — measured 6.56M vs. 2.8M in the thesis estimate: slim/tie L2, or restate the estimate. The thesis now reports the measured number and explains the discrepancy; decide before publishing the final tables.
 
 ## High (should finish)
 
-- SFT mini-run (DPO optional), 5-benchmark eval (HumanEval/GSM8K/MMLU/HellaSwag/ARC), packing-quality numbers, eval-vs-baseline table (Transformer tiny at equal params if time).
-- Tidy the tree so the examiner sees only thesis files (`09-Code/src/ekdant/` 7 modules — `model`, `transformer_stack`, `sandbox`, `output_head`, `data`, `train`, `__init__` — runnable configs, `papers/`, vault).
-- CI: `pytest` on PR in `09-Code/` (67 shipped model/sandbox/transformer/data tests).
+- **L1 integration** — add `ssm_storage.py` (selective SSM, three stores) before T, the L1 → T shape assertion (T9), the O(1)-state proof (same `compressed [B, 3·d_state]` shape and flat peak memory for T = 512 / 2048 / 4096), and the M3 write-back. Unlocks RQ1 and the layer-addition ladder (backbone-only → +L2 → +L1+L2). Until then the thesis states L1 as specified-not-built.
+- **CI** — `pytest -q` on every push in `09-Code/` (89 tests, CPU, ~10 s).
+- **Cost report** — tokens × K, FLOPs, wall-clock per arm (C8); the runner currently logs tok/s only.
+- **Rebuild `thesis.pdf`** from the updated `thesis.tex` (`pdflatex` three times); the committed PDF predates the T + L2 alignment.
 
 ## Medium (if time)
 
-- Triton selective-scan kernel, long-context RoPE extension test (4K→16K), custom code tokenizer.
-- More languages in registry, AST filter for Ruby/PHP/Kotlin.
+- Scale-up to a 500M-class model if the 50M campaign separates the arms (needs more than a T4).
+- Long-context RoPE extension test (needs L1 or a longer window to be meaningful).
 
 ## Low / Nice-to-have (post-thesis)
 
-- Demo UI, REST API, quantization, LoRA, synthetic data, hyperparam search, Docker — all deferred. Do not add before defense.
-- Scope boundary: tool use, multimodality, mixture-of-experts, and distilled/internalized debate stay future work (Ch. 7); each needs its own research question before entering the build.
+- Demo UI, REST API, quantization, LoRA, hyper-parameter search, Docker — all deferred. Do not add before defense.
+- Scope boundary: tool use, multimodality, mixture-of-experts, SFT/DPO, general pre-training corpora and distilled/internalized debate stay future work; each needs its own research question before entering the build.
 
 ## Research ideas (thesis discussion chapter)
 
-- SSM vs. Transformer backbone at fixed params/tokens (perplexity, throughput, memory vs. length).
-- SSM vs. Transformer-tiny backbone at fixed params/tokens (perplexity, throughput, memory vs. length).
-- Internalized debate (Yi et al. 2026): distill K-path sandbox into single path, compare tokens vs. accuracy.
-- Energy vs. autoregressive reasoning in sandbox (accuracy, diversity, cost).
+- SSM vs. Transformer backbone at fixed params/tokens (perplexity, throughput, memory vs. length) — once L1 exists.
+- Internalized debate (Yi et al. 2026): distill the K-path sandbox into a single path, compare tokens vs. accuracy.
+- Energy vs. autoregressive reasoning in the sandbox (accuracy, diversity, cost).
 - Cross-attention debate vs. mean-pool revision at fixed K (accuracy, cost).

@@ -6,21 +6,21 @@
 
 ## 1. System at a glance
 
-Four subsystems. The model subsystem is the thesis contribution; the other three are the apparatus that feeds, trains, and judges it.
+Three subsystems. The model subsystem is the thesis contribution; the other two are the apparatus that feeds and judges it.
 
-> **Implemented vs. designed:** the runnable code in this vault lives at `09-Code/src/ekdant/` — 7 modules (`model`, `transformer_stack`, `sandbox`, `output_head`, `train`, `data`, `__init__`), currently the **L2-only build** (`embed → T → L2 → head`, N_T=12, A/B configs in `09-Code/configs/*.json`). Everything below is the thesis-target design (Ch. 3–6): `src/data/`, `src/models/factory.py`, `src/training/`, `src/infrastructure/`, `src/evaluation/`, `scripts/`, and the L1 module `ssm_storage.py` are specified here but are **not files in this vault**. L1 stays fully documented as design (§3, `21`).
+> **Implemented vs. designed:** the runnable code lives at `09-Code/src/ekdant/` — 7 modules (`model`, `transformer_stack`, `sandbox`, `output_head`, `train`, `data`, `__init__`), the **T + L2 build** (`embed → T → L2 → head`, N_T=12, A/B configs in `09-Code/configs/*.json`). L1 (`ssm_storage.py`, §3, `21`) and the M3 write-back are **specified here but not built**; every L1 statement is design, not result.
 
-**Data** (`src/data/`, 12 modules — thesis design; the shipped package carries a slimmer `ekdant.data` MedMCQA→MedQA MCQ pipeline): registry → streaming with fallbacks → quality scoring and deduplication → AST-based code filtering → weighted sampling → sequence packing → tokenizer → DataLoader. Documented in `05`–`09`; the most mature part of the codebase.
+**Data** (`ekdant.data`): MedMCQA, then MedQA, rendered as one prompt template with the answer letter as the target; a shared BPE tokenizer; a seed-locked 60/40 MedQA partition. Documented in [05](../05-Data/05_Data_Pipeline.md).
 
 **Model** — the shipped package (`09-Code/src/ekdant/`, L2-only) is the **7-module layout** below; the forward pass is `embed → T → L2 → head` (N_T=12, A/B configs in `09-Code/configs/*.json`):
 
 | Module (shipped) | Responsibility |
 |------|----------------|
-| `model.py` | `EkdantConfig` (plain dataclass), `EkdantModel` (plain `nn.Module`), `ModelOutput` — embed → T → L2 → head wiring, LM CE + spread-floor loss, `score_options`, `estimate_model_size`, `baseline_config` |
-| `transformer_stack.py` | T: N identical dense blocks — windowed GQA + SwiGLU, no MoE (shipped A/B: N_T=12; thesis S: 5, M: 6) |
+| `model.py` | `EkdantConfig` (plain dataclass), `EkdantModel` (plain `nn.Module`), `ModelOutput` — embed → T → L2 → head wiring, LM CE + answer-letter CE + spread-floor loss, `score_options`, `estimate_model_size`, `baseline_config` |
+| `transformer_stack.py` | T: N identical dense blocks — windowed GQA + SwiGLU, no MoE (shipped A/B: N_T=12; design sizes S: 5, M: 6) |
 | `sandbox.py` | L2: K trajectories, cross-read debate, anchored gated descent, consensus + aux monitors |
 | `output_head.py` | head: single tied `hidden → vocab` projection (0 extra parameters) |
- | `train.py` | entrypoint `python -m ekdant.train --variant sandbox\|baseline` (sequential: MedMCQA → test → MedQA 60% fine-tune → 40% benchmark) |
+| `train.py` | entrypoint `python -m ekdant.train --variant sandbox\|baseline` (sequential: MedMCQA → test → MedQA 60% fine-tune → 40% benchmark) |
 | `data.py` | MedMCQA/MedQA MCQ pipeline (prompt template, letter-token eval) |
 | `__init__.py` | re-exports |
 
@@ -50,24 +50,24 @@ conservative evidence; a param-matched *depth-matched control* (same
 50.09M, no L2, more untied depth instead) is the third arm that makes a
 "gain" claim airtight ([11](../07-Management/11_Future_Work.md)).
 
-The **thesis design** adds L1 `ssm_storage.py` (§3 — embedding + RoPE + selective SSM stack, design-only, not in the package) and an HF-style `EkdantForCausalLM` wrapper; the design target is exactly 5 model files (L1 → T → L2). Full shipped signatures: [API_Reference.md](API_Reference.md).
+The **full design** adds L1 `ssm_storage.py` (§3 — selective SSM stack, design-only, not in the package) ahead of T; the design target is 5 model files (L1 → T → L2 → head + model). Full shipped signatures: [API_Reference.md](API_Reference.md).
 
 **Transformer components (first-class, not an afterthought):** RoPE positional injection in L1 (`rope_theta`) and cross-trajectory attention in the L2 debate rounds. Attention is used *inside* subsystems for positioning and cross-reading — never as the top-level stack, and never over the sequence length (cost scales with K ≤ 8) — so inference stays O(1) in T.
 
-**Factory** (`src/models/factory.py` — thesis design, not in this vault): builds `EkdantModel` from config (`model_type = "ekdant"`), loads checkpoints and tokenizers, estimates parameter counts.
-
-**Training and evaluation** (`src/training/`, `src/infrastructure/`, `src/evaluation/`, `scripts/` — thesis design; shipped training is `python -m ekdant.train`): single-GPU pretraining by default (FSDP full-shard only for scale-up), 8-phase production validation, five thesis benchmarks plus honesty probes. Details in `07`, `09`, `14`.
+**Training and evaluation** (`ekdant.train`): one invocation runs the sequential protocol — phase 1 on all of MedMCQA, phase 2 fine-tune on 60 % of MedQA, then the untouched 40 % benchmark and the official MedQA test — with resume, `--eval-only`, and checkpoint selection on the untouched MedMCQA validation split. Details in [07](../06-Training-Eval/07_Training_Pipeline.md), [09](../06-Training-Eval/09_Validation_System.md), [14](../06-Training-Eval/14_Performance_Analysis.md).
 
 ## 2. Data flow into the model
 
-The registry holds 54 primary datasets (+4 fallback-only) across 8 categories with weights summing to 1.0. Streaming loads each entry with automatic text-field detection and fallback chains. Quality scoring (8 components), exact/fuzzy/semantic deduplication, and benchmark-contamination filtering clean the stream. Code passes AST validation and function sampling. Cleaned texts are tokenized, packed into fixed-length sequences (EOS-separated, random-window sampling, <5% padding, `_segments`/`_avg_quality` metadata), and mixed by adaptive weighted sampling into the DataLoader.
+Two public datasets, strictly in sequence ([05](../05-Data/05_Data_Pipeline.md)): MedMCQA (182,496 labelled train rows; 4,183-row validation split used for selection and retention) then MedQA (10,178 train rows → seed-locked 60 % fine-tune / 40 % untouched benchmark; 1,273 official test rows). Each example is `question + A–D options + "Answer:"` with the answer letter as the target; a 32,768-entry BPE tokenizer trained once on MedMCQA prompts is shared by both arms; batches pad to the batch maximum (p99 118 / 364 tokens, nothing truncated).
 
 ```mermaid
 graph TB
-    R1[build_registry: 54 entries] --> S1[stream_dataset_with_fallbacks]
-    S1 --> Q1[document_quality_score + dedup + contamination filter]
-    Q1 --> P1[pack_sequences + WeightedMixedDataset]
-    P1 --> DL[DataLoader]
+    M1[MedMCQA train] --> P1[phase 1: train]
+    M1v[MedMCQA validation] --> SEL[score · select checkpoint · retention]
+    Q1[MedQA train] --> SP{seed-locked 60/40}
+    SP -->|60%| P2[phase 2: fine-tune]
+    SP -->|40%| BN[benchmark — scored once]
+    Q2[MedQA test] --> BN2[second untouched number]
 ```
 
 ## 3. Layer 1 — SSM Storage: the memory answer
@@ -80,7 +80,7 @@ graph TB
 
 ## 4. Layer T — Dense Transformer stack: the retrieval answer
 
-**Problem it solves:** L1's compressed state is lossy on exact recall (Vault B11). T restores precise local retrieval before reasoning begins — with plain dense blocks. No MoE: the sandbox (K debating trajectories) is this architecture's mixture mechanism, so a router would duplicate it and risk collapse at 20–40M scale.
+**Problem it solves:** L1's compressed state is lossy on exact recall (Vault B11). T restores precise local retrieval before reasoning begins — with plain dense blocks. No MoE: the sandbox (K debating trajectories) is this architecture's mixture mechanism, so a router would duplicate it and risk collapse at this scale.
 
 **How:** `h [B,T,H]` → `n_transformer_layers` identical blocks (XS: 3, S: 5, M: 6; shipped A/B: **12**). Each block: pre-norm → windowed GQA (`transformer_window` = 512, RoPE shared base — KV bounded by W, never T) → residual → pre-norm → dense SwiGLU FFN → residual. Output `hT [B,T,H]` feeds L2.
 
@@ -121,20 +121,21 @@ graph TB
 **The A/B question this diagram answers:** the sandbox arm pays
 (1) +6.56M params, (2) 4× projection work per token, (3) 2 debate rounds
 + 8 descent steps — to produce *one* consensus vector per position that
-replaces `hT` before the head. If the final numbers tie (they do at 12K
-and are being re-tested at 40 epochs / ~161K steps), the claim under test is whether
-any of that machinery ever beats the plain backbone at this scale.
+replaces `hT` before the head. If the final numbers tie (they do in the
+3-epoch pilot, and the 100-epoch campaign is pending), the claim under test is
+whether any of that machinery ever beats the plain backbone at this scale.
 
 **Why this design:** single-path chain-of-thought is the control; sampling K paths and voting (self-consistency) is the matched-budget baseline; in-graph debate plus latent energy refinement is the tested improvement — with the published critique that debate often ties voting at equal cost built into the evaluation rules rather than hidden. Sources: `20`, PDFs `papers/Sandbox_Reasoning/C1`, `C2`, `C3`, `C8`, `C11`.
 
-## 6. Training signals (two)
+## 6. Training signals
 
-- `lm_ce` (weight `lm_weight = 1.0`): standard causal next-token cross-entropy on shifted logits.
-- Spread floor (weight `sandbox_weight = 0.1`, threshold `sandbox_rho_min = 0.05`): `max(0, ρ_min − ρ)²` on the dimensionless ratio `ρ = trajectory_variance / mean(hT²)`. Zero while the K hypotheses keep their spread, positive only on collapse. Reported and never minimized: `anchor_energy`, `trajectory_variance`, `spread_ratio`. A bare agreement penalty is deliberately **not** used — it is minimized by the collapse it is meant to prevent ([29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.2).
+- `lm_ce` (weight 1.0): standard causal next-token cross-entropy on shifted logits.
+- Answer-letter CE (`--answer-weight`, default 0, campaign 10): `CE(logits[answer_pos − 1], answer_letter)`. The letter is 1 token in ~34 (MedMCQA) / ~173 (MedQA), so plain LM CE gives the scored decision ~1–3 % of its gradient (T22). Applied to both arms.
+- Spread floor (sandbox arm only; shipped `lambda_sbx = 1.0`, design value 0.1; threshold `rho_min = 0.05`): `max(0, ρ_min − ρ)²` on the dimensionless ratio `ρ = trajectory_variance / mean(hT²)`. Zero while the K hypotheses keep their spread, positive only on collapse. Reported and never minimized: `anchor_energy`, `trajectory_variance`, `spread_ratio`. A bare agreement penalty is deliberately **not** used — it is minimized by the collapse it is meant to prevent ([29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.2).
 
-## 7. Configuration (`EkdantConfig`, ~13 knobs)
+## 7. Configuration (`EkdantConfig`)
 
-`model_type = "ekdant"`; `hidden_size`, `vocab_size`, `max_position_embeddings`, `rope_theta`, `tie_word_embeddings`; L1: `d_state`, `n_ssm_layers`; T: `n_transformer_layers`, `transformer_window` (heads derive from `hidden_size`); L2: `n_sandbox_paths` (K), `n_debate_rounds`, `sandbox_steps`, `sandbox_weight`, `lm_weight`. Thesis defaults (`config_ekdant_xs/s/m.yaml`): XS (≈12M): H=256/V=32K/d=96/N_ssm=2/N_T=3/K=4 · S (≈21M): H=320/V=32K/d=128/N_ssm=4/N_T=5/K=4 · M (≈46M): H=512/V=32K/d=256/N_ssm=4/N_T=6/K=4 · all: window 512, rounds 2, steps 8, seq 2048, 50K steps on 1× A100. Every knob maps to an ablation in `11_Future_Work.md`; full table in `12_Configuration_Guide.md`.
+Shipped fields: `vocab_size`, `dim`, `n_t`, `n_heads`, `n_kv_heads`, `window`, `ffn_hidden`, `max_seq_len`, `pad_id`; L2: `use_sandbox`, `n_sandbox` (K), `debate_rounds`, `descent_steps`, `eta`, `rho_min`, `lambda_sbx`, `readout` (`mean` | `lowest_energy`); `dropout`. Values and meanings in [12](12_Configuration_Guide.md); the two JSONs differ only in `use_sandbox`. The L1 knobs (`d_state`, `n_ssm_layers`) and the XS/S/M design sizes (§11) belong to the full design.
 
 ```mermaid
 graph TB
@@ -153,11 +154,11 @@ graph TB
 
 The runnable workflow lives in `09-Code/` (the L2-only build; `pip install -e .` first). From `09-Code/`:
 
-- **Unit tests:** `pytest -q` — 88 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py`, `tests/test_schedule.py`, `tests/test_eval_split.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas, LR schedule, benchmark 60/40 partition, answer-weight loss). Ops runbook: [`run.md`](../run.md).
+- **Unit tests:** `pytest -q` — 89 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py`, `tests/test_schedule.py`, `tests/test_eval_split.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas, LR schedule, benchmark 60/40 partition, answer-weight loss). Ops runbook: [`run.md`](../run.md).
 - **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` — **sequential protocol in one invocation: (1) train on all of MedMCQA → record the MedMCQA validation result (`phase1`), (2) fine-tune on a seed-locked 60% partition of MedQA train, (3) benchmark the complementary 40% exactly once + the official MedQA test (also untouched)**; the untouched MedMCQA validation set drives per-epoch `best.pt` selection, and the final checkpoint is the better of `best.pt` vs `last.pt` on that validation set (recorded in `selected`). Live telemetry every `--log-every` (default 100) optimizer steps — step/total, % of phase, EMA loss, LR, grad norm, tok/s, ETA — plus per-epoch summaries, `--eval-every` validation evals, and `history[loss,lr,gnorm,test]` in `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected`). **Campaign run: `--epochs 100 --batch-size 6 --grad-accum 8 --ft-lr 5e-5 --ft-epochs 10 --answer-weight 10`** — 381,480 optimizer steps (the `--ft-*` knobs cap the 6,106-row fine-tune — T21; `--answer-weight` re-weights the 1-token answer-letter CE that plain LM loss dilutes ~97–99% — T22); measured 6.3 opt steps/s on a T4 (the collator pads to batch max; measured p50 34 MedMCQA / 173 MedQA tokens, max 857, 0 rows exceed 2048) ≈ **17.3 h baseline + ~26 h sandbox ≈ 1.8 days** (scale table, protocol, eval semantics, and progress-line glossary in [`run.md`](../run.md) §3).
 - **Train (multi-GPU):** `torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox --out runs/sandbox` (one variant at a time). Configs: `configs/sandbox_50m.json`, `configs/baseline_50m.json` (identical architecture; only `use_sandbox` differs; both seq 2048).
 
-Thesis-scale tooling referenced elsewhere in this vault (`main.py`, `scripts/verify_datasets.py`, `scripts/production_validation.py`, `config_ekdant_xs/s/m.yaml`, `tests/test_ekdant.py`) is documented spec only — not present in this repository.
+There is no `main.py`, `scripts/` directory or YAML size config; the commands above are the whole interface.
 
 ## 9. End-to-end pipeline (complete spec)
 
@@ -171,7 +172,7 @@ input_ids [B,T]
  → L2: init_K → [4,B,T,H] → debate ×2 → descent ×8
  → consensus y [B,T,H] + variance report
  → vocab head (tied) → logits [B,T,V]
-loss = CE(shift(logits), shift(labels)) + sandbox_weight · max(0, rho_min − spread_ratio)²
+loss = CE(shift(logits), shift(labels)) + answer_weight · CE(answer letter) + lambda_sbx · max(0, rho_min − spread_ratio)²
 ```
 
 Shipped (L2-only, what runs today): the same pipeline minus the L1 row — `embed → T (N_T=12) → L2 → head`, seq 2048 (shipped-config value, matching the thesis spec; the `EkdantConfig` dataclass default remains 1024), configs `09-Code/configs/*.json`.
@@ -190,7 +191,7 @@ The shipped package is the 7-module layout in §1; the thesis build target is th
 | `sandbox.py` (~200) | Orthogonal-distinct init_K → debate ×2 (cross-read + repair gate) → descent ×8 (η≈0.5/S toward the anchor) → consensus + variance. Full recipe → [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) |
 | `output_head.py` (~40) | Single `Linear(H→V, bias=False)`, tied (XS: 32K×256, S: 32K×320, M: 32K×512); one dense projection per micro-batch |
 
-## 11. Full size table (XS ≈12M / S ≈21M / M ≈46M — copy into `config_ekdant_xs/s/m.yaml`)
+## 11. Design-time size table (full three-stage model with L1; superseded by the shipped 50M A/B for every result)
 
 | Parameter | XS | S | M | Notes |
 |---|---|---|---|---|
@@ -204,7 +205,7 @@ The shipped package is the 7-module layout in §1; the thesis build target is th
 | `lm_weight` / `sandbox_weight` / `sandbox_rho_min` | 1.0 / 0.1 / 0.05 | 1.0 / 0.1 / 0.05 | 1.0 / 0.1 / 0.05 | The only two losses: LM CE + spread floor `max(0, ρ_min−ρ)²` |
 | `training`: steps / lr / warmup / batch×accum | 50000 / 1e-4 cosine / 3000 / 4×4 (eff 16) | same | same | AdamW fused, wd 0.1, clip 1.0, BF16, `strategy: none` |
 
-## 12. Param budget (≈, verify with `estimate_model_size`)
+## 12. Param budget (design-time estimate, full model)
 
 Embeddings tied (XS 8.4M · S 10.5M · M 16.8M) + L1 aSSM (1.5M / 4.8M / 13M) + T (1.7M / 4.4M / 13.4M) + L2 (0.8M / 1.3M / 2.8M) + head tied (0) + counting buffers (~0) = **XS 12.4M → S 21.0M → M 46.0M**. The L2 figure includes the diverse init, the R=2 debate nets, and the anchor `W_a [H,H]` plus gate `W_g [2H,H]`; it rose from 0.6/1.0/2.2M when the peer-mean pull was replaced by anchored gated descent. Round to **12M / 21M / 46M**.
 
@@ -212,7 +213,7 @@ Shipped reality check (measured, `09-Code`): at N_T=12 the A/B comes to **sandbo
 
 ## 13. Test plan
 
-Shipped tests live at `09-Code/tests/{test_model,test_sandbox,test_transformer}.py` (55 passing). The table is the thesis L1+T+L2 test plan; L1 rows are design-only (L1 not in the current package).
+Shipped tests live at `09-Code/tests/` (`test_model`, `test_sandbox`, `test_transformer`, `test_data`, `test_schedule`, `test_eval_split` — 89 passing; see [09](../06-Training-Eval/09_Validation_System.md)). The table is the thesis L1+T+L2 test plan; L1 rows are design-only (L1 not in the current package).
 
 | Test | Proves (spec §) |
 |---|---|
@@ -223,7 +224,7 @@ Shipped tests live at `09-Code/tests/{test_model,test_sandbox,test_transformer}.
 | K=1 vs 4 + T depth/window + S-vs-M + loss decrease | RQ1/RQ2 ([01](../01-Introduction/01_Project_Overview.md) §3) |
 | Backbone-only → +L1 → +L1+L2, matched params/FLOPs | Proves each layer earns its place ([11](../07-Management/11_Future_Work.md)) |
 | Variance/spread floor (collapse = fail) | Honesty guards |
-| 50-step smoke: save/load/resume +10 (Phase 8) | [07](../06-Training-Eval/07_Training_Pipeline.md) |
+| Smoke run per arm: train → resume → eval-only | [07](../06-Training-Eval/07_Training_Pipeline.md) §5 |
 
 ## 14. Internal-only build rule
 
@@ -235,4 +236,4 @@ Shipped tests live at `09-Code/tests/{test_model,test_sandbox,test_transformer}.
 | `transformers` (tokenizer only), `datasets`, `pydantic`, `pyyaml` | AutoGen / CrewAI / LangGraph / any agent framework |
 | `numpy` | Pretrained SSM weights (train from scratch) |
 
-CI guard: the thesis `test_ekdant.py` asserts no blocked import inside `src/ekdant/` (grep test); the shipped `09-Code` package satisfies it by containing no blocked imports at all — every kernel is pure PyTorch.
+CI guard: `test_model_has_no_blocked_imports` and `test_no_blocked_imports_in_ekdant_package` assert no blocked import inside `src/ekdant/`; the shipped package contains none — every kernel is pure PyTorch.

@@ -54,7 +54,7 @@ class EkdantConfig:
             raise ValueError(f"dim {self.dim} not divisible by {self.n_heads}")
         if self.n_heads % self.n_kv_heads:
             raise ValueError("n_heads must be divisible by n_kv_heads")
-        if self.readout not in ("mean", "argmin"):
+        if self.readout not in ("mean", "lowest_energy"):
             raise ValueError(f"unknown readout {self.readout!r}")
         if self.eta is None:
             self.eta = 0.5 / self.descent_steps

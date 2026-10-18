@@ -2,7 +2,7 @@
 
 > Map: [README](../README.md) · Train: [07](07_Training_Pipeline.md) · Build: [26b](../04-Model-DeepDive/26b_Dense_Transformer_for_T.md) · [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md) · Prior-art constraints: [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3
 
-All numbers below are from `estimate_model_size` / direct param counts on the shipped A/B configs (`09-Code/configs/{sandbox,baseline}_50m.json`, H=512, V=32768, N_T=12, W=512, K=4, R=2, S=8). Inference-state and compute figures are ==analytic projections==, not measurements — no benchmark run has been published yet (real training runs have begun; first MedMCQA/MedQA numbers pending both arms).
+All numbers below are from `estimate_model_size` / direct param counts on the shipped A/B configs (`09-Code/configs/{sandbox,baseline}_50m.json`, H=512, V=32768, N_T=12, W=512, K=4, R=2, S=8). Inference-state and compute figures are ==analytic projections==, not measurements — the only completed head-to-head run is the 3-epoch pipeline-scale A/B (a tie; see `STATUS.md`); the 100-epoch campaign numbers are pending.
 
 ## 1. Parameter table (measured)
 
@@ -54,18 +54,19 @@ Sandbox ops run on `[K,B,T,H]` — every refinement op touches all K trajectorie
 | K=1 vs K=4 cost-vs-accuracy; depth/window ablations | config sweeps | ❌ open |
 | Baseline vs sandbox `results.json` (letter accuracy — quote `medqa_bench`, report `phase1.medmcqa_val` vs final `medmcqa_val` retention) | runner output | ready to produce |
 
-Ch.6 result tables stay `[PENDING]` until the LR bug ([07](07_Training_Pipeline.md) §4.1) and the ρ logging gap (§4.2 above) are fixed.
+Ch.6 result tables stay `[PENDING]` until the 100-epoch campaign has run for both arms and the ρ logging gap (§4.2 above, [07](07_Training_Pipeline.md) §4.2) is closed. (The LR-schedule bug is fixed — per-stage reset, `tests/test_schedule.py`.)
 
-## 5. RQ2/RQ3 evaluation plan (what is runnable at 12–46M)
+## 5. RQ2/RQ3 evaluation plan (what is runnable at 50M)
 
-GSM8K/HumanEval cannot decide the sandbox claims at this scale (smallest reported 80% GSM8K model is 34B, arXiv:2312.09241) — they are *scaling-held-out*, reported only, never the gate.
+GSM8K/HumanEval cannot decide the sandbox claims at this scale (smallest reported 80% GSM8K model is 34B, arXiv:2312.09241) — they are *scaling-held-out*, out of scope here.
 
 | Role | Tasks | Used as |
 |---|---|---|
-| **Runnable now (XS/S/M)** | val+test perplexity; ARC-easy; HellaSwag; LAMBADA; synthetic known-answer multi-step items | the RQ2/RQ3 **decision gate** |
-| **Scaling-held-out** | GSM8K; HumanEval; MMLU | reported only |
+| **Decision gate** | MedQA 40% benchmark partition (`medqa_bench`, 4,072 rows, scored once) | the RQ2 number |
+| **Second clean number** | official MedQA test (1,273) | confirmation |
+| **Selection / retention** | MedMCQA validation (4,183) | checkpoint choice; phase-1 vs final erosion |
 
-RQ2 = cost-matched sandbox vs. greedy vs. self-consistency-majority at equal FLOPs/tokens. RQ3 = agreement-vs-accuracy calibration plus the `spread_ratio ρ` learning curve (falling ρ = failure signal, [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.2–3.3). Addition ladder required: backbone-only vs +L1 vs +L1+L2 (matched params) on recall probe + reasoning samples.
+RQ2 = sandbox arm vs. the identical no-sandbox backbone, with params, tokens×K, FLOPs and wall-clock reported beside accuracy; the depth-/parameter-matched control remains owed. RQ3 = agreement-vs-accuracy calibration plus the `spread_ratio ρ` learning curve (falling ρ = failure signal, [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.2–3.3) — blocked on persisting the diagnostics. The addition ladder backbone-only → +L2 → +L1+L2 needs L1 for its last step.
 
 ## Connections
 - Train/losses: [07](07_Training_Pipeline.md) · Validation harness: [09](09_Validation_System.md) · Debug: [13](13_Debugging_Guide.md) · Issues: [10_Known_Issues](../07-Management/10_Known_Issues.md) · Future work: [11_Future_Work](../07-Management/11_Future_Work.md)

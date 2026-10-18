@@ -1,150 +1,83 @@
-> Debugging flows for data, training, and the model (`transformer_stack` / `sandbox` / `output_head` — L1 `ssm_storage` is design-only, not in code). Model details live in `02_System_Architecture.md`.
+> Debugging flows for data, training, and the model (`data` / `train` / `transformer_stack` / `sandbox` / `output_head`; L1 `ssm_storage` is design-only, not in code). Model details live in `02_System_Architecture.md`.
 
 ---
 
 # Debugging Guide
 
+All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdout; run artifacts go to `--out` (`runs/<variant>/`: `results.json`, `last.pt`, `best.pt`, `tokenizer.json`, `config.json`).
+
 ## Common Failures & Diagnosis
 
-### 1. Dataset Loading Failures
-- **Symptom**: `datasets` library raises `GatedDataset` error
-- **Cause**: Dataset requires HF access token or approval
-- **Check**: Is HF_TOKEN set? Has access been granted at huggingface.co/datasets/{path}?
-- **Fix**: Set HF_TOKEN env var or token in config; request access for gated datasets
-- **Log location**: Console output from `python -m ekdant.train` / `09-Code/src/ekdant/data.py::load_examples` (the old `streaming.py _handle_load_error()` belongs to the pretrain data pipeline, which is not in this vault)
+### 1. Dataset loading fails or finds nothing
+- **Gated / auth error** — set `HF_TOKEN` (and accept the dataset terms on the Hub) if a source requires it. MedMCQA and MedQA are public.
+- **`0 examples` / empty dataset** — a schema mismatch in `data.py::_normalise_row` (MedMCQA ships flat `opa..opd` + `cop`, 0-indexed int; MedQA ships an `options` dict). This silently trained on nothing once (T16); `load_examples` now raises when a split is fully unlabelled.
+- **Accuracy equals the "A" rate / 0.00 %** — you are scoring the unlabelled MedMCQA public test split (`cop = -1`, T18) or reading the wrong logit position (T17). Score the MedMCQA *validation* split; the evaluator reads `logits[answer_pos - 1]` against the letter *index*.
+- **First run downloads, later runs are offline** — `data.py` defaults `HF_HUB_OFFLINE=1`; it goes online for exactly one attempt when the cache is empty. Set `HF_HUB_OFFLINE=0` only to force hub checks.
+- **Verify:** `python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 50 --epochs 1 --batch-size 4`.
 
-### 2. Dataset Not Found (404)
-- **Symptom**: `bigcode/the-stack-v2-dedup does not exist` error
-- **Cause**: URL encoding issue with `#` in config name (C# case)
-- **Fix**: Remove C# from STACK_V2_LANGUAGES (already done — that module belongs to the pretrain data pipeline, which is not in this vault)
-- **Verify**: `python -m ekdant.train --variant sandbox --limit 50` (no `scripts/verify_datasets.py` in this vault — data loads through `09-Code/src/ekdant/data.py`)
+### 2. Checkpoint / resume failures
+- **Symptom:** `--resume` errors or the fresh-run guard refuses to start.
+- **Fresh-run guard:** a run into an `--out` that already has `last.pt` aborts unless you pass `--resume` (or use a new directory) — by design, to avoid overwriting a training state.
+- **Causes of a bad resume:** a different `--epochs` / `--ft-epochs` / `--ft-lr` / `--answer-weight` than the original run (the epoch counters will not line up), or a changed model config (resume reads the exact `config.json` in `--out`). Keep the original flags.
+- **Expected after resume:** optimizer moments restart cold (a small loss bump) and the shuffle generator restarts; the seed-locked 60/40 MedQA partition never changes.
+- **`--eval-only`** needs an existing `--out` with `last.pt` and `tokenizer.json`.
 
-### 3. Documentation Scraper Failures
-- **Symptom**: "0 pages" scraped for a source
-- **Causes**: 
-  - Cloudflare challenge (PyTorch)
-  - Site redesign (RFC, PostgreSQL)
-  - JavaScript-rendered navigation (Docker, MDN)
-  - Timeout (server too slow)
-- **Check**: Run scraper individually with `--sources [name]` (scraper scripts are not in this vault)
-- **Verify**: Check JSONL output files in data/docs/{source_name}/documents.jsonl (the `data/docs` corpus build is not in this vault either)
+### 3. Training divergence
+- **Symptom:** loss → NaN / inf, or `gnorm` ≫ 1 sustained (clip threshold is 1.0).
+- **Check:** the `--log-every` lines (`loss lr gnorm tok/s eta`).
+- **Diagnosis:** lower `--lr` / `--ft-lr`; confirm the fp16 path (a T4 has no bf16, so GradScaler is in use); try `--no-compile`; isolate with `--limit 400 --epochs 1 --batch-size 4`.
 
-### 4. Packing Validation Failures
-- **Symptom**: Padding > 5% or quality score too low
-- **Check**: Phase 6 output in the production report (8-phase harness script is not in this vault)
-- **Diagnosis**: 
-  - Too many short sequences → increase packing efficiency
-  - Too many long sequences → increase max_seq_length or improve window sampling
-- **Fix**: Adjust max_seq_length or improve random_window_sample
+### 4. Training looks fine but accuracy does not move
+- **Train CE collapses (≈ 0.05) while held-out accuracy plateaus** — memorisation of the small MedQA fine-tune set (T21). Use `--ft-lr 5e-5 --ft-epochs 10`.
+- **Train CE low, letter accuracy at chance** — supervision dilution (T22): the letter is 1 token in ~34 / ~173. Use `--answer-weight 10`.
+- **Sandbox arm only: `spread_ratio` pinned at the floor** — the K trajectories have collapsed (T8) and L2 is doing nothing. Raise `rho_min` first; report it either way. (`spread_ratio` is computed in `aux` but is not yet written to `results.json`.)
 
-### 5. Checkpoint Load Failures
-- **Symptom**: Model fails to resume from checkpoint
-- **Check**: Phase 8 output for checkpoint_found and resume_return_code (Phase 8 = SKIPPED here — harness script absent)
-- **Causes**: 
-  - Incompatible config change between save and resume
-  - Missing optimizer state keys
-  - FSDP world size mismatch
-- **Fix**: Ensure identical config, world size, and FSDP settings
+### 5. Training stuck at step 0 / progress not moving
+- **Symptom:** no `[stage] epN step X/Y …` lines after the `=== stage … ===` header; GPU idle.
+- **Cause:** forked DataLoader workers deadlocking on locks inherited at fork time.
+- **Fix:** lower `num_workers` in `train.py::build_dataloader` (ships 4 for training, 0 for evals).
+- **Inspect without root:** `py-spy dump --pid <pid>` against the `python -m ekdant.train` process.
 
-### 6. Training Divergence
-- **Symptom**: Loss goes to NaN or infinity
-- **Check**: Gradient norms, learning rate, mixed precision settings
-- **Diagnosis**:
-  - Try max_grad_norm lower (0.5 instead of 1.0)
-  - Reduce learning rate
-  - Disable mixed precision (use_full_precision)
-  - Check for corrupted data samples
-- **Verify**: Re-run with `python -m ekdant.train --variant sandbox --limit 400 --epochs 1 --batch-size 4` to isolate (no `--smoke-steps` flag exists here)
+### 6. Hangs silently right before / inside an eval
+- **Symptom:** last log line is an epoch summary; process alive, GPU idle, no output for minutes.
+- **Cause (T19, fixed):** every `load_dataset` call revalidated against the Hub (a network HEAD per split per call); on a dead or IPv6-only route the socket sits in `SynSent` forever.
+- **Fix (shipped):** offline-first loading in `data.py`. Pull the latest code; confirm with `py-spy dump` if it recurs (a stall parked in a socket read means the offline default was overridden).
 
-### 7. Training Stuck at Step 0 / Progress Bar Not Moving
-- **Symptom**: Progress bar pinned at `0/50000` for hours; GPU idle; main thread futex-waiting
-- **Cause**: Forked DataLoader worker processes inherit internal locks held by the async-prefetch/streaming threads at fork time; every worker deadlocks on its first batch fetch
-- **Fix**: drop or lower `num_workers` in `09-Code/src/ekdant/train.py::build_dataloader` (ships `num_workers=4` for training, `workers=0` for evals, `persistent_workers=(workers>0)`); the `dataloader_num_workers=0` pretrain fix belongs to `src/training/pipeline.py`, which is not part of this vault
-- **Verify**: `09-Code/src/ekdant/train.py` logs `=== stage ... ===` then `[stage] epN loss=` lines — expect one within seconds of the first `load_examples` download completing
+### 7. CUDA out of memory
+- Reduce `--batch-size` and raise `--grad-accum` to keep the effective batch (e.g. 6 × 8 = 48 on a 16 GB T4).
+- The sandbox arm adds a `[K, B, T, H]` scratch tensor (≈ 1.5× baseline wall-clock, the main activation cost).
+- Memory only becomes a concern with near-2048-token inputs; MedMCQA p99 is 118 tokens and MedQA p99 is 364.
 
-### 7b. Hangs Silently Right Before/Inside an Eval (No Log Line, No Error)
-- **Symptom**: last log line is an epoch summary or `epN eval …`; process alive, GPU idle, no output for minutes — looks like a deadlock
-- **Cause (T19, fixed)**: `load_dataset` revalidated against the HF hub with a network HEAD on **every** call (each per-epoch eval = a network round-trip); on a dead/IPv6 route the socket sits in `SynSent` forever. Reproduced via a per-process TCP dump (syn sent to CloudFront `2600:9000…:443`)
-- **Fix (shipped)**: `data.py` defaults `HF_HUB_OFFLINE=1`/`HF_DATASETS_OFFLINE=1` at import — warm-cache loads never touch the network; the first-run download flips online once via the `_hub_offline()` fallback. `git pull` to pick it up; set `HF_HUB_OFFLINE=0` only to force hub checks
-- **Verify**: warm-cache run reaches `epN eval …` lines with no pauses (`py-spy dump --pid <pid>` on a pre-fix build shows it parked in a socket read)
+### 8. Tests fail
+- `pytest -q` (89 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
+- A config change that makes `EkdantConfig` and `Sandbox` disagree (e.g. a new readout name) is caught by `test_every_config_valid_readout_builds_a_model`.
 
-### 8. Dumping Thread Stacks Without Root (`kill -USR1 <pid>`)
-- **Symptom**: Need to know where a stuck training process is blocked but have no ptrace/sudo access
-- **Fix**: `kill -USR1 <pid>` dumps ALL thread stacks only if a SIGUSR1 handler is installed — the `main.py` handler older notes refer to is **not shipped in this vault**; use `py-spy dump --pid <pid>` or a debugger against `python -m ekdant.train` instead
-- **Use with**: Silent stalls where the process is alive but throughput is zero
+### How to reproduce an issue
+1. `cd 09-Code && pip install -e .[dev] && pytest -q`
+2. Smoke the arm in question: `python -m ekdant.train --variant sandbox|baseline --out /tmp/x --limit 400 --epochs 1 --batch-size 4`
+3. Compare against the pilot reference magnitudes in `run.md` §6 (33.31 % / 32.01 % MedMCQA validation after 3 epochs).
 
-### 9. `[TRAIN] step 0/N ... awaiting first batch` Heartbeat Line
-- **Symptom**: New workers want a health signal for a possibly-stuck trainer
-- **Cause**: A `_TrainHeartbeatCallback` (in the pretrain pipeline, **not present in this vault**) logs this line immediately when training starts, then a heartbeat every 100 steps; `09-Code/src/ekdant/train.py` does not emit it
-- **Read**: The first line means the training loop entered but the first batch has not arrived yet (data pipeline stall). A heartbeat cadence every 100 steps makes silent stalls visible within seconds
+## Troubleshooting Flowchart
 
-### Where Logs Are Stored
-- Console: stdout/stderr (always visible)
-- File: the shipped trainer writes to `--out` (`runs/<variant>/results.json`, `last.pt`, `best.pt`) — `cfg.output.log_dir`/`logs/` belongs to the thesis pretrain pipeline, not in this vault
-- Experiment tracker: none in the shipped A/B trainer (wandb/mlflow/tensorboard via `cfg.tracking` is thesis-pipeline design)
-
-### How to Reproduce Issues
-- The standard reproduction sequence (`scripts/final_verify.sh`) and the `production_validation.py` phases are **not in this vault** — reproduce with the runnable workflow below
-- For dataset issues: `python -m ekdant.train --variant sandbox --limit 50` (loads MedMCQA/MedQA through `09-Code/src/ekdant/data.py`)
-- For pipeline issues: the smoke run + `pytest -q` in `09-Code/`
-
-### How to Verify Fixes
-1. `cd 09-Code && pip install -e .[dev]`
-2. Check dataset access with `python -m ekdant.train --variant sandbox --limit 50` (set `HF_TOKEN` if a source is gated)
-3. Full validation: the 8-phase harness script is absent here (Phase 8 SKIPPED) — use the smoke run for now
-4. Run specific test: `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py`)
-
-### Troubleshooting Flowcharts
-
-#### Dataset Loading Flowchart
-```
-Dataset Load Error
-    ├── Gated error?
-    │   ├── Yes → Is HF_TOKEN set?
-    │   │       ├── Yes → Request access at HF Hub
-    │   │       └── No → Set HF_TOKEN in config or env
-    │   └── No → Continue
-    ├── "does not exist" error?
-    │   ├── Check path for special characters (#, etc.)
-    │   ├── Check dataset name spelling
-    │   └── Verify dataset still exists on HF Hub
-    ├── Timeout?
-    │   ├── Increase datasets timeout
-    │   └── Check network connectivity to HF Hub
-    └── Other error?
-        ├── Check datasets library version (need 2.20+)
-        ├── Python-script-based datasets don't work without trust_remote_code
-        └── Check for arrow/parquet file corruption
-```
-
-#### Training Failure Flowchart
 ```
 Training fails
-    ├── Stuck at step 0 / progress bar not moving?
-    │   ├── No `=== stage ... ===` header after the dataset download? (`ekdant.train` prints stage header + `[stage] ep0 step X/Y …` heartbeat every `--log-every` steps)
-    │   ├── If stuck on first batch: forked DataLoader worker deadlock (locks inherited at fork)
-    │   │   └── Lower `num_workers` in `09-Code/src/ekdant/train.py::build_dataloader` (ships 4)
-    │   ├── Dump thread stacks with `py-spy dump --pid <pid>` (no `main.py` SIGUSR1 handler here)
-    │   └── Confirm the `[stage] ep0 step X/Y` lines advance (and `tok/s` > 0)
-    ├── Stuck silently right before `epN eval` (alive, no output)?
-    │   └── Pre-fix build: hub etag stall (T19) — `git pull` for the offline-first `data.py`; confirm with `py-spy dump` (parked in socket connect)
-    ├── NaN loss?
-    │   ├── Reduce learning rate
-    │   ├── Increase gradient clipping (lower max_grad_norm)
-    │   ├── Check for corrupted data samples
-    │   └── Disable mixed precision
-    ├── OOM (CUDA out of memory)?
-    │   ├── Reduce batch_size
-    │   ├── Enable gradient checkpointing
-    │   ├── Reduce max_seq_length
-    │   └── Use FSDP with CPU offload
-    ├── Checkpoint save fails?
-    │   ├── Check disk space
-    │   ├── Check write permissions
-    │   └── Reduce save frequency
-    └── Slow convergence?
-        ├── Increase learning rate
-        ├── Check data quality
-        ├── Verify weight initialization
-        └── Increase warmup steps
+    ├── No `[stage] ep0 step X/Y` lines after the stage header?
+    │   ├── Stuck on first batch → DataLoader worker deadlock → lower num_workers
+    │   └── py-spy dump --pid <pid>
+    ├── Stuck silently right before `epN eval`?
+    │   └── Pre-fix hub etag stall (T19) → pull offline-first data.py
+    ├── NaN loss / gnorm >> 1?
+    │   ├── Lower lr / ft-lr
+    │   ├── Check fp16 scaler path on T4
+    │   └── Re-run the 400-row smoke
+    ├── OOM?
+    │   ├── Lower batch-size, raise grad-accum
+    │   └── Sandbox arm needs ~1.5x the activations
+    ├── Resume refuses / misaligned?
+    │   ├── Same --epochs / --ft-epochs / --ft-lr / --answer-weight as the original run
+    │   └── Use --resume (fresh-run guard), keep config.json in --out
+    └── Accuracy at chance?
+        ├── Scoring the unlabelled test split? (T18)
+        ├── Train CE collapsed? → --ft-lr / --ft-epochs (T21)
+        └── Letter diluted? → --answer-weight 10 (T22)
 ```

@@ -45,7 +45,7 @@ Shapes with thesis defaults (K = 4 paths, R = 2 debate rounds, S = 8 energy step
 
 ## 5. How L2 is tested (RQ2 + RQ3)
 
-1. **Cost-matched comparisons only:** sandbox vs. greedy vs. self-consistency-majority at equal FLOPs/tokens — never sandbox-vs-greedy alone. **Scale caveat:** at 12–46M params GSM8K/HumanEval sit at the floor (the smallest model reported to pass 80% on GSM8K is 34B, arXiv:2312.09241), so XS/S must additionally run RQ2/RQ3 on signal-bearing tasks — perplexity, ARC-easy/HellaSwag/LAMBADA, and synthetic multi-step items with known answers; GSM8K/HumanEval are scaling-held-out ([29](29_Prior_Art_and_Novelty_Check.md) §3 defect 3).
+1. **Cost-matched comparisons only:** sandbox vs. greedy vs. self-consistency-majority at equal FLOPs/tokens — never sandbox-vs-greedy alone. **Scale caveat:** at 12–50M params GSM8K/HumanEval sit at the floor (the smallest model reported to pass 80% on GSM8K is 34B, arXiv:2312.09241), so XS/S must additionally run RQ2/RQ3 on signal-bearing tasks — perplexity, ARC-easy/HellaSwag/LAMBADA, and synthetic multi-step items with known answers; GSM8K/HumanEval are scaling-held-out ([29](29_Prior_Art_and_Novelty_Check.md) §3 defect 3).
 2. **Ablations:** K, rounds, steps, diverse-vs-copy init, mean-vs-lowest-energy consensus.
 3. **Debate dynamics:** per-round overturn table (wrong→right vs. right→wrong) to catch majority pressure suppressing corrections.
 4. **Calibration (RQ3):** trajectory agreement vs. accuracy — the plot that decides whether consensus works as a confidence signal.

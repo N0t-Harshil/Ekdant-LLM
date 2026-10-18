@@ -232,6 +232,15 @@ def test_config_validation():
         EkdantConfig(readout="median").validate()
 
 
+def test_every_config_valid_readout_builds_a_model():
+    # config validation and Sandbox must accept the same readout names
+    for readout in ("mean", "lowest_energy"):
+        cfg = EkdantConfig(vocab_size=64, dim=32, n_t=1, n_heads=4,
+                           n_kv_heads=2, ffn_hidden=64, window=8,
+                           max_seq_len=16, readout=readout)
+        EkdantModel(cfg)
+
+
 def test_eta_defaults_to_half_over_steps():
     c = EkdantConfig(descent_steps=8).validate()
     assert abs(c.eta - 0.5 / 8) < 1e-9

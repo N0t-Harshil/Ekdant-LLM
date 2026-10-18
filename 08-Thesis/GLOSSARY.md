@@ -21,8 +21,8 @@
 | L1 | SSM Storage (`ssm_storage.py`) — the memory layer |
 | T | Dense Transformer stack (`transformer_stack.py`) — the retrieval layer (NOT tiny-size, NOT transpose) |
 | L2 | Sandbox (`sandbox.py` + `output_head.py`) — the reasoning layer + head |
-| Name | The model is called **Ekdant** everywhere — prose, code, configs (`model_type = "ekdant"`, `EkdantConfig`, `config_ekdant_xs/s/m.yaml`). No code existed yet, so all slugs were renamed cleanly |
-| XS / S / M | Model sizes ≈12M / 21M / 46M (NOT experts, NOT steps) |
+| Name | The model is called **Ekdant** everywhere — prose, code, configs (`EkdantModel`, `EkdantConfig`, `{sandbox,baseline}_50m.json`) |
+| XS / S / M | Design-time size labels ≈12M / 21M / 46M for the full three-stage model (NOT experts, NOT steps); the built model is the 50M A/B pair (sandbox 50.09M / baseline 43.53M) |
 | K | Sandbox trajectories (NOT top-k, NOT KV) |
 | W | Attention window 512 (NOT width) |
 | T (size) | Never used — sizes are XS/S/M precisely to avoid clashing with layer T and length T |

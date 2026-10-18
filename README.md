@@ -1,6 +1,6 @@
 # Ekdant — Thesis Vault
 
-Specialized reasoning model (T dense Transformer + L2 sandbox; L1 SSM designed in vault, not in code). MSc thesis, Hochschule Heilbronn — Harshil Gorasiya.
+A windowed dense Transformer (T) topped by a parallel debate sandbox (L2), trained from scratch on medical multiple-choice QA (MedMCQA, then MedQA). The L1 selective-SSM storage layer is **specified in the vault and thesis but not implemented**. Thesis, Hochschule Heilbronn — Harshil Gorasiya.
 
 **This README is the single map for the vault** — reading paths, folder guide, day-1 commands, and status. There are no hub files.
 
@@ -14,15 +14,15 @@ Specialized reasoning model (T dense Transformer + L2 sandbox; L1 SSM designed i
 
 | Folder | Holds | Thesis |
 |---|---|---|
-| [01-Introduction](01-Introduction/01_Project_Overview.md) | Overview + [STATUS](01-Introduction/STATUS.md) (readiness 7.1/10) | Ch. 1 |
+| [01-Introduction](01-Introduction/01_Project_Overview.md) | Overview + [STATUS](01-Introduction/STATUS.md) (readiness 7.0/10) | Ch. 1 |
 | [02-Architecture](02-Architecture/02_System_Architecture.md) | ==Canonical spec==, codebase map, config guide, API reference | Ch. 3 |
 | [03-Background](03-Background/19_Thesis_Ch2_SSM_Storage_Papers.md) | Paper annotations: 20 SSM (B) + 30 sandbox (C) + 10 Transformer (T) | Ch. 2 |
 | [04-Model-DeepDive](04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) | L1/L2 working, build manuals 26a/b/c, worked examples, novelty audit | Ch. 3 §1/§2 |
-| [05-Data](05-Data/05_Data_Pipeline.md) | 8-stage pipeline, 54-dataset registry, 18 doc scrapers | Ch. 4 |
-| [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, 8-phase validation, debugging, performance | Ch. 5/6 |
-| [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T22), defense-ordered future work | Ch. 7 |
+| [05-Data](05-Data/05_Data_Pipeline.md) | MedMCQA → MedQA pipeline, split, tokenizer, length audit | Ch. 4 |
+| [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, validation + held-out protocol, debugging, performance | Ch. 5/6 |
+| [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T23), defense-ordered future work | Ch. 7 |
 | [08-Thesis](08-Thesis/thesis.md) | thesis.md + thesis.tex/pdf + [glossary](08-Thesis/GLOSSARY.md) | Draft |
-| [09-Code](09-Code/README.md) | **L2-only training code** — pure PyTorch, 88 tests, A/B configs | Build |
+| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 89 tests, A/B configs | Build |
 | [papers/](papers/00_Papers_Index.md) | 66 PDFs (all thesis-cited) + indexes | Sources |
 
 ## Day-1 (new collaborator)
@@ -33,7 +33,7 @@ Specialized reasoning model (T dense Transformer + L2 sandbox; L1 SSM designed i
 cd 09-Code
 pip install -e .[dev]     # note: trailing dot is required
 python -c "import ekdant; print('ok')"
-pytest -q                    # 88 tests, CPU, ~10s
+pytest -q                    # 89 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```
 
@@ -45,26 +45,29 @@ Debugging: see [13_Debugging_Guide](06-Training-Eval/13_Debugging_Guide.md). Iss
 
 **Ekdant answer:** T (windowed GQA + SwiGLU, W=512, no MoE) + L2 sandbox (K=4 trajectories → 2 debate rounds → 8 anchored-gated-descent steps → consensus) + spread floor `max(0, ρ_min − ρ)²`. L1 (selective SSM, O(1) state) is designed in the vault and thesis, not yet in code.
 
+**The experiment:** an architecture-matched A/B — sandbox 50.09M vs baseline 43.53M, identical except `use_sandbox` — trained on all of MedMCQA, fine-tuned on a seed-locked 60 % of MedQA, and benchmarked on the untouched 40 % plus the official MedQA test.
+
 | Done | Not done |
 |---|---|
-| ✅ L2+T code, 67 green tests, A/B configs (sandbox 50.09M vs baseline 43.53M — only `use_sandbox` differs); both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration |
-| ✅ Thesis 26pp, 65 refs, 4 proofs, 0 build errors | ❌ Ch.6 result tables `[PENDING]` (real runs started — baseline trained on Kaggle; eval metric fixed, awaiting both arms' numbers) |
-| ✅ 66-paper library, all cited | ❌ Ch. 6 result tables `[PENDING]` |
-| ✅ 4 design defects found + proven + fixed | ❌ L2 size open item (6.56M measured vs 2.8M thesis) |
-| ✅ Data pipeline + validation harness documented | ❌ LR bug in `train.py`; diagnostics not logged |
+| ✅ T + L2 code, 89 green tests, A/B configs; both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration (RQ1 untested) |
+| ✅ Full 3-epoch A/B on a T4: MedMCQA val 33.31 % vs 32.01 %, MedQA 25.69 % vs 26.08 % — a tie | ❌ 100-epoch sequential campaign for both arms (prepared in `run.md` §3) |
+| ✅ Thesis aligned to the built model (T + L2, MedMCQA/MedQA); 4 proofs, 65 refs | ❌ Ch. 6 result tables `[PENDING]`; `thesis.pdf` needs a rebuild |
+| ✅ 66-paper library, all cited | ❌ Depth-/parameter-matched control, K/R/S ablations, multi-seed |
+| ✅ 4 design defects found + proven + fixed | ❌ Sandbox diagnostics not yet logged to `results.json` |
+| ✅ Leakage-free protocol (T20), training-loop fixes (T21–T23) | ❌ L2 size open item (6.56M measured vs 2.8M estimate) |
 
-Readiness: **7.1/10** — details in [STATUS](01-Introduction/STATUS.md). Fix order: [11_Future_Work](07-Management/11_Future_Work.md).
+Readiness: **7.0/10** — details in [STATUS](01-Introduction/STATUS.md). Fix order: [11_Future_Work](07-Management/11_Future_Work.md).
 
 ## Executive summary
 
 **Problem:** Transformers scale badly with context (KV-cache growth); monolithic stacks hide which part reasons; confidence is uncalibrated.
 
 **Ekdant answer:**
-1. L1 SSM Storage: selective SSM (linear time, O(1) state), handoff to T. *(vault design)*
-2. T Dense Transformer: windowed GQA + SwiGLU (window 512, KV bounded). No MoE.
-3. L2 Sandbox: K parallel trajectories + debate/energy consensus + single dense head.
-4. Two losses: LM CE + sandbox spread floor `max(0, ρ_min − ρ)²`.
+1. L1 SSM Storage: selective SSM (linear time, O(1) state), handoff to T. *(vault design, future work)*
+2. T Dense Transformer: windowed GQA + SwiGLU (window 512, KV bounded). No MoE. *(built)*
+3. L2 Sandbox: K parallel trajectories + debate/anchored-descent consensus + single dense head. *(built)*
+4. Losses: LM CE + answer-letter CE + sandbox spread floor `max(0, ρ_min − ρ)²`.
 
-**Strongest features:** production data pipeline; falsifiable design (every knob has an ablation); 66-paper library mapped to thesis chapters; 4 defects caught by internal review before any run.
+**Strongest features:** falsifiable design (every knob has an ablation); 66-paper library mapped to thesis chapters; 4 defects caught by internal review before any run; a pre-committed willingness to report a tie.
 
 **Read first:** 01 → 02 (canonical) → 09-Code → 20/22 (L2 papers + working) → 12 (config) → 07 (training).

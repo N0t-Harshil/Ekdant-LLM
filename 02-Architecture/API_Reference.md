@@ -23,7 +23,7 @@
 | `eta` | None → `0.5 / descent_steps` | descent step size |
 | `rho_min` | 0.05 | spread-floor threshold (`RHO_MIN_DEFAULT`) |
 | `lambda_sbx` | 1.0 | spread-floor loss weight (shipped; thesis design uses 0.1) |
-| `readout` | `"mean"` | config-valid values: `mean` / `argmin` |
+| `readout` | `"mean"` | config-valid values: `mean` / `lowest_energy` (same as `Sandbox`) |
 | `dropout` | 0.0 | embedding dropout (shipped configs: 0.1) |
 
 Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from_dict(d)` (constructs + validates).
@@ -99,5 +99,3 @@ Thesis-design surface from the pre-restructure docs — none of these are import
 | `ssm_storage.SSMStorageStack` / `SelectiveSSMBlock` / `SSMStorageConfig` | L1: embed + RoPE + selective-SSM stack; `forward(ids, mask) -> (h[B,T,H], compressed[B,3·d_state])`; O(1) state — see [26a](../04-Model-DeepDive/26a_Internal_SSM_Build.md), [21](../04-Model-DeepDive/21_Thesis_Ch3_Layer1_SSM_Storage.md) |
 | `EkdantForCausalLM`, `generate()`, HF `PretrainedConfig`/`PreTrainedModel` | HF Trainer-compatible wrapper + autoregressive generation |
 | `src.models.factory` (`create_model`, `load_model`, `get_fsdp_layer_cls`) | one-arch factory |
-| `src.config.schema`, `src.training.pipeline`, `scripts/production_validation.py` | YAML schema, staged pipeline, 8-phase validation harness |
-| `src.data.*` registry pipeline (`build_registry`, `stream_dataset_with_fallbacks`, `document_quality_score`, `pack_sequences`, `WeightedMixedDataset`) | thesis data chapter — shipped `data.py` is the slim MCQ pipeline above |
