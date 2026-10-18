@@ -9,7 +9,7 @@ Two public datasets, used **strictly in sequence, never jointly**. The same code
 
 ```
 MedMCQA train  (182,822 raw → 182,496 labelled)  ── phase 1 ──▶ train
-MedMCQA val    (4,183, labelled)                 ── never trained on ──▶ phase-1 score · checkpoint selection · retention score
+MedMCQA val    (4,183 → 4,170 usable)            ── never trained on ──▶ phase-1 score · checkpoint selection · retention score
 MedQA train    (10,178) ─ seed-locked permutation ─┬─ 60 % = 6,106  ── phase 2 ──▶ fine-tune
                                                    └─ 40 % = 4,072  ── never trained on ──▶ benchmark (scored once)
 MedQA test     (1,273) ── never trained on ──▶ second untouched number
@@ -20,7 +20,7 @@ MedQA test     (1,273) ── never trained on ──▶ second untouched number
 | Dataset | Source | Rows used | Role |
 |---|---|---|---|
 | MedMCQA train | `openlifescienceai/medmcqa` | 182,496 (326 unlabelled rows dropped from 182,822) | phase-1 training |
-| MedMCQA validation | same | 4,183 | phase-1 result, per-epoch checkpoint selection, post-fine-tune retention |
+| MedMCQA validation | same | 4,170 usable of 4,183 (13 dropped: question under 12 characters) | phase-1 result, per-epoch checkpoint selection, post-fine-tune retention |
 | MedQA train 60 % | `GBaker/MedQA-USMLE-4-options` | 6,106 | phase-2 fine-tune |
 | MedQA train 40 % | same | 4,072 | `medqa_bench` — the decision gate, scored once |
 | MedQA test | same | 1,273 | `medqa_test` — official, untouched |
@@ -54,7 +54,7 @@ Evaluation reads the logits at the one position that predicts the letter token (
 
 ## §4 Tokenizer
 
-`Tokenizer.train` wraps HF `tokenizers`: BPE (`unk_token="<unk>"`), NFD + lowercase normaliser, whitespace pre-tokenizer, `BpeTrainer(vocab_size=32768, min_frequency=2)`, specials `<pad> <bos> <eos> <unk>`. It is trained once per run directory on 20,000 MedMCQA training prompts (the same seeded sample for both arms), saved to `<out>/tokenizer.json`, and reused for phase 2 and on resume. To guarantee a byte-identical vocabulary across arms, copy the first arm's `tokenizer.json` into the second arm's `--out` directory before starting it; a present file is loaded instead of retrained.
+`Tokenizer.train` wraps HF `tokenizers`: BPE (`unk_token="<unk>"`), NFD + lowercase normaliser, whitespace pre-tokenizer, `BpeTrainer(vocab_size=32768, min_frequency=2)` — on the 20,000-prompt sample it learns **26,766** entries, so 6,002 of the model's 32,768 embedding rows (3.07M parameters per arm) are never used, specials `<pad> <bos> <eos> <unk>`. It is trained once per run directory on 20,000 MedMCQA training prompts (the same seeded sample for both arms), saved to `<out>/tokenizer.json`, and reused for phase 2 and on resume. To guarantee a byte-identical vocabulary across arms, copy the first arm's `tokenizer.json` into the second arm's `--out` directory before starting it; a present file is loaded instead of retrained.
 
 ## §5 Length audit
 
@@ -71,7 +71,7 @@ Measured with the real tokenizer on all four splits:
 
 ```bash
 cd 09-Code
-pip install -e .[dev] && pytest -q                         # 89 tests, includes the data and split tests
+pip install -e .[dev] && pytest -q                         # 92 tests, includes the data and split tests
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke
 python -m ekdant.train --variant sandbox|baseline --out runs/<variant> ...                        # real run (see run.md §3)
 ```

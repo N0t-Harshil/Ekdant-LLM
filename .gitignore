@@ -10,3 +10,6 @@ __pycache__/
 # Training outputs
 runs/
 *.log
+
+# Local session memory (Claude Code remember plugin)
+.remember/

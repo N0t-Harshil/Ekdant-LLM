@@ -119,7 +119,7 @@ def test_train_stage_flushes_trailing_group_and_leaks_no_grads():
     loader = [batch() for _ in range(5)]  # 5 micro-batches, accum 2
     opt_step = 0
     for epoch in range(2):
-        _, _, opt_step, _, _ = train_stage(
+        _, _, opt_step, _, _, _ = train_stage(
             model, loader, opt, torch.device("cpu"), epoch, scaler,
             autocast, opt_step=opt_step,
             total_opt=3, base_lr=1e-2, warmup=0, accum=2,

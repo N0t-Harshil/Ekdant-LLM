@@ -22,7 +22,7 @@
 - Gate `g = sigmoid(Linear([own, anchor]))` per trajectory **and** per channel; step `x ← x − η·g⊙(x − anchor)`, η ≈ 0.5/S.
 - **Do not implement a pull toward the running mean.** It is mean-preserving (the target matrix is doubly stochastic), so `logits(S=0) == logits(S=8)` exactly — proved in [29](29_Prior_Art_and_Novelty_Check.md) §3.1. Narrow form: a *doubly stochastic* peer mix is inert; an arbitrary linear peer target is not. The gate is what breaks exchange symmetry here, and the anchor is what gives the step a target that is not a function of the peers.
 - **What this step is, precisely:** `T_k → T_k − η g_k ⊙ (T_k − a_t)` is a **gate-scaled (preconditioned) descent** on `E_k`, not literal `−η∇E_k` unless `g ≡ 1`. Monotonicity still holds: `E_k' − E_k = (η²g_k² − 2ηg_k)‖T_k − a_t‖² ≤ 0` for `0 ≤ η g_k ≤ 2`. Say "preconditioned" in the thesis; do not write "exact energy gradient descent".
-- Readout = mean (default) or `argmin_k ‖T_k − a_t‖`; always report all three monitors.
+- Readout = mean (default) or per-position `argmin_k ‖T_k − a_t‖` (never batch- or sequence-averaged — T24); always report all three monitors.
 
 ## 4. Collapse guards (honesty first)
 

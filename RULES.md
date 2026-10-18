@@ -1,0 +1,218 @@
+# RULES.md — how to work on the Ekdant project
+
+You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule Heilbronn, author Harshil Gorasiya) that is **both** an Obsidian research vault **and** a PyTorch codebase. Every rule below exists because breaking it has already cost time on this project. Read this whole file before your first action in a session. When a rule and a user instruction conflict, the user wins — but say which rule you are setting aside.
+
+---
+
+## 0. The ten rules you must never break
+
+1. **Never invent a number.** Every number you write (accuracy, parameter count, row count, step count, test count) must come from the code, a config, a log, `results.json`, or an existing vault file you just read. If you cannot point to the source, write `[PENDING]` or ask.
+2. **L1 is not built.** The selective-SSM storage layer (L1) and the M3 write-back are *specified* in the vault and thesis but **do not exist in code**. Never describe them as implemented, trained, measured or tested.
+3. **Never touch the benchmark protocol** without the user explicitly asking: MedMCQA (phase 1) → seed-locked 60 % of MedQA (phase 2) → untouched 40 % benchmark scored once. Never train on the 40 %, never select a checkpoint on it, never score MedMCQA's public **test** split (it has no labels, `cop = -1`).
+4. **Keep the A/B fair.** `sandbox_50m.json` and `baseline_50m.json` must differ **only** in `use_sandbox`. Anything that changes one arm's training must change the other's identically.
+5. **No external kernels or frameworks.** Never add `mamba-ssm`, `causal-conv1d`, `flash-attn`, `triton`, AutoGen, CrewAI, LangGraph, or pretrained weights. Pure PyTorch only. Do not add any new dependency without asking.
+6. **Every code fix gets a test** in `09-Code/tests/`, and the full suite must pass before you say you are done.
+7. **Code and vault move together.** A change is not finished until every vault file that describes it is updated (see §6, the sync map).
+8. **Report honestly.** If a test fails, show the failure. If you skipped a step, say so. A tie or a negative result is reported as a tie or a negative result — never softened.
+9. **Do not delete, move or rename files or folders** unless the user asked. Never run destructive git commands (`reset --hard`, `push --force`, `clean -f`, `checkout -- .`).
+10. **Never commit** unless the user asks. Never commit `runs/`, `*.log`, `.remember/`, `.obsidian/`, checkpoints (`*.pt`) or datasets.
+
+---
+
+## 1. What this project is (facts — verify before relying on them)
+
+| Fact | Value | Source of truth |
+|---|---|---|
+| Degree | MSc thesis, Hochschule Heilbronn | `08-Thesis/thesis.tex` title page |
+| Built model | `embed → T (windowed dense Transformer) → L2 (sandbox) → tied head` | `09-Code/src/ekdant/model.py` |
+| Not built | L1 selective SSM + M3 write-back | `04-Model-DeepDive/21_*`, `26a_*` (design only) |
+| A/B sizes | sandbox **50.09M** / baseline **43.53M** (L2 = 6.56M, T = 26.75M, embeddings 16.78M) | `estimate_model_size`, `tests/test_model.py` |
+| Backbone | H=512, N_T=12, 8 Q heads / 2 KV heads, window 512, SwiGLU 1024, RoPE base 1e5 | `09-Code/configs/*.json` |
+| Sandbox | K=4 trajectories, R=2 debate rounds, S=8 anchored descent steps, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` | same |
+| Data | MedMCQA 182,496 labelled train / 4,183 val (4,170 usable after row filters); MedQA 10,178 train → 6,106 fine-tune / 4,072 benchmark; MedQA test 1,273 | `09-Code/src/ekdant/data.py`, `train.py` |
+| Seed | 17 (also fixes the 60/40 MedQA split) | `train.py --seed` |
+| Tokenizer | BPE, 32,768 configured (26,766 actually learned), lower-cased | `data.py::Tokenizer` |
+| Tests | run `pytest -q` and count — do not trust a number written in a doc | `09-Code/tests/` |
+| Completed results | 3-epoch A/B tie (MedMCQA val 33.31 % vs 32.01 %); legacy 100-epoch baseline (33.33 % / `medqa_bench` 26.89 %) | `run.md` §6, `07-Management/10_Known_Issues.md` |
+
+If any of these disagree with the code, **the code is right** and the doc is stale — fix the doc (and tell the user).
+
+### Source-of-truth order (highest wins)
+1. Code in `09-Code/src/ekdant/` and the two config JSONs
+2. Logs and `results.json` from real runs
+3. `02-Architecture/02_System_Architecture.md` (canonical spec)
+4. `08-Thesis/thesis.tex` (authoritative over `thesis.md`)
+5. Every other vault note
+
+---
+
+## 2. Map of the repository
+
+```
+README.md                  single map of the vault — start here
+RULES.md / AGENTS.md       this file (AGENTS.md just points here)
+project_explanation.md     presentation story for the supervisor
+run.md                     operations runbook: train / resume / test / benchmark
+01-Introduction/           overview + STATUS.md (readiness score, version history)
+02-Architecture/           02 canonical spec · 03 codebase map · 12 config guide · API_Reference
+03-Background/             paper notes (B = SSM, C = sandbox, T = Transformer) — thesis Ch. 2
+04-Model-DeepDive/         how L1/L2 work, build manuals 26a/b/c, worked examples, novelty audit
+05-Data/                   MedMCQA → MedQA pipeline
+06-Training-Eval/          07 training · 09 validation · 13 debugging · 14 performance
+07-Management/             10_Known_Issues (T-numbered log) · 11_Future_Work
+08-Thesis/                 thesis.tex (source) · thesis.md (outline) · thesis.pdf (built) · GLOSSARY · figures/
+09-Code/                   the Python package, tests, configs
+papers/                    66 PDFs + indexes — never edit or delete PDFs
+```
+
+Code modules (`09-Code/src/ekdant/`): `model.py` (config, assembly, loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (datasets, tokenizer, collate), `train.py` (sequential protocol, resume, eval), `__init__.py` (re-exports).
+
+---
+
+## 3. How to think before you act
+
+Work in this order every time. Do not skip steps because a task "looks small".
+
+1. **Restate the task** in one sentence. If it has more than one reasonable reading and the readings lead to different changes, ask one short question instead of guessing.
+2. **Read before you write.** Open every file you will change, and the code it calls. Search (`grep`) for every other place the same name, number or claim appears — in code *and* in the vault.
+3. **Separate fact from design.** For each statement you are about to write, ask: is this measured/implemented (fact), or specified/planned (design)? Label design as design.
+4. **Find the root cause.** For a bug, reproduce it (a failing test is best), explain *why* it happens, then fix the cause, not the symptom. Do not add `try/except` to hide an error.
+5. **Pick the smallest correct change.** Do not refactor, rename, reformat or "improve" code you were not asked to touch. Do not add features, flags or files the task does not need.
+6. **Check the blast radius.** Will this change the baseline arm? Old checkpoints (`last.pt` keys)? `results.json` keys other scripts read? A running campaign? If yes, tell the user before doing it.
+7. **Verify.** Run the tests. For training-loop changes also run the smoke run (§5). Read the output — do not assume it passed.
+8. **Sync the vault** (§6), then re-run the link check.
+9. **Report** (§9).
+
+### When to stop and ask the user
+- The change would alter the protocol, the A/B fairness, a default hyper-parameter, or a thesis claim.
+- You would need a new dependency, a new top-level folder, or to delete/move files.
+- Numbers in two sources disagree and you cannot tell which is right.
+- A test fails and the fix is not obvious after one honest attempt.
+- The task is research judgment (e.g. "should L2 have a residual path?"). Give a recommendation with reasons; do not silently implement it.
+
+---
+
+## 4. Rules for changing code
+
+- **Match the surrounding code**: same naming, type hints, docstring density, comment style, import order. Comments explain *why*, never restate *what*.
+- **Keep the forward pass causal.** Position *t* may depend only on positions ≤ *t* of the same example. Nothing may mix information across batch rows. Every sandbox op is per position; keep it that way.
+- **Padding is on the right** and has `labels = -100`. Statistics (means, variances, ρ) must count real tokens only — pass `attention_mask`.
+- **Evaluation reads `logits[answer_pos - 1]`** (the position that *predicts* the letter) and compares against the letter **index** 0–3, never a vocab id.
+- **Config changes**: a new knob goes in `EkdantConfig` with a default that reproduces old behaviour, in both JSONs (identical value unless it is `use_sandbox`), in `validate()` if it has legal values, and in `12_Configuration_Guide.md`.
+- **CLI flags** default to the old behaviour so old commands and `--resume` keep working.
+- **Checkpoints**: never rename or remove keys in `last.pt` / `best.pt` (`model, cfg, step, completed, opt_step, history, best_medmcqa`); only add.
+- **`results.json`**: only add keys; never rename `phase1`, `test.medqa_bench`, `test.medqa_test`, `test.medmcqa_val`, `selected`, `history`.
+- **No new files under `src/ekdant/`** without asking (the thesis claims a 7-module package).
+- **Tests**: one test per behaviour, named as a sentence (`test_lowest_energy_readout_is_per_position_and_causal`), CPU-only, tiny shapes, seeded, < 1 s each. Put it in the file for that module.
+
+---
+
+## 5. Commands (run from `09-Code/` unless stated)
+
+```bash
+pip install -e .[dev]                 # the trailing dot is required
+python -m pytest -q                   # full suite, CPU, ~10 s — must be all green
+python -m pytest tests/test_sandbox.py -v -k readout    # one area
+
+# smoke run per arm (~2 min CPU each) — required after any train.py / model.py change
+python -m ekdant.train --variant sandbox  --out <scratch>/sbx --limit 64 --epochs 1 --ft-epochs 1 --batch-size 4 --no-compile
+python -m ekdant.train --variant baseline --out <scratch>/bas --limit 64 --epochs 1 --ft-epochs 1 --batch-size 4 --no-compile
+```
+
+Never write smoke outputs inside the repo (use a temp/scratch folder). `--limit` runs are pipeline checks, never results.
+
+**Link check** (run from the repo root after editing any `.md`): every relative Markdown link must resolve to a real file. A quick check:
+
+```bash
+python - <<'EOF'
+import re, os, glob
+bad = [(p, l) for p in glob.glob('**/*.md', recursive=True)
+       for l in re.findall(r'\]\(([^)#\s]+\.(?:md|pdf|png|tex|json|py))', open(p, encoding='utf8').read())
+       if not l.startswith('http') and not os.path.exists(os.path.normpath(os.path.join(os.path.dirname(p), l)))]
+print(bad or 'all links ok')
+EOF
+```
+
+**LaTeX**: after editing `thesis.tex`, build with `pdflatex thesis.tex` three times from `08-Thesis/` if a TeX install is available; if not, say the PDF is stale. Never commit a `thesis.pdf` you did not just build.
+
+### Windows environment notes
+- The machine is Windows. Shell may be PowerShell or Git Bash — use the syntax of the shell you are in.
+- Files use **CRLF** line endings. Preserve them; do not convert whole files.
+- In Git Bash, heredocs can mangle backslashes. For any script containing `\` (LaTeX, regex), write it to a temporary `.py` file and run that instead of piping a heredoc.
+
+---
+
+## 6. Sync map — if you change X, update Y
+
+| You changed | Also update |
+|---|---|
+| Any behaviour in `model.py` / `sandbox.py` / `transformer_stack.py` | `02-Architecture/API_Reference.md`, `02_System_Architecture.md`, the matching `04-Model-DeepDive/26*` build manual, `thesis.tex` if the method text describes it |
+| `train.py` flags or protocol | `09-Code/README.md` flag table, `run.md` (§3 flags, §6, §8), `06-Training-Eval/07_Training_Pipeline.md`, `12_Configuration_Guide.md` §2 |
+| A config JSON | `12_Configuration_Guide.md` §1, `thesis.tex` parameter table if sizes change, `estimate_model_size` tests |
+| `data.py` | `05-Data/05_Data_Pipeline.md`, `thesis.tex` §Data, `thesis.md` Ch. 4 |
+| Number of tests | every doc that states the count — find them with `git grep -n "[0-9]\+ tests\|[0-9]\+-test\|[0-9]\+ passing"` and set them to what `pytest -q` printed; also the per-file table in `09_Validation_System.md` |
+| A new result from a real run | `run.md` §6 reference numbers, `01-Introduction/STATUS.md`, `README.md` status table, `thesis.tex` §Results (and `thesis.md` Ch. 6), `project_explanation.md` §8 |
+| A bug found or fixed | a new row `T<next number>` in `07-Management/10_Known_Issues.md` (Issue · Location · Cause · Fix/Status with test name · Priority); mention it in `07_Training_Pipeline.md` §4 if it is a training-loop issue |
+| Scope, readiness or a milestone | `01-Introduction/STATUS.md` (and append a row to its version history — never rewrite old rows), `README.md` |
+| Future plans | `07-Management/11_Future_Work.md` |
+
+After the sync, `grep` again for the old wording/number to make sure no copy is left behind.
+
+---
+
+## 7. Rules for writing in the vault and the thesis
+
+**Voice and honesty**
+- Plain, precise, academic English. Short sentences. One idea per paragraph.
+- State what was done, what was measured, and what is still open. Never write "proves", "significant", "state of the art" or "outperforms" unless a result with an error bar supports it. At one seed, a gap smaller than ~2σ (σ ≈ 0.7 pt on MedMCQA val) is a tie.
+- Keep the project's habit of citing evidence against itself (e.g. C24, the compute-matched negative result). Never remove a limitation, defect, or negative result to make the work look better.
+- Label design-only material: "specified, not implemented", "design-time estimate", "projection, not measured".
+
+**Numbers**
+- Use the exact figure from the source (`50.09M`, `33.31 %`, `182,496`), with the unit and the split it was measured on. Thousands separators in prose (`182,496`); `{,}` in LaTeX (`182{,}496`).
+- Every new number needs a traceable source; mention it when it is not obvious ("from `baseline_100ep.log`").
+
+**Markdown / Obsidian**
+- Relative links only (from a subfolder, link to the runbook as `../run.md`), and keep them working. Keep the existing heading structure, the `==highlight==` style, callouts (`> [!note]`), and the "Connections" footers.
+- Do not create new hub/index notes — `README.md` is the single map. A new note needs a link from `README.md` or from the folder's main note.
+- Match the spelling already used in the file you are editing.
+
+**LaTeX (`thesis.tex`)**
+- Escape `%`, `_`, `&`, `#` in text; code names go in `\texttt{...}` with `\_`.
+- Use the existing macros (`\rhodim`, `\lam`, `\Kdim`, …), colours and table style (`booktabs`, `\rowcolor{ekHeadBG}` headers). Every `\ref` needs a `\label`, every `\cite` a `\bibitem`.
+- Keep `thesis.md` (the outline) consistent with `thesis.tex`; the `.tex` is authoritative.
+- Results tables stay `[PENDING]` until a real run fills them.
+
+---
+
+## 8. Git rules
+
+- Work only on what was asked; keep each commit to one logical change.
+- Before committing: `pytest -q` green, link check clean, `git status` reviewed — nothing from `runs/`, logs, checkpoints, `.remember/` or `.obsidian/` staged.
+- Message: a one-line summary in the imperative (≤ 72 chars), a blank line, then bullets saying *what* changed and *why*, with Known-Issues numbers (`T24`) where relevant.
+- Never amend or rewrite pushed history; never `--force`; never skip hooks.
+- Do not push unless the user asks.
+
+---
+
+## 9. How to report back
+
+End every task with a short report, in this order:
+1. **What changed** — files and the reason, one line each.
+2. **Verification** — the exact test result (`92 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
+3. **What you did not do** and **decisions for the user** — open questions, risks (e.g. "this changes the sandbox arm's training; the baseline is unaffected"), recommendations you chose not to implement.
+
+No filler, no praise of the work, no claims beyond what you verified.
+
+---
+
+## 10. Known traps (learned the hard way)
+
+- MedMCQA's public test split is unlabelled → scoring it measured the "A"-prediction rate (T18).
+- The answer letter is 1 token in ~34–173, so plain LM loss barely trains the decision → `--answer-weight` (T22).
+- Long fine-tunes on 6,106 MedQA rows memorise → `--ft-lr`, `--ft-epochs` (T21). Long phase-1 training memorises MedMCQA too → read the phase-1 validation curve (T25).
+- A trailing gradient-accumulation group used to leak into the next epoch (T23).
+- `load_dataset` used to stall on hub checks → loading is offline-first (T19). Do not re-enable online checks by default.
+- The tokenizer lower-cases, so the answer tokens are `a b c d` and `a` is also the English article. Keep this in mind when reasoning about letter priors; changing it means retraining both arms.
+- Sandbox statistics must ignore padding, and the `lowest_energy` readout must be chosen per position (T24).
+- The A/B is *architecture*-matched, not *parameter*-matched — always say so next to any comparison.

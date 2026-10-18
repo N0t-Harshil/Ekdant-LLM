@@ -114,7 +114,7 @@ fair comparison.
 | `--limit` | none | cap rows per dataset for a smoke run |
 | `--no-compile` | off | skip `torch.compile` if it misbehaves |
 | `--log-every` | 100 | progress line every N optimizer steps: `step X/Y (%) loss lr gnorm tok/s eta` (`0` = summaries only) |
-| `--eval-every` | 1 | phase 2: untouched MedMCQA validation eval every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_val` (`0` = no per-epoch eval) |
+| `--eval-every` | 1 | untouched MedMCQA validation every N epochs — phase 1: monitoring only (history); phase 2: also `best.pt` selection (`0` = final only) |
 | `--seed` | 17 | also **locks the 60/40 MedQA partition** — identical for both arms |
 | `--resume` | off | continue `<out>/last.pt`; skips finished stage/epochs |
 | `--eval-only` | off | no training; re-run the final protocol (selection + 40% benchmark) |
@@ -186,7 +186,7 @@ The sandbox variant emits three **separately named** diagnostics in `aux`
 - `trajectory_variance` — diversity across the K trajectories
 - `spread_ratio` — ρ, the health ratio; a collapse floor fires when ρ < 0.05
 
-Watch `spread_ratio` during training. If it pins at the floor, the trajectories
+All three are computed over real tokens only and averaged per epoch into `history[*].sandbox` and every `test.*` result in `results.json` (printed as `[stage] epN sandbox …`). Watch `spread_ratio` during training. If it pins at the floor, the trajectories
 have converged and the sandbox is doing nothing — that is itself a result.
 
 ## Expected memory (per GPU)
@@ -202,11 +202,11 @@ Memory only becomes a concern with genuinely long inputs (near 2048) or
 much larger batches — then lower `--batch-size` and raise
 `--grad-accum` to keep effective batch 48. The sandbox's K=4
 trajectories add a `[K,B,T,dim]` scratch tensor — the main activation
-cost of the sandbox arm (≈1.5× baseline wall-clock).
+cost of the sandbox arm (wall-clock estimated at ≈1.5× the baseline).
 
 ## Tests
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 89 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 92 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```

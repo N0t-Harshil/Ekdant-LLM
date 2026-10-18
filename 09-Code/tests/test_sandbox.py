@@ -196,6 +196,39 @@ def test_lowest_energy_readout_is_one_of_the_trajectories():
     assert d.min().item() < 1e-10
 
 
+def test_lowest_energy_readout_is_per_position_and_causal():
+    # The pick at (b, t) must depend only on (b, t): changing a later token
+    # or another batch row must not change it (it used to pick one
+    # trajectory from the batch- and sequence-averaged energy).
+    sbx = make(K=4, readout="lowest_energy")
+    hT = make_hT()
+    base = sbx(hT).consensus
+    hT2 = hT.clone()
+    hT2[0, -1] += 5.0          # a future token of row 0
+    hT2[1:] += 3.0             # every other batch row
+    out = sbx(hT2).consensus
+    assert torch.allclose(out[0, :-1], base[0, :-1], atol=1e-6)
+    d = (sbx(hT).trajectories - base.unsqueeze(0)).pow(2).sum(-1)
+    assert (d.min(dim=0).values < 1e-10).all(), "each position is one trajectory"
+
+
+def test_mask_restricts_diagnostics_to_real_tokens():
+    # Every sandbox op is per position, so the masked statistics of a
+    # padded batch must equal the plain statistics of its real tokens.
+    sbx = make(K=4)
+    hT = make_hT()
+    mask = torch.ones(B, T)
+    mask[1, T // 2:] = 0
+    hT[1, T // 2:] = 50.0      # padding garbage
+    padded = sbx(hT, mask=mask).aux
+    real = hT[mask.bool()].unsqueeze(0)          # [1, N, H]
+    ref = sbx(real).aux
+    for k in ("spread_ratio", "trajectory_variance", "anchor_energy"):
+        assert torch.allclose(padded[k], ref[k], rtol=1e-5), k
+    unmasked = sbx(hT).aux["spread_ratio"]
+    assert not torch.allclose(unmasked, ref["spread_ratio"], rtol=1e-3)
+
+
 def test_loss_decreases_over_training_steps():
     torch.manual_seed(0)
     sbx = make(K=4, steps=8)

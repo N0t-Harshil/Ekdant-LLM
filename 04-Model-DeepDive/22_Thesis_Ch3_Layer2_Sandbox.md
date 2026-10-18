@@ -29,7 +29,7 @@ Shapes with thesis defaults (K = 4 paths, R = 2 debate rounds, S = 8 energy step
 1. **Diverse initialization:** `trajectories = init_K(hT) [K,B,T,H]` — K different projections of the backbone-enhanced states, deliberately divergent (uniform copies would collapse; diversity is load-bearing).
 2. **Debate (×R):** each trajectory cross-attends to the others and revises itself. Ablation: rounds 0 / 2 / 3.
 3. **Anchored gated descent (×S):** each trajectory descends the energy `½‖T_k − a_t‖²` toward the token-conditioned anchor, through a learned per-trajectory gate. Moves the readout (unlike a peer-mean pull) and shrinks disagreement without collapse. Ablation: steps 0 / 4 / 8.
-4. **Consensus:** mean of trajectories (default) or lowest-anchor-energy pick → `y [B,T,H]`. Three quantities ship with it and are **not** interchangeable: `anchor_energy` E (monitor; the descent target), `trajectory_variance` `V_pre` (monitor; did diversity survive the debate rounds), `spread_ratio` ρ = `V_pre / mean(hT²)` (monitor; dimensionless, comparable across H/T/scale). The **only** L2 training term is the floor `max(0, ρ_min − ρ)²`.
+4. **Consensus:** mean of trajectories (default) or per-position lowest-anchor-energy pick → `y [B,T,H]`. Three quantities ship with it and are **not** interchangeable: `anchor_energy` E (monitor; the descent target), `trajectory_variance` `V_pre` (monitor; did diversity survive the debate rounds), `spread_ratio` ρ = `V_pre / mean(hT²)` (monitor; dimensionless, comparable across H/T/scale). The **only** L2 training term is the floor `max(0, ρ_min − ρ)²`.
 5. **Head:** `logits = vocab_head(y)` — one dense `[H,V]` projection per micro-batch, trained with causal cross-entropy.
 
 ## 4. Configuration (what each knob does)

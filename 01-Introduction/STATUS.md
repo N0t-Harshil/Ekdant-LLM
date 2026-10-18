@@ -7,8 +7,9 @@
 **Model code (`09-Code/`, L2-only, implemented):**
 - ✅ `09-Code/src/ekdant/`: `model.py`, `transformer_stack.py`, `sandbox.py`, `output_head.py`, `train.py`, `data.py` — pure PyTorch. Forward is L2-only: embed → T (windowed dense) → L2 (sandbox) → head. L1 SSM storage remains a thesis/vault design, not code.
 - ✅ `09-Code/configs/sandbox_50m.json` + `baseline_50m.json` — architecture-matched A/B pair (identical N_T=12, H=512, ~50M-class backbone; only `use_sandbox` differs; 50.09M vs 43.53M — the 6.56M delta is L2 itself).
-- ✅ `09-Code/tests/`: **89 unit tests passing** (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py`). Both A/B arms trained end-to-end on a T4 (full 3-epoch A/B, `run.md` §6); ops runbook at `run.md` with the **sequential protocol + 100-epoch campaign recipe** (train+test on all of MedMCQA → fine-tune on a seed-locked 60% of MedQA → benchmark the untouched 40% once; `--epochs 100 --ft-lr 5e-5 --ft-epochs 10 --answer-weight 10`, 381,480 steps, §3), live per-step telemetry (loss / lr / grad-norm / ETA), per-epoch validation eval + `best.pt` tracking, and final better-of(best,last) checkpoint selection recorded in `results["selected"]`.
+- ✅ `09-Code/tests/`: **92 unit tests passing** (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py`). Both A/B arms trained end-to-end on a T4 (full 3-epoch A/B, `run.md` §6); ops runbook at `run.md` with the **sequential protocol + 100-epoch campaign recipe** (train+test on all of MedMCQA → fine-tune on a seed-locked 60% of MedQA → benchmark the untouched 40% once; `--epochs 100 --ft-lr 5e-5 --ft-epochs 10 --answer-weight 10`, 381,480 steps, §3), live per-step telemetry (loss / lr / grad-norm / ETA), per-epoch validation eval + `best.pt` tracking, and final better-of(best,last) checkpoint selection recorded in `results["selected"]`.
 - 🔨 **Full 3-epoch A/B complete** (T4, full data, one seed, per-stage LR fix): MedMCQA val baseline **33.31%** vs sandbox **32.01%**; MedQA test 25.69% vs 26.08% (both ≈ chance — stage 2 is only ~638 optimizer steps). **No significant difference between arms at this scale** (a tie, publishable per the C24 framing). Pipeline-scale result, not thesis numbers (50M class, 1 seed). Runbook: `run.md` §6. **Next run:** the 100-epoch sequential campaign (`runs/*_100ep`, 381,480 steps with the `--ft-lr 5e-5 --ft-epochs 10` anti-overfit knobs — measured 6.3 steps/s on the T4 ≈ 17.3 h baseline + ~26 h sandbox ≈ 1.8 days; MedMCQA phase → 60% MedQA fine-tune → 40% benchmark) is prepared in `run.md` §3 — if it separates the arms, the follow-up is the 500M-class scale-up (needs a bigger GPU than a T4).
+- 🔨 **100-epoch baseline, legacy recipe (no `--ft-lr`/`--ft-epochs`, so phase 2 also ran 100 epochs at 3e-4): MedMCQA val after phase 1 **33.33 %** (train CE 0.58 vs val CE 4.61 — memorisation; the 3-epoch run already reached 33.31 %), best fine-tune checkpoint 31.80 % (fine-tune epoch 0), `medqa_bench` **26.89 %**, `medqa_test` **27.02 %** — near chance. Sandbox arm not run on this recipe.**
 - L1: **design-only** — vault/thesis docs; no `ssm_storage.py` in the code.
 
 **Data pipeline (implemented, tested):** MedMCQA → MedQA loaders with schema normalisation, prompt template, shared BPE tokenizer, seed-locked 60/40 MedQA partition, offline-first dataset reads, letter-accuracy evaluation (`data.py`, `train.py`). The earlier 54-dataset pre-training design (registry, doc scrapers, 8-phase corpus harness) was dropped when the project narrowed to medical MCQ and is not part of any result.
@@ -19,19 +20,19 @@
 
 **Out of scope for this thesis:** tool use, multimodality, mixture-of-experts, SFT/DPO, general pre-training corpora, internalized debate, demo UIs, serving infrastructure — each is future work with its own research question (see [11_Future_Work.md](../07-Management/11_Future_Work.md)).
 
-**Remaining build work:** persist sandbox diagnostics to `results.json` · run the 100-epoch campaign for both arms · depth-/parameter-matched control · L1 · CI (`pytest -q`, 89 tests today).
+**Remaining build work:** decide phase-1 epochs from the new phase-1 validation curve (T25) · run the campaign for both arms · depth-/parameter-matched control · L1 · CI (`pytest -q`, 92 tests today).
 
 ## 2. Readiness score — 7.0/10 (thesis-ready scaffold)
 
-> Ready to run; not yet defended. **Ready:** data, docs corpus, config skeleton, validation harness, research vault (66 papers), 3-stage spec, model code (L2+T in `09-Code/`, 89 unit tests passing, architecture-matched A/B configs), **full 3-epoch A/B run on a T4 (result: tie within noise — 33.31% vs 32.01% MedMCQA val)**, **100-epoch sequential campaign recipe in `run.md` §3 (MedMCQA-trained/tested first, 60% MedQA fine-tune, untouched 40% benchmark, anti-overfit knobs T21/T22)**. **To do:** depth-matched control + 3 ablations + multi-seed, 5-benchmark eval, Ch. 6 results; log sandbox diagnostics; resolve L2 size overage; L1 storage remains design-only.
+> Ready to run; not yet defended. **Ready:** data, docs corpus, config skeleton, validation harness, research vault (66 papers), 3-stage spec, model code (L2+T in `09-Code/`, 92 unit tests passing, architecture-matched A/B configs), **full 3-epoch A/B run on a T4 (result: tie within noise — 33.31% vs 32.01% MedMCQA val)**, **100-epoch sequential campaign recipe in `run.md` §3 (MedMCQA-trained/tested first, 60% MedQA fine-tune, untouched 40% benchmark, anti-overfit knobs T21/T22)**. **To do:** depth-matched control + 3 ablations + multi-seed, 5-benchmark eval, Ch. 6 results; log sandbox diagnostics; resolve L2 size overage; L1 storage remains design-only.
 
 | Category | Score (thesis) | Rationale |
 |----------|----------------|-----------|
 | Architecture | 8/10 | Two learned layers (L1, L2) joined by a dense Transformer stack, falsifiable, single config. T+L2 code now implemented and tested (L2-only forward; L1 storage design-only). Loses 2 pts: L1 storage not in code, no benchmark numbers yet. |
 | Reliability | 7/10 | Data path production-ready; model path unproven until training runs. |
 | Maintainability | 8/10 | 5 model files + trimmed schema; tidy tree. |
-| Testing | 7/10 | Data + model + schedule + split tests green; **89 unit tests passing** in `09-Code/tests/` (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py`). Loses pts: no training-run/integration tests yet; diagnostics-logging gap open. |
-| Validation | 7/10 | Unit suite + smoke run per arm + leakage-free held-out protocol (T20); loses points for no CI and no persisted sandbox diagnostics. |
+| Testing | 7/10 | Data + model + schedule + split tests green; **92 unit tests passing** in `09-Code/tests/` (`test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py`). Loses pts: no training-run/integration tests yet; diagnostics-logging gap open. |
+| Validation | 7/10 | Unit suite + smoke run per arm + leakage-free held-out protocol (T20); sandbox diagnostics now persisted per epoch (T24); loses points for no CI. |
 | Documentation (this vault) | 8/10 | After the rewrite + research vault; needs generated API site only post-thesis. |
 | Performance | 6/10 | Design O(1) + single-head; no target-hardware numbers yet (thesis must add). |
 | Code Quality | 7/10 | Typed, logged; new files must stay <250 lines each. |
@@ -42,7 +43,7 @@
 ## 3. Gaps before defense (in order)
 
 1. L2 parameter overage: measured 6.56M vs 2.8M thesis estimate (HIGH — the thesis now reports the measured number; decide whether to slim/tie L2 or keep and restate before the final tables).
-2. **A/B result is a tie at pipeline scale** — sandbox 50.09M vs baseline 43.53M shows no significant MedMCQA/MedQA difference (33.31% vs 32.01%; 25.69% vs 26.08%). (a) Report it honestly — a tie is publishable (C24). (b) To *separate* L2 from raw capacity: the depth-/parameter-matched control and K=1/4/8 ablations are still open. (c) MedQA stayed at chance (~638 opt steps in that pilot) — the 100-epoch campaign with `--ft-lr`/`--ft-epochs`/`--answer-weight` is the fix. **Open code item:** log sandbox diagnostics (`anchor_energy` / `trajectory_variance` / `spread_ratio`) into `results.json`. ~~LR-schedule warmup bug~~ **FIXED** (per-stage reset) — `tests/test_schedule.py`.
+2. **A/B result is a tie at pipeline scale** — sandbox 50.09M vs baseline 43.53M shows no significant MedMCQA/MedQA difference (33.31% vs 32.01%; 25.69% vs 26.08%). (a) Report it honestly — a tie is publishable (C24). (b) To *separate* L2 from raw capacity: the depth-/parameter-matched control and K=1/4/8 ablations are still open. (c) MedQA stayed at chance (~638 opt steps in that pilot) — the 100-epoch campaign with `--ft-lr`/`--ft-epochs`/`--answer-weight` is the fix. ~~Log sandbox diagnostics into `results.json`~~ **DONE** (T24). ~~LR-schedule warmup bug~~ **FIXED** (per-stage reset) — `tests/test_schedule.py`.
 3. 100-epoch campaign for both arms + checkpoints (HIGH).
 4. Ch. 6 results tables (`[PENDING]`) + cost report + multi-seed (MEDIUM).
 5. L1 (`ssm_storage`) integration into `model.py` — currently design-only; unlocks the O(1) proof + L1→T→L2 handoff asserts (HIGH, but outside the minimum thesis claim if L1 stays as future work).
@@ -65,4 +66,4 @@
 |------|---------|-------|
 | 2025-Q1–2026-Q2 | 0.1–0.6-beta | Early prototypes (see git log) |
 | 2026-09 | **0.7-thesis (Ekdant)** | 3-stage spec: SSM Storage + dense T + Sandbox; 66-paper library; single config |
-| 2026-10 | **0.8-thesis (T + L2 on MedMCQA/MedQA)** | Scope aligned to the built 50M A/B; L1 specified-not-built; docs, config guide and thesis resynced; 89 tests |
+| 2026-10 | **0.8-thesis (T + L2 on MedMCQA/MedQA)** | Scope aligned to the built 50M A/B; L1 specified-not-built; docs, config guide and thesis resynced; 92 tests |

@@ -84,7 +84,7 @@ Built forward: `input_ids → embed → T (windowed GQA + SwiGLU) → K trajecto
 **Research questions.**
 - ==RQ1 (memory) — future work:== Can fixed-size selective SSM replace the KV-cache at matched quality? Needs L1; protocol pre-specified, not run here.
 - ==RQ2 (reasoning):== Does the same backbone with the K-trajectory sandbox beat the identical backbone without it on MedMCQA/MedQA letter accuracy? Architecture-matched (+6.56M params, extra compute), so a depth-/parameter-matched control is the informative follow-up. Ablations: K=1/4/8; rounds 0/2/3; steps 0/8; anchor vs peer-mean. GSM8K/HumanEval are ==scaling-held-out== because the smallest model reported past 80% GSM8K is 34B (arXiv:2312.09241).
-- ==RQ3 (honesty):== Does trajectory agreement predict correctness? Measure agreement-vs-accuracy calibration (needs sandbox diagnostics persisted to `results.json` — open item).
+- ==RQ3 (honesty):== Does trajectory agreement predict correctness? Measure agreement-vs-accuracy calibration (batch-level diagnostics now persisted; needs a per-example export).
 
 **Contributions.** (1) A minimal three-stage design (SSM memory → dense T → sandbox reasoning) with no MoE; T and L2 built and tested, L1 specified. (2) In-graph debate plus anchored energy descent with cost-matched evaluation, and an audit proving the discarded peer-mean variant inert. (3) ==66-paper local library== ([proof index](../papers/Proof_Library/00_Proof_Index.md), [novelty audit](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md)) mapping every design choice to a downloaded source. (4) A reproducible sequential MedMCQA → MedQA training/benchmark pipeline with a leakage-free protocol (seed-locked 60/40 MedQA split, untouched 40% benchmark, selection on MedMCQA validation).
 
@@ -114,7 +114,7 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 ## Ch.3 — Method (cite [02](../02-Architecture/02_System_Architecture.md))
 
-**System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 89 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
+**System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 92 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
 
 **L1 — SSM Storage (design only, not built).** `input_ids [B,T]` → tied embed `[B,T,H]` + RoPE (base 100K, window 4096, YaRN-extendable) → N aSSM blocks (shared trunk + 3 L1 state stores: content/control/sandbox — the third *is an L1 store*, not the L2 layer; per-channel Δ/B/C, scan, gating+residual+norm) → `h [B,T,H]` + pooled triple `compressed [B,3·d_state]` handed to T; the L2 consensus write-back returns via M3. Design sizes — XS: H=256, d=96, N=2, V=32K · S: H=320, d=128, N=4, V=32K · M: H=512, d=256, N=4, V=32K; T=2048 all.
 
@@ -131,17 +131,17 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 ## Ch.4 — Data
 
 Two public datasets, used in strict sequence ([05_Data_Pipeline.md](../05-Data/05_Data_Pipeline.md)):
-- ==MedMCQA== (`openlifescienceai/medmcqa`): 182,822 train rows → **182,496 labelled** (326 unlabelled dropped) for phase 1; 4,183-row labelled validation split is never trained on (selection set + retention). The public test split ships `cop = -1` and is **never scored** (T18).
+- ==MedMCQA== (`openlifescienceai/medmcqa`): 182,822 train rows → **182,496 labelled** (326 unlabelled dropped) for phase 1; 4,183-row labelled validation split (4,170 usable after the row filters) is never trained on (selection set + retention). The public test split ships `cop = -1` and is **never scored** (T18).
 - ==MedQA== (`GBaker/MedQA-USMLE-4-options`): 10,178 train → seed-locked **60% fine-tune (6,106)** / **40% benchmark (4,072, untouched, scored once)**; official test (1,273) also untouched.
 - Prompt: question, four lettered options, `Answer:`; target is the letter token. Evaluation = argmax over the four letter logits at the answer position.
 - Lengths: MedMCQA p50/p99 = 34/118 tokens, MedQA p50/p99 = 173/364 (max 857); 0 of ~198k rows exceed 2048, so nothing is truncated.
-- Tokenizer: 32,768 BPE trained once on 20,000 MedMCQA prompts, shared by both arms.
+- Tokenizer: BPE configured for 32,768 entries, trained once on 20,000 MedMCQA prompts (it learns 26,766, so 6,002 embedding rows — 3.07M parameters per arm — are never used), shared by both arms.
 
 ---
 
 ## Ch.5 — Training
 
-Campaign recipe ([run.md](../run.md) §3), identical for both arms: phase 1 = all MedMCQA, 100 epochs, lr 3e-4 cosine, warmup 200; phase 2 = 60% MedQA, 10 epochs, lr 5e-5 (own cosine + warmup); **381,480 optimizer steps**; effective batch 48 (6 × 8 accum on one 16 GB T4); AdamW wd 0.1, betas (0.9, 0.95), clip 1.0, dropout 0.1, bf16/fp16 autocast, `--answer-weight 10`, seed 17 (also locks the 60/40 split). Anti-overfit knobs (`--ft-lr`, `--ft-epochs`) exist because a 40-epoch pilot memorised the small MedQA set (T21). Checkpoint = better of `best.pt` vs `last.pt` on untouched MedMCQA validation. Gate: 89-test suite + smoke run per arm. Knobs: [12](../02-Architecture/12_Configuration_Guide.md).
+Campaign recipe ([run.md](../run.md) §3), identical for both arms: phase 1 = all MedMCQA, 100 epochs, lr 3e-4 cosine, warmup 200; phase 2 = 60% MedQA, 10 epochs, lr 5e-5 (own cosine + warmup); **381,480 optimizer steps**; effective batch 48 (6 × 8 accum on one 16 GB T4); AdamW wd 0.1, betas (0.9, 0.95), clip 1.0, dropout 0.1, bf16/fp16 autocast, `--answer-weight 10`, seed 17 (also locks the 60/40 split). Anti-overfit knobs (`--ft-lr`, `--ft-epochs`) exist because a 40-epoch pilot memorised the small MedQA set (T21). Checkpoint = better of `best.pt` vs `last.pt` on untouched MedMCQA validation. Gate: 92-test suite + smoke run per arm. Knobs: [12](../02-Architecture/12_Configuration_Guide.md).
 
 ---
 
@@ -158,13 +158,15 @@ Campaign recipe ([run.md](../run.md) §3), identical for both arms: phase 1 = al
 
 MedMCQA gap 1.3 pts vs noise σ ≈ 0.7 → **a tie** at this scale (pre-committed to report it).
 
-**Pending (`[PENDING]`):** 100-epoch campaign (both arms; `medqa_bench`, `medqa_test`, MedMCQA phase-1 → final); cost report (params, tokens×K, FLOPs, wall-clock); depth-/parameter-matched control; K/R/S ablations; ρ_min sweep and anchor-vs-peer-mean; agreement-vs-accuracy calibration (needs diagnostics logging); multi-seed variance; L1 layer-ladder step.
+**Legacy 100-epoch baseline (no `--ft-*` knobs):** MedMCQA val after phase 1 33.33 % (train CE 0.58 vs val CE 4.61 — memorisation; no gain over 3 epochs), `medqa_bench` 26.89 %, `medqa_test` 27.02 %. Evidence for T21/T25: pick phase-1 epochs from the validation curve.
+
+**Pending (`[PENDING]`):** 100-epoch campaign (both arms; `medqa_bench`, `medqa_test`, MedMCQA phase-1 → final); cost report (params, tokens×K, FLOPs, wall-clock); depth-/parameter-matched control; K/R/S ablations; ρ_min sweep and anchor-vs-peer-mean; agreement-vs-accuracy calibration (needs a per-example agreement export); multi-seed variance; L1 layer-ladder step.
 
 ---
 
 ## Ch.7 — Future Work (from [11](../07-Management/11_Future_Work.md))
 
-Critical (defense): run the 100-epoch campaign for both arms → persist sandbox diagnostics → depth-/parameter-matched control and K/R/S ablations (report ties honestly) → multi-seed. High: implement L1 (`ssm_storage.py`) and the O(1) proof + M3 write-back; resolve the L2 size overage. Medium: scale-up to a 500M-class model on a larger GPU. Boundary: tools, multimodality, MoE, internalized debate each need their own RQ.
+Critical (defense): pick phase-1 epochs from the validation curve → run the campaign for both arms → depth-/parameter-matched control and K/R/S ablations (report ties honestly) → multi-seed. High: implement L1 (`ssm_storage.py`) and the O(1) proof + M3 write-back; resolve the L2 size overage. Medium: scale-up to a 500M-class model on a larger GPU. Boundary: tools, multimodality, MoE, internalized debate each need their own RQ.
 
 ---
 
@@ -172,4 +174,4 @@ Critical (defense): run the 100-epoch campaign for both arms → persist sandbox
 No L1 (memory claim and RQ1 untested); 50M scale and one seed; architecture-matched, not parameter-matched; debate collapse/false consensus (watch ρ); cost > gain regimes (C8 — report); small MedQA fine-tune set; no custom kernels. Log: [10](../07-Management/10_Known_Issues.md).
 
 ## Reproducibility
-Seed 17 (also locks the 60/40 MedQA partition); two configs differing only in `use_sandbox`; tokenizer saved per run; resume + `--eval-only`; 89 tests; commands in [run.md](../run.md) and [09-Code/README](../09-Code/README.md).
+Seed 17 (also locks the 60/40 MedQA partition); two configs differing only in `use_sandbox`; tokenizer saved per run; resume + `--eval-only`; 92 tests; commands in [run.md](../run.md) and [09-Code/README](../09-Code/README.md).

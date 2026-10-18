@@ -3,7 +3,7 @@
 ## Critical (must finish for thesis defense)
 
 - **100-epoch campaign, both arms** — `run.md` §3: phase 1 = MedMCQA (100 epochs), phase 2 = 60 % MedQA (`--ft-lr 5e-5 --ft-epochs 10`), `--answer-weight 10`, 381,480 steps (~17 h baseline + ~26 h sandbox on a T4). Fills the Ch. 6 tables (`medqa_bench`, `medqa_test`, MedMCQA phase-1 → final). If the arms tie, report the tie (C24 framing).
-- **Persist sandbox diagnostics** — `anchor_energy`, `trajectory_variance`, `spread_ratio` are computed in `aux` but `train.py` does not write them to `results.json`. Needed for the ρ trace, the collapse check (T8) and RQ3 calibration.
+- **Choose phase-1 epochs from the validation curve (T25)** — the legacy 100-epoch baseline memorised MedMCQA (train CE 0.58 vs val CE 4.61) and its validation accuracy after 100 epochs (33.33 %) equalled the 3-epoch run (33.31 %). `--eval-every` now records the phase-1 curve; set `--epochs` near its peak before the ~26 h sandbox run. (Sandbox diagnostics are now persisted — T24.)
 - **Depth-/parameter-matched control (forced by C24)** — a plain Transformer with the same parameter count (or block-pass budget) and no L2. The shipped A/B is architecture-matched only (50.09M vs 43.53M; the 6.56M delta is L2), so it cannot separate a gain from L2 from a gain from spending the same compute on more untied depth, which is what C24 (arXiv:2603.08082) found winning. C24 also reports **no consistent benefit** for the full Autoregressive TRM, so a tie is publishable.
 - **Sandbox ablations** — K = 1/4/8, rounds 0/2/3, steps 0/4/8, `rho_min` ∈ {0.01, 0.05, 0.2}, and anchored descent vs. the discarded peer-mean pull (expect: peer-mean leaves the logits bit-identical).
 - **Multi-seed** — one seed (17) cannot put an error bar on the gap; the pilot's noise σ was ≈ 0.7 pt on MedMCQA validation.
@@ -12,7 +12,7 @@
 ## High (should finish)
 
 - **L1 integration** — add `ssm_storage.py` (selective SSM, three stores) before T, the L1 → T shape assertion (T9), the O(1)-state proof (same `compressed [B, 3·d_state]` shape and flat peak memory for T = 512 / 2048 / 4096), and the M3 write-back. Unlocks RQ1 and the layer-addition ladder (backbone-only → +L2 → +L1+L2). Until then the thesis states L1 as specified-not-built.
-- **CI** — `pytest -q` on every push in `09-Code/` (89 tests, CPU, ~10 s).
+- **CI** — `pytest -q` on every push in `09-Code/` (92 tests, CPU, ~10 s).
 - **Cost report** — tokens × K, FLOPs, wall-clock per arm (C8); the runner currently logs tok/s only.
 - **Rebuild `thesis.pdf`** from the updated `thesis.tex` (`pdflatex` three times); the committed PDF predates the T + L2 alignment.
 

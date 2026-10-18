@@ -193,8 +193,8 @@ protocol you asked for, in one invocation, strictly sequential:
 
 | key | data | role | when the model sees it |
 |---|---|---|---|
-| `phase1.medmcqa_val` | MedMCQA validation 4,183 | **phase-1 test** (trained on all of MedMCQA train) | once, right after phase 1 |
-| `medmcqa_val` | MedMCQA validation 4,183 (untouched by training) | **checkpoint selection** — `best.pt` tracking + final better-of; **retention** vs `phase1` | every epoch of phase 2 (`--eval-every`), then at selection |
+| `phase1.medmcqa_val` | MedMCQA validation (4,170 usable of 4,183) | **phase-1 test** (trained on all of MedMCQA train) | once, right after phase 1 |
+| `medmcqa_val` | MedMCQA validation, 4,170 usable (untouched by training) | **checkpoint selection** — `best.pt` tracking + final better-of; **retention** vs `phase1` | every epoch of phase 2 (`--eval-every`), then at selection |
 | `medqa_bench` | **40% of MedQA train** (4,072 rows) | **the benchmark** — the number you quote | **exactly once**, at the end, on the selected checkpoint |
 | `medqa_test` | MedQA test 1,273 | **official test** — never trained on (only the 60% train rows are) | once at the end |
 
@@ -299,7 +299,7 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 5. During **every phase-2 epoch** (`--eval-every 1`): saves
    `<out>/last.pt` (weights + step + completed counter + opt step +
    history + best-val + config), evaluates the **untouched MedMCQA
-   validation** split (4,183 — the public test set ships `cop=-1`,
+   validation** split (4,170 usable rows of 4,183 — the public test set ships `cop=-1`,
    unlabelled, T18), appends it to the epoch's history entry, rewrites
    `<out>/results.json` (crash-safe), and refreshes `<out>/best.pt` on
    a new `medmcqa_val` best. Phase 1 has no per-epoch eval.
@@ -331,7 +331,7 @@ locked-in 0.00% on a real run: see §8 — that was a metric bug (T17), fixed.)
 | `--seed` | 17 | torch seed + tokenizer sample + data sampling + **the 60/40 partition** (identical for both arms) |
 | `--no-compile` | off | skip `torch.compile` (use if compile crashes or first-run overhead hurts) |
 | `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
-| `--eval-every` | 1 | during phase 2: evaluate the **untouched MedMCQA validation** every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_val` (`0` = no per-epoch eval; final selection falls back to `last.pt`) |
+| `--eval-every` | 1 | phase 1: score the **untouched MedMCQA validation** every N epochs for monitoring only (T25); during phase 2: evaluate it every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_val` (`0` = no per-epoch eval; final selection falls back to `last.pt`) |
 | `--resume` | off | continue an interrupted run (§4) |
 | `--eval-only` | off | skip training; run the final protocol (selection + benchmark) (§5/§7) |
 
@@ -387,7 +387,7 @@ original run; changing them changes the pair arithmetic. Examples:
 ```bash
 cd 09-Code
 pip install -e .[dev]
-python -m pytest            # 89 tests
+python -m pytest            # 92 tests
 ```
 
 Covers: config/param accounting, T block (causal+window mask exactness,
@@ -424,7 +424,7 @@ fails with `tokenizer.json not found` / `last.pt not found`.
 (`answer_pos - 1`, the position that predicts the answer), argmax over the
 A/B/C/D token logits vs the letter **index** (0–3), on the **40% benchmark
 partition of MedQA train** (4,072 rows), the official MedQA test (1,273),
-and the untouched MedMCQA validation (4,183, selection set + retention).
+and the untouched MedMCQA validation (4,170 usable of 4,183, selection set + retention).
 MedMCQA's public test split has `cop = -1`
 for every row (no released labels), so it must never be scored — see bug
 T18. Not free-form generation.
@@ -483,6 +483,8 @@ today to `test.medmcqa_val`; there is **no** old counterpart to
 `test.medqa_bench`. Never compare an old joint-run number against a
 new `medqa_bench`.)*
 
+**Legacy 100-epoch baseline** (pre-`--ft-*` recipe, phase 2 = 100 epochs at 3e-4): phase-1 MedMCQA val 33.33 % (train CE 0.58 vs val CE 4.61), selected `best.pt` 31.80 %, `medqa_bench` 26.89 %, `medqa_test` 27.02 %. Ninety-seven extra phase-1 epochs bought nothing over the 3-epoch run — read the phase-1 monitor curve and cut `--epochs` before the sandbox arm (T25).
+
 **No significant difference between arms** at this scale (MedMCQA gap 1.3
 pts, noise σ≈0.7%; MedQA pinned at chance 25% — stage 2 is only ~638
 optimizer steps). A tie is a publishable outcome (C24 framing, see
@@ -528,7 +530,7 @@ names — that is the checkpoint the `medqa_bench` number belongs to.
 |---|---|
 | **LR stuck tiny / stage 2 at lr=0** | **FIXED** (per-stage cosine): the old `lr_at()` was called once per *epoch* with a *batch* budget (warmup never completed), and the first fix used a single global `opt_step` that never reset between stages — so stage 2 (MedQA) inherited stage 1's spent budget and trained at lr=0 (flat losses ~20.82 — inflated ×batch-size, true ≈3.5 at batch 6). Now the LR counter **resets at each stage boundary**, each stage runs its own warmup+cosine, the cosine is clamped to `p ∈ [0,1]`, and `opt_step` is checkpointed for resume. Runs from before the fix used `--warmup 1` as a workaround — don't compare their lr curve to a fixed-schedule run. Regression: `tests/test_schedule.py`. |
 | L2 = 6.56M vs thesis 2.8M | debate uses full H×H cross-projections, untied across rounds; decide (slim/tie L2, or update thesis table) before publishing. Does not affect the A/B — baseline simply omits L2. |
-| sandbox diagnostics not logged | `anchor_energy` / `trajectory_variance` / `spread_ratio` are computed in `aux` but not written into `results.json`; pull them from a manual forward if you need the ρ trace. A pinned-at-floor ρ (<0.05) means trajectory collapse — itself a result. |
+| sandbox diagnostics | **logged (T24):** per-epoch means in `history[*].sandbox` (printed as `[stage] epN sandbox anchor_energy=… trajectory_variance=… spread_ratio=…`) and a `sandbox` block in every `test.*` result; real tokens only. A pinned-at-floor ρ (<0.05) means the trajectories collapsed. |
 | OOM | lower `--batch-size`, raise `--grad-accum` to keep effective batch constant. |
 | `torch.compile` crash/slow first epoch | `--no-compile`. |
 | first run is slow | HF is downloading MedMCQA/MedQA into its cache — one-time. Loads are **offline-first** by default (`data.py` sets `HF_HUB_OFFLINE`): after the cache is warm nothing touches the hub. |
@@ -547,7 +549,7 @@ names — that is the checkpoint the `medqa_bench` number belongs to.
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-python -m pytest                                        # 89 unit tests
+python -m pytest                                        # 92 unit tests
 # full A/B (one arm at a time)
 torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox  --out runs/sandbox
 torchrun --nproc_per_node=4 -m ekdant.train --variant baseline --out runs/baseline

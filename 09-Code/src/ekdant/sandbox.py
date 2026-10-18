@@ -25,6 +25,20 @@ class SandboxOutput(NamedTuple):
     aux: Dict[str, torch.Tensor]
 
 
+def masked_mean_bt(x: torch.Tensor,
+                   mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """Mean over the trailing [B,T] dims, counting only real tokens.
+
+    x [..., B, T]; mask [B, T] (1 = real token, 0 = padding) or None.
+    Returns shape x.shape[:-2].  With mask=None this is a plain mean, so
+    unpadded inputs give exactly the old numbers.
+    """
+    if mask is None:
+        return x.mean(dim=(-2, -1))
+    w = mask.to(x.dtype)
+    return (x * w).sum(dim=(-2, -1)) / w.sum().clamp_min(1.0)
+
+
 def mutual_orthogonal(K: int, n: int, device=None, dtype=None) -> torch.Tensor:
     """K mutually Frobenius-orthogonal n-by-n matrices, each of unit norm."""
     mats = []
@@ -117,21 +131,23 @@ class AnchoredDescent(nn.Module):
         nn.init.zeros_(self.gate.bias)
 
     @staticmethod
-    def _dev_from_consensus(traj: torch.Tensor) -> torch.Tensor:
+    def _dev_from_consensus(traj: torch.Tensor,
+                            mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         c = traj.mean(dim=0, keepdim=True)
-        return (traj - c).pow(2).sum(-1).sqrt().mean(dim=(1, 2))
+        return masked_mean_bt((traj - c).pow(2).sum(-1).sqrt(), mask)
 
-    def forward(self, traj, hT, steps, eta):
+    def forward(self, traj, hT, steps, eta, mask=None):
+        """Returns (traj, a_t, per-token energy [K,B,T], retention [K])."""
         a_t = self.anchor(hT)
         target = a_t.unsqueeze(0).expand_as(traj)
-        dev0 = self._dev_from_consensus(traj)
+        dev0 = self._dev_from_consensus(traj, mask)
         for _ in range(steps):
             g = torch.sigmoid(self.gate(torch.cat([traj, target], dim=-1)))
             traj = traj - eta * g * (traj - target)
-        dev1 = self._dev_from_consensus(traj)
+        dev1 = self._dev_from_consensus(traj, mask)
         retention = dev1 / dev0.clamp_min(1e-12)
         energy = 0.5 * (traj - target).pow(2).sum(dim=-1)
-        return traj, a_t, energy.mean(dim=(1, 2)), retention
+        return traj, a_t, energy, retention
 
 
 class Sandbox(nn.Module):
@@ -165,31 +181,41 @@ class Sandbox(nn.Module):
         self.debate = nn.ModuleList([DebateRound(dim) for _ in range(rounds)])
         self.descent = AnchoredDescent(dim)
 
-    def forward(self, hT: torch.Tensor) -> SandboxOutput:
+    def forward(self, hT: torch.Tensor,
+                mask: Optional[torch.Tensor] = None) -> SandboxOutput:
+        """hT [B,T,H]; mask [B,T] (1 = real token) only affects the
+        diagnostics / spread floor, never the consensus."""
         traj = self.init_proj(hT)
         for layer in self.debate:
             traj = layer(traj)
-        traj, a_t, energies, retention = self.descent(
-            traj, hT, self.steps, self.eta
+        traj, a_t, energy, retention = self.descent(
+            traj, hT, self.steps, self.eta, mask
         )
-        aux = self._aux(traj, hT, a_t, energies, retention)
+        aux = self._aux(traj, hT, a_t, energy, retention, mask)
         if self.readout == "lowest_energy":
-            rows = torch.arange(traj.shape[1], device=traj.device)
-            consensus = traj[energies.argmin(dim=0), rows]
+            # Per-position pick (thesis: argmin_k ||T_k - a_t||).  Choosing
+            # one trajectory from batch/sequence-averaged energy let future
+            # tokens and other batch rows decide position t's output.
+            idx = energy.argmin(dim=0)                       # [B,T]
+            idx = idx.unsqueeze(0).unsqueeze(-1).expand(1, *traj.shape[1:])
+            consensus = traj.gather(0, idx).squeeze(0)
         else:
             consensus = traj.mean(dim=0)
         return SandboxOutput(consensus, traj, aux)
 
-    def _aux(self, traj, hT, a_t, energies, retention) -> Dict[str, torch.Tensor]:
-        var = traj.var(dim=0, unbiased=False).mean()
-        rho = var / hT.pow(2).mean().clamp_min(1e-12)
+    def _aux(self, traj, hT, a_t, energy, retention,
+             mask=None) -> Dict[str, torch.Tensor]:
+        # Statistics over real tokens only: padded positions carry states
+        # the loss never sees and would dilute rho in mixed-length batches.
+        var = masked_mean_bt(traj.var(dim=0, unbiased=False).mean(-1), mask)
+        rho = var / masked_mean_bt(hT.pow(2).mean(-1), mask).clamp_min(1e-12)
         return {
-            "anchor_energy": energies.mean(),
+            "anchor_energy": masked_mean_bt(energy, mask).mean(),
             "trajectory_variance": var,
             "spread_ratio": rho,
             "per_trajectory_retention": retention,
-            "anchor_distance": (traj - a_t.unsqueeze(0))
-            .pow(2).sum(-1).sqrt().mean(dim=(1, 2)),
+            "anchor_distance": masked_mean_bt(
+                (traj - a_t.unsqueeze(0)).pow(2).sum(-1).sqrt(), mask),
         }
 
     def spread_floor(self, rho: torch.Tensor) -> torch.Tensor:

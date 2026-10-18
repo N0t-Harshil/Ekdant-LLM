@@ -253,3 +253,34 @@ def test_evaluate_loss_is_sample_weighted(monkeypatch):
     # sample-weighted: (3*3 + 1*1) / 4 = 2.5  (a batch mean would say 2.0)
     assert abs(r["loss"] - 2.5) < 1e-6
     assert r["n"] == 4
+
+
+def test_evaluate_reports_sandbox_diagnostics_only_for_sandbox_arm(monkeypatch):
+    # Closes the "diagnostics computed but never logged" gap: evaluate()
+    # (and train_stage) average anchor_energy / trajectory_variance /
+    # spread_ratio into the result, which lands in results.json/history.
+    import torch
+
+    import ekdant.train as T
+    from ekdant.model import EkdantConfig, EkdantModel, baseline_config
+    from ekdant.train import evaluate
+
+    monkeypatch.setattr(T, "LETTER_IDS", [1, 2, 3, 4])
+    cfg = EkdantConfig(vocab_size=64, dim=32, n_t=1, n_heads=4, n_kv_heads=2,
+                       ffn_hidden=64, window=8, max_seq_len=16)
+    ids = torch.randint(5, 64, (3, 10))
+    mask = torch.ones(3, 10, dtype=torch.long)
+    mask[2, 6:] = 0
+    batch = {"input_ids": ids, "labels": ids.clone(), "attention_mask": mask,
+             "answer_pos": torch.full((3,), 5, dtype=torch.long),
+             "answer_target": torch.zeros(3, dtype=torch.long),
+             "answer_ids": torch.ones(3, dtype=torch.long)}
+    off = lambda: torch.autocast("cpu", enabled=False)  # noqa: E731
+    torch.manual_seed(0)
+    r = evaluate(EkdantModel(cfg), [batch], torch.device("cpu"), off)
+    assert set(r["sandbox"]) == {"anchor_energy", "trajectory_variance",
+                                 "spread_ratio"}
+    assert all(v == v and v > 0 for v in r["sandbox"].values())
+    rb = evaluate(EkdantModel(baseline_config(cfg)), [batch],
+                  torch.device("cpu"), off)
+    assert "sandbox" not in rb

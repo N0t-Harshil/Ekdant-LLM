@@ -45,11 +45,11 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 
 ### 7. CUDA out of memory
 - Reduce `--batch-size` and raise `--grad-accum` to keep the effective batch (e.g. 6 × 8 = 48 on a 16 GB T4).
-- The sandbox arm adds a `[K, B, T, H]` scratch tensor (≈ 1.5× baseline wall-clock, the main activation cost).
+- The sandbox arm adds a `[K, B, T, H]` scratch tensor (the main activation cost; wall-clock is estimated at ≈ 1.5× the baseline).
 - Memory only becomes a concern with near-2048-token inputs; MedMCQA p99 is 118 tokens and MedQA p99 is 364.
 
 ### 8. Tests fail
-- `pytest -q` (89 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
+- `pytest -q` (92 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
 - A config change that makes `EkdantConfig` and `Sandbox` disagree (e.g. a new readout name) is caught by `test_every_config_valid_readout_builds_a_model`.
 
 ### How to reproduce an issue
@@ -72,7 +72,7 @@ Training fails
     │   └── Re-run the 400-row smoke
     ├── OOM?
     │   ├── Lower batch-size, raise grad-accum
-    │   └── Sandbox arm needs ~1.5x the activations
+    │   └── Sandbox arm needs more activation memory ([K,B,T,H] scratch)
     ├── Resume refuses / misaligned?
     │   ├── Same --epochs / --ft-epochs / --ft-lr / --answer-weight as the original run
     │   └── Use --resume (fresh-run guard), keep config.json in --out

@@ -65,11 +65,26 @@ from ekdant.model import EkdantConfig, EkdantModel, estimate_model_size
 # A/B arms train on identical data and benchmark the identical holdout
 # (fairness rule).
 STAGES = (("medmcqa", "train"), ("medqa_ft", "train"))
+# Sandbox health numbers averaged per epoch into history / results.json
+# (sandbox arm only; the baseline has no aux).
+DIAG_KEYS = ("anchor_energy", "trajectory_variance", "spread_ratio")
 FT_FRAC = 0.6
 # MedMCQA's public test split ships cop=-1 (unlabelled) — bug T18 made the
 # metric degenerate to "A-prediction rate". The labelled validation split
 # (4,183 rows) is never trained on and serves as the untouched
 # checkpoint-selection set (best.pt / final better-of selection).
+
+
+def _accumulate_diag(acc: Dict[str, float], out, weight: int) -> None:
+    aux = getattr(out, "aux", None) or {}
+    for k in DIAG_KEYS:
+        v = aux.get(k)
+        if v is not None:
+            acc[k] = acc.get(k, 0.0) + float(v.detach()) * weight
+
+
+def _mean_diag(acc: Dict[str, float], n: int) -> Dict[str, float]:
+    return {k: v / max(1, n) for k, v in acc.items()}
 
 
 def log(msg: str) -> None:
@@ -188,6 +203,7 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
     opt.zero_grad(set_to_none=True)  # never inherit a prior epoch's tail
     total, ntok, steps, nsamp = 0.0, 0, 0, 0
     gnorm_sum, gnorm_n = 0.0, 0
+    diag: Dict[str, float] = {}
     loss_ema = None
     last_lr = opt.param_groups[0]["lr"]
     start_opt = opt_step
@@ -199,7 +215,8 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
             out = model(batch["input_ids"], labels=batch["labels"],
                         answer_pos=batch["answer_pos"],
                         answer_ids=batch["answer_ids"],
-                        answer_weight=answer_weight)
+                        answer_weight=answer_weight,
+                        attention_mask=batch["attention_mask"])
             loss = out.loss / accum
         scaler.scale(loss).backward()
         bsz_tok = int(batch["attention_mask"].sum())
@@ -230,6 +247,7 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
                 next_at += log_every
                 t_window, ntok_window = now, 0
         total += out.loss.item() * batch["input_ids"].size(0)
+        _accumulate_diag(diag, out, batch["input_ids"].size(0))
         nsamp += batch["input_ids"].size(0)
         ntok += bsz_tok
         ntok_window += bsz_tok
@@ -253,7 +271,8 @@ def train_stage(model, loader, opt, device, epoch, scaler, autocast,
         scaler.update()
         opt.zero_grad(set_to_none=True)
     avg_gnorm = gnorm_sum / max(1, gnorm_n)
-    return total / max(1, nsamp), ntok, opt_step, last_lr, avg_gnorm
+    return (total / max(1, nsamp), ntok, opt_step, last_lr, avg_gnorm,
+            _mean_diag(diag, nsamp))
 
 
 @torch.no_grad()
@@ -262,15 +281,18 @@ def evaluate(model, loader, device, autocast,
     model.eval()
     correct = seen = 0
     loss_sum = n = 0
+    diag: Dict[str, float] = {}
     for batch in loader:
         batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
         with autocast():
             out = model(batch["input_ids"], labels=batch["labels"],
                         answer_pos=batch["answer_pos"],
                         answer_ids=batch["answer_ids"],
-                        answer_weight=answer_weight)
+                        answer_weight=answer_weight,
+                        attention_mask=batch.get("attention_mask"))
             logits = out.logits
         loss_sum += out.loss.item() * batch["input_ids"].size(0)
+        _accumulate_diag(diag, out, batch["input_ids"].size(0))
         n += batch["input_ids"].size(0)
         # logits[t] predicts token t+1 -> score the answer at p via logits[p-1]
         got = logits[torch.arange(len(logits), device=device),
@@ -278,8 +300,11 @@ def evaluate(model, loader, device, autocast,
         pred = got[:, LETTER_IDS].argmax(-1)
         correct += int((pred == batch["answer_target"]).sum())
         seen += len(pred)
-    return {"loss": loss_sum / max(1, n), "accuracy": correct / max(1, seen),
-            "n": seen}
+    r = {"loss": loss_sum / max(1, n), "accuracy": correct / max(1, seen),
+         "n": seen}
+    if diag:
+        r["sandbox"] = _mean_diag(diag, n)
+    return r
 
 
 def main() -> None:
@@ -310,10 +335,10 @@ def main() -> None:
                     help="print a progress line every N optimizer steps "
                          "(0 = epoch summaries only)")
     ap.add_argument("--eval-every", type=int, default=1,
-                    help="during the MedQA fine-tune phase, evaluate the "
-                         "untouched MedMCQA validation set every N epochs "
-                         "→ history + incremental results.json + best.pt "
-                         "on medmcqa_val (0 = final only)")
+                    help="evaluate the untouched MedMCQA validation set "
+                         "every N epochs: in phase 1 for monitoring only "
+                         "(history), in the MedQA fine-tune also for "
+                         "best.pt selection (0 = final only)")
     ap.add_argument("--resume", action="store_true",
                     help="continue <out>/last.pt (skips finished stage/epochs)")
     ap.add_argument("--eval-only", action="store_true",
@@ -505,7 +530,7 @@ def main() -> None:
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(epoch)
                 t0 = time.time()
-                avg, ntok, stage_opt_step, last_lr, avg_gnorm = train_stage(
+                avg, ntok, stage_opt_step, last_lr, avg_gnorm, diag = train_stage(
                     model, loader, opt, device, epoch, scaler, autocast,
                     stage_opt_step, total_opt, stage_lr, args.warmup,
                     args.grad_accum, stage_name=stage_name,
@@ -522,12 +547,33 @@ def main() -> None:
                     history.append({"stage": stage_name, "epoch": epoch,
                                     "loss": avg, "lr": last_lr,
                                     "gnorm": avg_gnorm})
+                    if diag:
+                        history[-1]["sandbox"] = diag
+                        log(f"[{stage_name}] ep{epoch} sandbox "
+                            + " ".join(f"{k}={v:.4g}" for k, v in diag.items()))
                     torch.save({"model": raw.state_dict(),
                                 "cfg": cfg.to_dict(),
                                 "step": step, "completed": completed,
                                 "opt_step": opt_step, "history": history,
                                 "best_medmcqa": best_acc},
                                os.path.join(args.out, "last.pt"))
+                    if (args.eval_every > 0 and stage_name == "medmcqa"
+                            and ((epoch + 1) % args.eval_every == 0
+                                 or epoch + 1 == stage_epochs)):
+                        # Monitoring only (history): makes phase-1
+                        # overfitting visible.  Never selects a checkpoint.
+                        vds = make_dataset("medmcqa", "validation",
+                                           tokenizer, cfg, args.limit)
+                        vloader = build_dataloader(vds, cfg, args.batch_size,
+                                                   False, False,
+                                                   seed=args.seed, workers=0)
+                        r = evaluate(raw, vloader, device, autocast,
+                                     args.answer_weight)
+                        history[-1]["test"] = {"medmcqa_val": r}
+                        log(f"[{stage_name}] ep{epoch} monitor medmcqa_val "
+                            f"acc={r['accuracy']*100:.2f}% "
+                            f"loss={r['loss']:.4f} n={r['n']}")
+                        _write_results()
                     if (args.eval_every > 0
                             and stage_name == "medqa_ft"
                             and ((epoch + 1) % args.eval_every == 0

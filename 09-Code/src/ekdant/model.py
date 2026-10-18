@@ -108,7 +108,12 @@ class EkdantModel(nn.Module):
         answer_pos: Optional[torch.Tensor] = None,
         answer_ids: Optional[torch.Tensor] = None,
         answer_weight: float = 0.0,
+        attention_mask: Optional[torch.Tensor] = None,
     ) -> ModelOutput:
+        """``attention_mask`` [B,T] (1 = real token) is optional and only
+        restricts the sandbox diagnostics / spread floor to real tokens.
+        The forward is causal and padding is on the right, so logits at
+        real positions never depend on it."""
         c = self.cfg
         x = self.drop(self.embed(input_ids))
 
@@ -116,7 +121,7 @@ class EkdantModel(nn.Module):
         hT = self.t(x)
 
         if self.sandbox is not None:
-            out: SandboxOutput = self.sandbox(hT)
+            out: SandboxOutput = self.sandbox(hT, mask=attention_mask)
             hT = out.consensus
             if return_aux:
                 aux.update({k: v for k, v in out.aux.items()

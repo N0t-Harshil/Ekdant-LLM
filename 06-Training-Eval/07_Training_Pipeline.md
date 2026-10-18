@@ -28,7 +28,7 @@ Runnable configs are `09-Code/configs/{sandbox,baseline}_50m.json`. The L1 line 
 
 1. **Phase 1 — MedMCQA:** trains on the **full** MedMCQA train split (182,496 labelled rows, 3,802 opt/epoch at effective batch 48; the 326 unlabelled `cop=-1` rows are dropped, T18 rule) for `--epochs` epochs, then records the **MedMCQA validation** result once (`results["phase1"]["medmcqa_val"]` — the public test split ships unlabelled).
 2. **Phase 2 — MedQA fine-tune:** fine-tunes on the **60% partition** of MedQA train (6,106 of 10,178 rows; 128 opt/epoch) for `--epochs` epochs. The partition is `split_frac(train, FT_FRAC=0.6, --seed)` — identical rows for both A/B arms (fairness rule); the complementary **40% (4,072 rows) is never trained on**.
-3. **Final protocol:** better of `best.pt` vs `last.pt` on the untouched **MedMCQA validation** split (4,183 — the public test split ships `cop=-1`, unlabelled, T18; selection set, evaluated every phase-2 epoch via `--eval-every`) → benchmark the 40% MedQA partition **exactly once** (`medqa_bench`) + official MedQA test (`medqa_test`, also untouched) + selection score, all into `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected`).
+3. **Final protocol:** better of `best.pt` vs `last.pt` on the untouched **MedMCQA validation** split (4,183 rows, 4,170 usable — the public test split ships `cop=-1`, unlabelled, T18; selection set, evaluated every phase-2 epoch via `--eval-every`) → benchmark the 40% MedQA partition **exactly once** (`medqa_bench`) + official MedQA test (`medqa_test`, also untouched) + selection score, all into `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected`).
 
 Data loads through `data.py::load_examples` (offline-first: cached loads skip the hub entirely); each example is formatted `question\nA. …\nAnswer: <letter>` and the answer-token index is cached (`answer_pos`). The collator pads to **batch max** — measured with the real tokenizer on all four splits: MedMCQA p50=34 / p99=118, MedQA p50=173 / p99=364, max 857, **0 of 198k rows exceed the 2048 cap** (nothing truncated or dropped; full prompts verified by decode round-trip) — measured 6.3 opt steps/s on a T4. Note the model never receives `attention_mask`: padding is **right-side** and attention is **causal**, so real tokens cannot attend to pads (pads carry `-100` labels = no loss).
 
@@ -52,7 +52,7 @@ Data loads through `data.py::load_examples` (offline-first: cached loads skip th
 | `--limit` | none | cap rows per dataset (smoke) |
 | `--no-compile` | off | skip `torch.compile` |
 | `--log-every` | 100 | progress line every N optimizer steps (`0` = epoch summaries only) |
-| `--eval-every` | 1 | phase 2: untouched MedMCQA validation eval every N epochs → history + incremental `results.json` + `best.pt` on `medmcqa_val` (`0` = no per-epoch eval) |
+| `--eval-every` | 1 | untouched MedMCQA validation every N epochs — phase 1: monitoring only (history, T25); phase 2: also `best.pt` selection (`0` = final only) |
 | `--seed` | 17 | seeds the row sampler **and the 60/40 partition** (identical for both arms) |
 | `--resume` | off | continue `<out>/last.pt`; skips finished (stage, epoch) pairs |
 | `--eval-only` | off | no training; re-run the final protocol (selection + 40% benchmark) |
@@ -79,7 +79,7 @@ Optional (`--answer-weight w`, default 0 = legacy): `+ w · CE(logits[answer_pos
 ## 4. Known issues (open — see [10_Known_Issues](../07-Management/10_Known_Issues.md))
 
 1. **LR schedule bugs — FIXED (per-stage cosine).** (a) `lr_at(step, total, base, warmup)` used to be called **once per epoch** with `step` incremented by 1 per epoch, while `total_steps` counted **batches** — so with defaults `step` only ever reached 5, `step < warmup` always held, and lr stayed ≤ 1.5% of 3e-4. (b) The first fix used a single global `opt_step` that never reset between stages, so stage 2 (MedQA) inherited stage 1's spent budget and trained at **lr = 0** for all epochs (losses flat at ~20.82 — inflated ×batch-size, true ≈3.5 at batch 6). **Now:** LR is set per **optimizer step** inside the batch loop, the counter **resets at each stage boundary** so each stage runs its own warmup+cosine, `total_opt = ceil(len(loader)/grad_accum) × epochs`, the cosine term is clamped to `p ∈ [0,1]`, and `opt_step` is saved in `last.pt` for resume. Regression tests: `tests/test_schedule.py`.
-2. **Sandbox diagnostics computed but never logged.** `ModelOutput.aux` carries `anchor_energy`, `trajectory_variance`, `spread_ratio`, `per_trajectory_retention`, `anchor_distance`, but `train_stage` ignores `out.aux` — history now carries `loss`/`lr`/`gnorm` per epoch, but still no ρ trace for any run (the collapse monitor the thesis requires). Fix: accumulate `aux` scalars per epoch and append to history.
+2. **Sandbox diagnostics — FIXED (T24).** `anchor_energy`, `trajectory_variance` and `spread_ratio` are averaged per epoch into `history[*].sandbox` (also printed as `[stage] epN sandbox …`) and into every `evaluate()` result (`results.json` → `test.*.sandbox`). They are computed over real tokens only (the attention mask now reaches L2). Sandbox arm only; the baseline has no `aux`.
 3. **Train-loss scale bug — FIXED.** The epoch mean divided Σ(loss × batch_size) by the batch *count*, so every pre-fix train loss was inflated ×`--batch-size` (e.g. "22.28" at batch 6 ≈ true 3.7 — consistent with eval CE ≈ 3.2–3.6). Fixed to a true sample mean; eval losses were always correct; same-batch comparisons are unaffected.
 4. **L2 size open item:** measured 6.56M vs thesis 2.8M (2.3×; full H×H q/k/v cross-projections + untied rounds) — decide slim-vs-restate before any results table ([14](14_Performance_Analysis.md) §1, [09-Code/README](../09-Code/README.md)).
 5. Not bugs but design gaps: diagnostics (§4.2); the smoke run below plus the unit suite is the validation harness (`09_Validation_System.md`). *(Resume previously absent — now shipped as `--resume`/`--eval-only`.)*
@@ -92,7 +92,7 @@ Optional (`--answer-weight w`, default 0 = legacy): `+ w · CE(logits[answer_pos
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 89 tests, CPU, ~10s
+pytest -q    # 92 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 

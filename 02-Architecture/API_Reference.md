@@ -30,7 +30,7 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 
 ### `EkdantModel(nn.Module)` / `ModelOutput`
 
-- `forward(input_ids[B,T], labels=None, return_aux=True) -> ModelOutput` — embed (+drop) → T → optional Sandbox (replaces hT with `consensus`, copies tensor aux) → `ln_f` → tied head. `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100)` plus `_floor_penalty` when sandbox is on and labels are given.
+- `forward(input_ids[B,T], labels=None, return_aux=True, answer_pos=None, answer_ids=None, answer_weight=0.0, attention_mask=None) -> ModelOutput` — `attention_mask` only restricts the sandbox statistics/floor to real tokens — embed (+drop) → T → optional Sandbox (replaces hT with `consensus`, copies tensor aux) → `ln_f` → tied head. `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100)` plus `_floor_penalty` when sandbox is on and labels are given.
 - `_floor_penalty(aux)` — `lambda_sbx · mean(relu(rho_min − spread_ratio)²)`; zero when no `spread_ratio` in aux.
 - `score_options(input_ids[B·n,L], option_mask[B·n,L], n_options=4) -> [B, n_options]` — masked mean log-probability per MCQ option.
 - `num_parameters(trainable_only=True) -> int`.
@@ -63,8 +63,8 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 | `DiverseInit(dim, K, gain_lo=0.8, gain_hi=1.25)` | `forward(hT[B,T,H]) -> [K,B,T,H]` |
 | `CrossRead(dim)` | `forward(traj[K,B,T,H])` — each trajectory attends the other K−1, self masked |
 | `DebateRound(dim, mlp_ratio=2.0, gate_bias=-2.0)` | cross-read + sigmoid repair gate + SiLU MLP |
-| `AnchoredDescent(dim)` | `forward(traj, hT, steps, eta) -> (traj, a_t, energy[B], retention[B])` |
-| `Sandbox(dim, K=4, rounds=2, steps=8, eta=None→0.5/steps, rho_min=0.05, readout="mean"\|"lowest_energy", gain_lo=0.8, gain_hi=1.25)` | init → debate×R → descent×S → consensus (mean or lowest-energy pick) |
+| `AnchoredDescent(dim)` | `forward(traj, hT, steps, eta, mask=None) -> (traj, a_t, energy[K,B,T], retention[K])` |
+| `Sandbox(dim, K=4, rounds=2, steps=8, eta=None→0.5/steps, rho_min=0.05, readout="mean"\|"lowest_energy", gain_lo=0.8, gain_hi=1.25)` | `forward(hT[B,T,H], mask=None)`: init → debate×R → descent×S → consensus (mean, or per-position lowest-anchor-energy pick); aux statistics over real tokens |
 
 `aux` keys: `anchor_energy`, `trajectory_variance`, `spread_ratio` (ρ), `per_trajectory_retention[B]`, `anchor_distance[B]`. Extras: `spread_floor(rho)`, `@no_grad post_round_state(hT) -> List[[K,B,T,H]]`.
 

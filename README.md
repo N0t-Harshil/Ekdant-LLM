@@ -9,6 +9,7 @@ A windowed dense Transformer (T) topped by a parallel debate sandbox (L2), train
 - **Thesis:** [01](01-Introduction/01_Project_Overview.md) → [02](02-Architecture/02_System_Architecture.md) → [19](03-Background/19_Thesis_Ch2_SSM_Storage_Papers.md)/[20](03-Background/20_Thesis_Ch2_Sandbox_Papers.md)/[25](03-Background/25_Thesis_Ch2_Transformer_Papers.md) → [21](04-Model-DeepDive/21_Thesis_Ch3_Layer1_SSM_Storage.md)/[22](04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) → [05](05-Data/05_Data_Pipeline.md) → [07](06-Training-Eval/07_Training_Pipeline.md) → [thesis.md](08-Thesis/thesis.md)
 - **Builder:** [02](02-Architecture/02_System_Architecture.md) → [03](02-Architecture/03_Codebase_Map.md) → [26b](04-Model-DeepDive/26b_Dense_Transformer_for_T.md)/[26c](04-Model-DeepDive/26c_Internal_Sandbox_Build.md) → [12](02-Architecture/12_Configuration_Guide.md) → [09-Code](09-Code/README.md)
 - **Presentation:** [project_explanation.md](project_explanation.md) — full project story + 30-min supervisor-meeting order
+- **AI agents (OpenCode etc.):** [RULES.md](RULES.md) — project facts, hard rules, workflow, code↔vault sync map (auto-loaded via [AGENTS.md](AGENTS.md))
 
 ## Folders
 
@@ -22,7 +23,7 @@ A windowed dense Transformer (T) topped by a parallel debate sandbox (L2), train
 | [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, validation + held-out protocol, debugging, performance | Ch. 5/6 |
 | [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T23), defense-ordered future work | Ch. 7 |
 | [08-Thesis](08-Thesis/thesis.md) | thesis.md + thesis.tex/pdf + [glossary](08-Thesis/GLOSSARY.md) | Draft |
-| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 89 tests, A/B configs | Build |
+| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 92 tests, A/B configs | Build |
 | [papers/](papers/00_Papers_Index.md) | 66 PDFs (all thesis-cited) + indexes | Sources |
 
 ## Day-1 (new collaborator)
@@ -33,7 +34,7 @@ A windowed dense Transformer (T) topped by a parallel debate sandbox (L2), train
 cd 09-Code
 pip install -e .[dev]     # note: trailing dot is required
 python -c "import ekdant; print('ok')"
-pytest -q                    # 89 tests, CPU, ~10s
+pytest -q                    # 92 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```
 
@@ -49,12 +50,12 @@ Debugging: see [13_Debugging_Guide](06-Training-Eval/13_Debugging_Guide.md). Iss
 
 | Done | Not done |
 |---|---|
-| ✅ T + L2 code, 89 green tests, A/B configs; both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration (RQ1 untested) |
-| ✅ Full 3-epoch A/B on a T4: MedMCQA val 33.31 % vs 32.01 %, MedQA 25.69 % vs 26.08 % — a tie | ❌ 100-epoch sequential campaign for both arms (prepared in `run.md` §3) |
+| ✅ T + L2 code, 92 green tests, A/B configs; both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration (RQ1 untested) |
+| ✅ Full 3-epoch A/B on a T4: MedMCQA val 33.31 % vs 32.01 %, MedQA 25.69 % vs 26.08 % — a tie; legacy 100-epoch baseline: 33.33 % / `medqa_bench` 26.89 % | ❌ 100-epoch sequential campaign for both arms (prepared in `run.md` §3) |
 | ✅ Thesis aligned to the built model (T + L2, MedMCQA/MedQA); 4 proofs, 65 refs | ❌ Ch. 6 result tables `[PENDING]`; `thesis.pdf` needs a rebuild |
 | ✅ 66-paper library, all cited | ❌ Depth-/parameter-matched control, K/R/S ablations, multi-seed |
-| ✅ 4 design defects found + proven + fixed | ❌ Sandbox diagnostics not yet logged to `results.json` |
-| ✅ Leakage-free protocol (T20), training-loop fixes (T21–T23) | ❌ L2 size open item (6.56M measured vs 2.8M estimate) |
+| ✅ 4 design defects found + proven + fixed | ❌ Phase-1 epoch count to re-pick from the validation curve (T25) |
+| ✅ Leakage-free protocol (T20), training-loop fixes (T21–T23), sandbox readout/diagnostics fixes (T24) | ❌ L2 size open item (6.56M measured vs 2.8M estimate) |
 
 Readiness: **7.0/10** — details in [STATUS](01-Introduction/STATUS.md). Fix order: [11_Future_Work](07-Management/11_Future_Work.md).
 

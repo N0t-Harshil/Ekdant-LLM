@@ -49,12 +49,12 @@ Sandbox ops run on `[K,B,T,H]` — every refinement op touches all K trajectorie
 |---|---|---|
 | Params, embed/T/L2 split (§1) | `estimate_model_size` | ✅ measured |
 | tokens×K, FLOPs, wall-clock, tok/s | trainer timers + C8 rule | ⚠️ runner logs tok/s only |
-| ρ trace (`spread_ratio` per step/epoch) | `Sandbox._aux` | ❌ **not logged** — `train.py` drops `aux`; add before any run |
-| `anchor_energy`, `trajectory_variance` | same aux dict (three separately-named numbers, never aliased) | ❌ not logged |
+| ρ trace (`spread_ratio` per epoch) | `Sandbox._aux` → `history[*].sandbox` | ✅ logged per epoch, real tokens only (T24) |
+| `anchor_energy`, `trajectory_variance` | same aux dict (three separately-named numbers, never aliased) | ✅ logged per epoch + per eval |
 | K=1 vs K=4 cost-vs-accuracy; depth/window ablations | config sweeps | ❌ open |
 | Baseline vs sandbox `results.json` (letter accuracy — quote `medqa_bench`, report `phase1.medmcqa_val` vs final `medmcqa_val` retention) | runner output | ready to produce |
 
-Ch.6 result tables stay `[PENDING]` until the 100-epoch campaign has run for both arms and the ρ logging gap (§4.2 above, [07](07_Training_Pipeline.md) §4.2) is closed. (The LR-schedule bug is fixed — per-stage reset, `tests/test_schedule.py`.)
+Ch.6 result tables stay `[PENDING]` until the campaign has run for both arms (ρ logging is now in place — T24). (The LR-schedule bug is fixed — per-stage reset, `tests/test_schedule.py`.)
 
 ## 5. RQ2/RQ3 evaluation plan (what is runnable at 50M)
 
@@ -64,7 +64,7 @@ GSM8K/HumanEval cannot decide the sandbox claims at this scale (smallest reporte
 |---|---|---|
 | **Decision gate** | MedQA 40% benchmark partition (`medqa_bench`, 4,072 rows, scored once) | the RQ2 number |
 | **Second clean number** | official MedQA test (1,273) | confirmation |
-| **Selection / retention** | MedMCQA validation (4,183) | checkpoint choice; phase-1 vs final erosion |
+| **Selection / retention** | MedMCQA validation (4,170 usable of 4,183) | checkpoint choice; phase-1 vs final erosion |
 
 RQ2 = sandbox arm vs. the identical no-sandbox backbone, with params, tokens×K, FLOPs and wall-clock reported beside accuracy; the depth-/parameter-matched control remains owed. RQ3 = agreement-vs-accuracy calibration plus the `spread_ratio ρ` learning curve (falling ρ = failure signal, [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md) §3.2–3.3) — blocked on persisting the diagnostics. The addition ladder backbone-only → +L2 → +L1+L2 needs L1 for its last step.
 

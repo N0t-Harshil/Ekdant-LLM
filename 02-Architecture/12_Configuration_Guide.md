@@ -58,7 +58,7 @@ L2 is 2.3× the thesis closed-form estimate (2.8M): that estimate budgeted ~0.97
 
 ## 4. Tokenizer (as built)
 
-32,768-entry BPE (HF `tokenizers`; NFD + lowercase, whitespace pre-tokenizer, `min_frequency=2`, specials `<pad> <bos> <eos> <unk>`), trained once per run directory on 20,000 MedMCQA training prompts and saved to `<out>/tokenizer.json`. Copy it into the second arm's `--out` before starting that arm to guarantee an identical vocabulary. Details: [05_Data_Pipeline](../05-Data/05_Data_Pipeline.md) §4.
+BPE configured for 32,768 entries — it learns **26,766** on the 20,000-prompt sample, so 6,002 embedding rows (3.07M parameters per arm, counted in the totals above) are never used (HF `tokenizers`; NFD + lowercase, whitespace pre-tokenizer, `min_frequency=2`, specials `<pad> <bos> <eos> <unk>`), trained once per run directory on 20,000 MedMCQA training prompts and saved to `<out>/tokenizer.json`. Copy it into the second arm's `--out` before starting that arm to guarantee an identical vocabulary. Details: [05_Data_Pipeline](../05-Data/05_Data_Pipeline.md) §4.
 
 ## 5. Design-time size table (thesis only — includes L1, not built)
 

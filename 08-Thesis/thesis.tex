@@ -327,7 +327,7 @@ reproducible and auditable at the cost of raw speed
 \midrule
 $B$ & batch size \\
 $T$ & sequence length (maximum 2048; no training example is truncated) \\
-$V$ & vocabulary size (32768) \\
+$V$ & vocabulary size (32{,}768 allocated; 26{,}766 learned by the tokenizer) \\
 $H$ & model width (512 as built; design sizes XS / S / M were 256 / 320 / 512) \\
 $d$ & per-store state dimension $\sdim$ (L1, design only: 96 / 128 / 256) \\
 $N$ & number of L1 blocks (design only: 2 / 4 / 4); the built model has $N_{\mathrm{T}}{=}12$ T blocks \\
@@ -1004,9 +1004,11 @@ collapse. The inert peer-mean variant moved the consensus by exactly $0$.
 \subsubsection{Consensus and readout}
 
 \noindent
-The consensus is the mean of the $S$ trajectories (the default), or
-alternatively the lowest-anchor-energy trajectory
-$\arg\min_k \lVert T^{(k)} - a_t \rVert$. A single dense projection then
+The consensus is the mean of the $K$ trajectories after the $S$ descent
+steps (the default), or alternatively, at each position separately, the
+lowest-anchor-energy trajectory $\arg\min_k \lVert T^{(k)}_t - a_t \rVert$.
+The choice is made per position so that position $t$ never depends on later
+tokens or on other examples in the batch. A single dense projection then
 produces logits:
 \begin{equation}
   y = \bar T^{(S)} \in \mathbb{R}^{B \times T \times H},
@@ -1566,7 +1568,8 @@ used strictly in sequence and never jointly.
 \paragraph{MedMCQA.}
 \texttt{openlifescienceai/medmcqa}: 182{,}822 training rows, of which 326 carry
 no label, leaving \textbf{182{,}496 labelled rows} used for phase~1, and a
-labelled validation split of 4{,}183 rows. The public test split ships
+labelled validation split of 4{,}183 rows, of which 4{,}170 remain after dropping 13 rows whose
+question is shorter than 12 characters. The public test split ships
 \texttt{cop}$=-1$ for every row (no released labels) and is therefore
 \emph{never scored}; an earlier version of the evaluator did score it and
 reported nothing more than each model's rate of predicting ``A''
@@ -1596,10 +1599,14 @@ limit, so nothing is truncated or dropped. Batches are padded to the batch
 maximum.
 
 \paragraph{Tokenizer.}
-A $32{,}768$-entry byte-pair-encoding vocabulary \cite{sennrich2015bpe} is
+A byte-pair-encoding vocabulary \cite{sennrich2015bpe} with a $32{,}768$-entry
+budget is
 trained once on 20{,}000 MedMCQA training prompts (NFD-normalised, lower-cased,
 whitespace pre-tokenised) and then reused for the second phase and for both
-arms, so the comparison is not confounded by tokenization.
+arms, so the comparison is not confounded by tokenization. On this sample the
+trainer learns $26{,}766$ entries; the embedding table keeps the full budget, so
+$6{,}002$ rows ($3.07$M parameters, identical in both arms) are never used and
+are included in the parameter counts.
 
 % =====================================================================
 \section{Training}
@@ -1655,7 +1662,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 89-test unit suite must
+one epoch, with save, resume and evaluation) and the 92-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1686,7 +1693,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by an $89$-test CPU unit suite
+Correctness is gated by an $92$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises
@@ -1720,7 +1727,7 @@ All scoring is letter-accuracy on held-out multiple-choice rows.
 Chance is $25\%$. The decision gate is the MedQA 40\% benchmark partition
 (\texttt{medqa\_bench}, 4{,}072 rows, scored once), with the official MedQA
 test split (1{,}273 rows) as a second untouched number. The MedMCQA validation
-split (4{,}183 rows) is the selection set, and its phase-1 versus final values
+split (4{,}170 usable rows) is the selection set, and its phase-1 versus final values
 measure how much the MedQA fine-tune erodes MedMCQA. Open-ended benchmarks
 (GSM8K, HumanEval, MMLU) are out of scope at this scale
 (Section~\ref{sec:defect3}).
@@ -1739,10 +1746,11 @@ target, which isolates the correction of Defect~1.
   \item \textbf{Calibration.} Agreement $\hat a = 1/(1+V)$ plotted against
     per-example accuracy, with expected calibration error reported. This is the
     measurement that decides whether consensus is a usable confidence signal.
-    The sandbox emits $\hat a$'s ingredients (\texttt{anchor\_energy},
-    \texttt{trajectory\_variance}, \texttt{spread\_ratio}) per step, but they
-    are not yet persisted to \texttt{results.json}; logging them is an open
-    code item and RQ3 is untested until it is closed.
+    The sandbox's three diagnostics (\texttt{anchor\_energy},
+    \texttt{trajectory\_variance}, \texttt{spread\_ratio}) are computed over
+    real tokens only and persisted per epoch and per evaluation; the
+    per-example agreement needed for the calibration plot is not yet
+    exported, so RQ3 remains untested.
   \item \textbf{Collapse monitoring.} $\rhodim$ reported as a learning curve.
     A falling $\rhodim$ is the failure signal and must be visible in the
     training logs, not reconstructed afterwards.
@@ -1783,6 +1791,19 @@ The MedMCQA gap of 1.3 points is within about two noise standard deviations
 indistinguishable at this scale: a tie. Section~\ref{sec:counter-evidence}
 pre-committed to reporting a tie if that is what the data show.
 
+\paragraph{Legacy 100-epoch baseline (completed, one arm).}
+A 100-epoch run of the baseline arm on the sequential protocol, but before the
+phase-2 learning-rate and epoch caps existed (phase~2 also ran 100 epochs at
+$3\times10^{-4}$), reached 33.33\% MedMCQA validation accuracy after
+phase~1---no better than the 3-epoch run---with training cross-entropy at
+$0.58$ against validation cross-entropy at $4.61$. Its selected checkpoint
+scored 26.89\% on the MedQA benchmark partition and 27.02\% on the official
+MedQA test set, close to chance. The model memorised MedMCQA rather than
+generalising from it. This is the evidence behind the phase-2 caps and the
+answer-letter weight (Section~\ref{sec:training}), and the reason the phase-1
+validation curve is now recorded every epoch: the number of phase-1 epochs
+should be chosen from that curve before the sandbox arm is run.
+
 \paragraph{Pending tables.}
 The tables below are placeholders. They fix the required content and its
 provenance in advance; no number is reported until the run produces it.
@@ -1799,7 +1820,7 @@ Cost report: parameters, tokens$\times K$, FLOPs, wall-clock & \textit{[PENDING]
 Depth- or parameter-matched control (no L2) & \textit{[PENDING]} \\
 $K, R, S$ ablations & \textit{[PENDING]} \\
 $\rhodim_{\min}$ sweep and anchor versus peer-mean & \textit{[PENDING]} \\
-Agreement--accuracy calibration (RQ3) & \textit{[PENDING]} --- needs diagnostics logging \\
+Agreement--accuracy calibration (RQ3) & \textit{[PENDING]} --- needs per-example agreement export \\
 Multi-seed variance & \textit{[PENDING]} \\
 Layer ladder: backbone-only $\to$ $+$L2 $\to$ $+$L1$+$L2 & \textit{[PENDING]} --- last step needs L1 \\
 \bottomrule
@@ -1865,8 +1886,8 @@ tie.
     calibration rather than assuming agreement implies correctness.
   \item[Compute cost.] Stage L2 adds $K{=}4$ trajectories, $R{=}2$ debate
     rounds and $S{=}8$ descent steps per token \eqref{eq:l2-cost}; the
-    sandbox arm measured roughly $1.5\times$ the baseline's wall-clock on a
-    T4. Gains must be reported alongside parameters, tokens$\times K$ and
+    sandbox arm is estimated at roughly $1.5\times$ the baseline's wall-clock
+    on a T4 (not yet timed on a full run). Gains must be reported alongside parameters, tokens$\times K$ and
     FLOPs, and the arms are architecture-matched, not parameter-matched.
   \item[Single configuration.] One recipe, one seed ($17$) in the reported
     protocol. Run-to-run variance is not characterized; differences smaller
@@ -1874,6 +1895,17 @@ tie.
   \item[No kernels.] Plain PyTorch (no \texttt{flash-attn}, \texttt{mamba-ssm}
     or Triton) leaves throughput on the table. This is a deliberate
     auditability trade, not an oversight.
+  \item[Answer-token ambiguity.] The tokenizer lower-cases its input, so the
+    four answer letters share token ids with ordinary words (most visibly the
+    article ``a''). The model must learn that after \texttt{Answer:} these ids
+    denote option labels, and the letter prior inherited from running text is a
+    possible bias toward option~A. Both arms share it, so it does not favour
+    either side of the comparison.
+  \item[No identity path around L2.] In the sandbox arm the consensus replaces
+    the backbone state before the head; the backbone reaches the output only
+    through the learned trajectory projections. This is the design under test,
+    but it is a handicap the baseline does not carry, and a residual variant
+    is an untested alternative.
   \item[Small-data fine-tune.] The MedQA phase has only 6{,}106 rows, so the
     recipe caps its learning rate and epochs to resist memorisation
     (Section~\ref{sec:training}); the 3-epoch pilot's MedQA stage was too
