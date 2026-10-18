@@ -34,10 +34,10 @@ Init (orthogonal-distinct): T₁=[1.0, 0.0], T₂=[0.2, 1.0], T₃=[−0.5, 0.5]
 
 Note trajectory 1 listened mostly to 2 (0.62) — cross-examination working; with K=2 the weights would be trivially [1.0], which is why K ≥ 3 matters.
 
-**Energy + consensus:** mean c = [0.1764, 0.5575]; E = 0.023615.
+**Energy + consensus:** mean c = [0.1764, 0.5575]; mean squared distance to the consensus V = mean_k ‖T_k − c‖² = 0.023615 (the peer-mean energy of the discarded variant, without the ½ used for the anchor energy below).
 **The correction that fixed this (proved in [29](29_Prior_Art_and_Novelty_Check.md) §3.1):** the original step `T ← T − η(T − c)` *cannot* change c, because `Σ_k (T_k − η(T_k − c)) = Kc` exactly — so `y = c` was bit-identical whether S = 0 or S = 8, while the squared energy shrank `(1−η)^{2S}` = 0.356, a free 64% cut. The vault now descends toward the **token-conditioned anchor** `a_t = W_a·hT_t` through a **per-trajectory gate** instead.
 
-**Anchored gated descent, same 3 trajectories, H=6, S=8, η = 0.0625** (seeded random anchor/gates, full check in [29](29_Prior_Art_and_Novelty_Check.md)):
+**Anchored gated descent, H=6, S=8, η = 0.0625** (seeded random trajectories, anchor and gates, full check in [29](29_Prior_Art_and_Novelty_Check.md)). *Note: the retention row lists four values, so this numerical check was run with K = 4 random trajectories, not the three hand-worked ones above; the seed was not recorded, so these figures cannot be re-derived by hand — they illustrate the qualitative claim, which the unit tests `test_readout_moves_descent_changes_consensus` and `test_peer_mean_target_is_a_noop` check exactly.*
 
 | Quantity | Value |
 |---|---|

@@ -1,4 +1,4 @@
-# API Reference — shipped package (`09-Code/src/ekdant/`, L2-only)
+# API Reference — shipped package (`09-Code/src/ekdant/`, T + L2, no L1)
 
 > Complete API surface of the **shipped** 7-module package, read from source. Forward: `embed → T → L2 → head`; the A/B differs only in `use_sandbox`. L1 (`ssm_storage`) and the HF-style wrappers are **DESIGN-ONLY** (final section). Canonical spec: [02](02_System_Architecture.md); knobs: [12](12_Configuration_Guide.md).
 
@@ -8,13 +8,13 @@
 
 | Field | Default | Meaning |
 |---|---|---|
-| `vocab_size` | 32768 | embedding rows |
+| `vocab_size` | 32768 | embedding rows (the trained tokenizer uses 26,766 of them) |
 | `dim` | 512 | width H |
 | `n_t` | 9 | T dense blocks (shipped A/B: 12) |
 | `n_heads` / `n_kv_heads` | 8 / 2 | GQA split (`dim % n_heads`, `n_heads % n_kv_heads` enforced) |
 | `window` | 512 | attention window W (KV bounded by W, never T) |
 | `ffn_hidden` | 1024 | SwiGLU inner width |
-| `max_seq_len` | 2048 | dataset packing length (shipped configs) |
+| `max_seq_len` | 1024 | longest example kept (shipped configs: 2048) |
 | `pad_id` | 0 | pad token (overwritten from the trained tokenizer at runtime) |
 | `use_sandbox` | true | **the only A/B switch** |
 | `n_sandbox` | 4 | K trajectories |
@@ -30,7 +30,7 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 
 ### `EkdantModel(nn.Module)` / `ModelOutput`
 
-- `forward(input_ids[B,T], labels=None, return_aux=True, answer_pos=None, answer_ids=None, answer_weight=0.0, attention_mask=None) -> ModelOutput` — `attention_mask` only restricts the sandbox statistics/floor to real tokens — embed (+drop) → T → optional Sandbox (replaces hT with `consensus`, copies tensor aux) → `ln_f` → tied head. `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100)` plus `_floor_penalty` when sandbox is on and labels are given.
+- `forward(input_ids[B,T], labels=None, return_aux=True, answer_pos=None, answer_ids=None, answer_weight=0.0, attention_mask=None) -> ModelOutput` — embed (+drop) → T → optional Sandbox (replaces hT with `consensus`, copies tensor aux) → `ln_f` → tied head. `loss = CE(logits[:, :-1], labels[:, 1:], ignore_index=-100)` + `answer_weight · CE(logits[b, answer_pos−1], answer_ids)` (when `answer_weight > 0` and both answer tensors are given) + `_floor_penalty` (sandbox on, `return_aux=True`). `attention_mask` only restricts the sandbox statistics and floor to real tokens; logits never depend on it.
 - `_floor_penalty(aux)` — `lambda_sbx · mean(relu(rho_min − spread_ratio)²)`; zero when no `spread_ratio` in aux.
 - `score_options(input_ids[B·n,L], option_mask[B·n,L], n_options=4) -> [B, n_options]` — masked mean log-probability per MCQ option.
 - `num_parameters(trainable_only=True) -> int`.
@@ -66,7 +66,7 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 | `AnchoredDescent(dim)` | `forward(traj, hT, steps, eta, mask=None) -> (traj, a_t, energy[K,B,T], retention[K])` |
 | `Sandbox(dim, K=4, rounds=2, steps=8, eta=None→0.5/steps, rho_min=0.05, readout="mean"\|"lowest_energy", gain_lo=0.8, gain_hi=1.25)` | `forward(hT[B,T,H], mask=None)`: init → debate×R → descent×S → consensus (mean, or per-position lowest-anchor-energy pick); aux statistics over real tokens |
 
-`aux` keys: `anchor_energy`, `trajectory_variance`, `spread_ratio` (ρ), `per_trajectory_retention[B]`, `anchor_distance[B]`. Extras: `spread_floor(rho)`, `@no_grad post_round_state(hT) -> List[[K,B,T,H]]`.
+`aux` keys: `anchor_energy` (mean ½‖T_k − a_t‖²), `trajectory_variance`, `spread_ratio` (ρ = variance / mean(hT²)), `per_trajectory_retention[K]`, `anchor_distance[K]` — all means over real tokens when a mask is given. Helper: `masked_mean_bt(x, mask)`. Extras: `spread_floor(rho)`, `@no_grad post_round_state(hT) -> List[[K,B,T,H]]`.
 
 ## `ekdant.output_head`
 
@@ -81,14 +81,14 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 | `MCQExample` | dataclass: `question`, `options`, `answer` |
 | `load_examples(name, split, limit=None, seed=17)` | `name ∈ {"medmcqa", "medqa"}` → `List[MCQExample]` |
 | `Tokenizer` | `train(texts, vocab_size, path, min_freq=2)`, `load(path)`, `encode(text, add_eos=True)`; exposes `vocab_size/bos_id/eos_id/pad_id` |
-| `MCQDataset(examples, tokenizer, max_len=2048)` | rows `{input_ids, answer_pos, answer_id, letter}`; drops over-length rows |
-| `collate(batch, pad_id=0)` | `{input_ids, attention_mask, labels (−100 on pad), answer_pos, answer_target}` |
+| `MCQDataset(examples, tokenizer, max_len=1024)` | rows `{input_ids, answer_pos, answer_id, letter, letter_idx}`; drops over-length rows (`train.py` passes `max_seq_len`, 2048) |
+| `collate(batch, pad_id=0)` | `{input_ids, attention_mask, labels (−100 on pad), answer_pos, answer_target (letter index 0–3), answer_ids (letter vocab id)}` |
 | `bind_letter_ids(tokenizer)` / `LETTER_IDS` | resolves the A–D token ids for letter-token eval |
-| `answer_accuracy(model, batch, n_options=4)` | argmax over letter ids at `answer_pos` |
+| `answer_accuracy(model, batch, n_options=4)` | argmax over letter ids at `answer_pos − 1` (the position that predicts the letter) |
 
 ## `ekdant.train` — entrypoint
 
-`python -m ekdant.train --variant sandbox|baseline --out runs/<variant>` (multi-GPU: `torchrun --nproc_per_node=N -m ekdant.train ...`). Loads `configs/{variant}_50m.json` (or `--config`), forces `use_sandbox=False` for baseline, trains/reuses a 32K BPE tokenizer on a MedMCQA sample, then runs the **sequential two-phase protocol** (never trained jointly; AdamW wd 0.1, per-phase cosine LR + warmup on optimizer steps, grad-clip 1.0 with logged pre-clip `gnorm`, bf16 autocast, optional `torch.compile`, DDP via `torchrun`): **phase 1** trains on the full MedMCQA train split (182,496 labelled rows) and records the MedMCQA validation result once (`results["phase1"]["medmcqa_val"]` — the public test split is unlabelled, T18); **phase 2** fine-tunes on the **60% partition** of MedQA train (`split_frac`, `FT_FRAC = 0.6`, `--seed`-locked → identical rows for both A/B arms) while `--eval-every 1` evaluates the untouched MedMCQA validation set after each epoch (history + incremental `results.json` + `best.pt` on `medmcqa_val`); the **final protocol** evaluates `best.pt` vs `last.pt` on `medmcqa_val`, loads the better (ties keep `best.pt`), and scores the complementary **40% MedQA benchmark partition exactly once** plus the official MedQA test (also untouched) into `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected{checkpoint, selected_on, best_val_accuracy, last_val_accuracy}`). Progress line every `--log-every` optimizer steps (`step X/Y (%) loss lr gnorm tok/s eta`). Flags: `--batch-size 24`, `--grad-accum 2`, `--lr 3e-4`, `--warmup 200`, `--epochs 3` (phase 1), `--ft-lr`, `--ft-epochs` (phase-2 schedule; default to `--lr`/`--epochs`, `5e-5`/`10` recommended for the 6,106-row fine-tune), `--answer-weight` (adds a re-weighted answer-letter CE to the LM loss — the letter is 1 token in ~34/173, so plain CE dilutes the decision ~97–99%; default `0` = legacy, `10` recommended), `--limit`, `--no-compile`, `--log-every 100`, `--eval-every 1`, `--seed 17`, `--resume`, `--eval-only`. Shipped tests: `tests/test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (88).
+`python -m ekdant.train --variant sandbox|baseline --out runs/<variant>` (multi-GPU: `torchrun --nproc_per_node=N -m ekdant.train ...`). Loads `configs/{variant}_50m.json` (or `--config`), forces `use_sandbox=False` for baseline, trains/reuses a BPE tokenizer on a MedMCQA sample (32,768 budget; it learns 26,766), then runs the **sequential two-phase protocol** (never trained jointly; AdamW wd 0.1, per-phase cosine LR + warmup on optimizer steps, grad-clip 1.0 with logged pre-clip `gnorm`, bf16 autocast (fp16 + GradScaler where bf16 is unsupported), optional `torch.compile`, DDP via `torchrun`): **phase 1** trains on the full MedMCQA train split (182,496 labelled rows) and records the MedMCQA validation result once (`results["phase1"]["medmcqa_val"]` — the public test split is unlabelled, T18), scoring it every `--eval-every` epochs on the way for monitoring only (T25); **phase 2** fine-tunes on the **60% partition** of MedQA train (`split_frac`, `FT_FRAC = 0.6`, `--seed`-locked → identical rows for both A/B arms) while `--eval-every 1` evaluates the untouched MedMCQA validation set after each epoch (history + incremental `results.json` + `best.pt` on `medmcqa_val`); the **final protocol** evaluates `best.pt` vs `last.pt` on `medmcqa_val`, loads the better (ties keep `best.pt`), and scores the complementary **40% MedQA benchmark partition exactly once** plus the official MedQA test (also untouched) into `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected{checkpoint, selected_on, best_val_accuracy, last_val_accuracy}`). Progress line every `--log-every` optimizer steps (`step X/Y (%) loss lr gnorm tok/s eta`); `train_stage` returns `(loss, ntok, opt_step, last_lr, avg_gnorm, sandbox_diag)` and `evaluate` returns `{loss, accuracy, n[, sandbox]}` — sandbox diagnostics land in `history[*].sandbox` and `test.*.sandbox` (T24). Flags: `--batch-size 24`, `--grad-accum 2`, `--lr 3e-4`, `--warmup 200`, `--epochs 3` (phase 1), `--ft-lr`, `--ft-epochs` (phase-2 schedule; default to `--lr`/`--epochs`, `5e-5`/`10` recommended for the 6,106-row fine-tune), `--answer-weight` (adds a re-weighted answer-letter CE to the LM loss — the letter is 1 token in ~34/173, so plain CE dilutes the decision ~97–99%; default `0` = legacy, `10` recommended), `--limit`, `--no-compile`, `--log-every 100`, `--eval-every 1`, `--seed 17`, `--resume`, `--eval-only`. Shipped tests: `tests/test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (92).
 
 ## DESIGN-ONLY APIs (not in the current package)
 

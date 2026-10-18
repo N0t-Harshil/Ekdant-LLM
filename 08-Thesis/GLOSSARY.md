@@ -29,5 +29,5 @@
 
 ## Losses & knobs
 
-- `lm_ce` (w `lm_weight`=1.0) + spread floor `max(0, ρ_min − ρ)²` (w `sandbox_weight`=0.1, `ρ_min`=0.05) — the only two losses. `ρ = trajectory_variance / mean(hT²)` is the dimensionless trajectory spread; monitors `anchor_energy`, `trajectory_variance`, `spread_ratio` are reported, never minimized.
+- `lm_ce` (w `lm_weight`=1.0) + spread floor `max(0, ρ_min − ρ)²` (design weight `sandbox_weight`=0.1; shipped `lambda_sbx`=1.0; `ρ_min`=0.05) — the two signals, plus the optional answer-letter CE (`--answer-weight`, both arms). `ρ = trajectory_variance / mean(hT²)` is the dimensionless trajectory spread; monitors `anchor_energy`, `trajectory_variance`, `spread_ratio` are reported, never minimized.
 - Every `12_Configuration_Guide.md` knob maps to an ablation in `11_Future_Work.md`.

@@ -1,13 +1,15 @@
 % =====================================================================
 %  Ekdant -- MSc thesis draft, compiled from the research vault.
-%  Build:  pdflatex thesis.tex   (run twice for hyperref / page refs)
+%  Build:  pdflatex thesis.tex   (run three times: TOC, references, convergence)
 %  Companion markdown: thesis.md   (same content, vault links intact)
 %
 %  Every numeric claim in this document is either (a) a config value from
-%  02-Architecture/12_Configuration_Guide.md, (b) a parameter count derived
-%  in Section 3.8, (c) a hand-worked number from
-%  04-Model-DeepDive/28_Worked_Examples.md, or (d) marked [PENDING] because
-%  the run has not happened yet.  Nothing is asserted without one of those.
+%  09-Code/configs/*.json (documented in 02-Architecture/12_Configuration_Guide.md),
+%  (b) a parameter count measured with estimate_model_size or derived in the
+%  "Complexity and parameter budget" subsection, (c) a hand-worked number from
+%  04-Model-DeepDive/28_Worked_Examples.md, (d) a logged run result (run.md
+%  section 6, 09-Code/*.log), or (e) marked [PENDING] because the run has not
+%  happened yet.  Nothing is asserted without one of those.
 % =====================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -423,12 +425,11 @@ depends only on relative distance \cite{su2021rope}. Because the rotation
 composes, a position $m$ apart is represented by a rotation of $m\theta$,
 which is what makes extrapolation and window-relativity behave. No learned
 absolute position table is used, so there is no table to grow with context.
-For the same reason RoPE frequency rescaling is left \emph{off} by default: with
-a 4096 window and stage-T depths of $T \le 2048$, plain RoPE is already
-interpolating, so the extension factors of YaRN \cite{peng2023yarn} would be
-tuned constants with no failure to repair. The mechanism stays available in the
-configuration for longer-context runs, and the factors actually used are
-recorded in the reproducibility appendix.
+For the same reason no RoPE frequency rescaling is used. The rotary base is
+$10^5$ and sequences are at most $2048$ tokens (the longest training example
+has 857), so plain RoPE never extrapolates and the extension factors of YaRN
+\cite{peng2023yarn} would be tuned constants with no failure to repair.
+Context extension is not implemented; it matters only for longer-context runs.
 
 \paragraph{Grouped-query attention.}
 Multi-query attention \cite{shazeer2019mqa} shares a single key/value head
@@ -1647,10 +1648,12 @@ Hardware & $1\times$ T4, no distributed strategy \\
 
 \noindent
 Two knobs exist purely to prevent memorisation of the small MedQA fine-tune
-set: the phase-2 learning rate and the phase-2 epoch cap. A 40-epoch pilot
-showed that replaying the phase-1 epoch count over only 6{,}106 rows at the
-full learning rate drove training cross-entropy to about $0.05$ while held-out
-accuracy stopped improving (Known Issues T21); the answer-letter weight
+set: the phase-2 learning rate and the phase-2 epoch cap. A pre-protocol
+40-epoch pilot that replayed the phase-1 epoch count over the MedQA training
+set (all 10{,}178 rows) at the full learning rate drove training
+cross-entropy to about $0.05$ while held-out accuracy stopped improving, and
+the legacy 100-epoch run did the same on the 6{,}106-row partition (Known
+Issues T21); the answer-letter weight
 addresses the separate dilution of the decision signal (T22). Both are applied
 to both arms. The phase-1 schedule restarts for phase~2, and a trailing
 partial gradient-accumulation group is flushed at the end of every epoch
@@ -1815,7 +1818,7 @@ provenance in advance; no number is reported until the run produces it.
 \rowcolor{ekHeadBG}\color{white}\textbf{Table} & \color{white}\textbf{Status} \\
 \midrule
 \rowcolor{ekRowW}
-100-epoch campaign: \texttt{medqa\_bench}, \texttt{medqa\_test}, MedMCQA phase-1 $\to$ final & \textit{[PENDING]} --- both arms, same seed \\
+Campaign recipe (capped fine-tune, answer weight): \texttt{medqa\_bench}, \texttt{medqa\_test}, MedMCQA phase-1 $\to$ final & \textit{[PENDING]} --- both arms, same seed (only the legacy baseline exists) \\
 Cost report: parameters, tokens$\times K$, FLOPs, wall-clock & \textit{[PENDING]} \\
 Depth- or parameter-matched control (no L2) & \textit{[PENDING]} \\
 $K, R, S$ ablations & \textit{[PENDING]} \\

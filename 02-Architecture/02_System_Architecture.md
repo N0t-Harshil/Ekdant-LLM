@@ -12,7 +12,7 @@ Three subsystems. The model subsystem is the thesis contribution; the other two 
 
 **Data** (`ekdant.data`): MedMCQA, then MedQA, rendered as one prompt template with the answer letter as the target; a shared BPE tokenizer; a seed-locked 60/40 MedQA partition. Documented in [05](../05-Data/05_Data_Pipeline.md).
 
-**Model** — the shipped package (`09-Code/src/ekdant/`, L2-only) is the **7-module layout** below; the forward pass is `embed → T → L2 → head` (N_T=12, A/B configs in `09-Code/configs/*.json`):
+**Model** — the shipped package (`09-Code/src/ekdant/`, T + L2, no L1) is the **7-module layout** below; the forward pass is `embed → T → L2 → head` (N_T=12, A/B configs in `09-Code/configs/*.json`):
 
 | Module (shipped) | Responsibility |
 |------|----------------|
@@ -24,7 +24,7 @@ Three subsystems. The model subsystem is the thesis contribution; the other two 
 | `data.py` | MedMCQA/MedQA MCQ pipeline (prompt template, letter-token eval) |
 | `__init__.py` | re-exports |
 
-**The shipped forward pass (L2-only build), with the A/B switch** — both
+**The shipped forward pass (T + L2 (no L1) build), with the A/B switch** — both
 variants share every box; the dashed path exists only when
 `use_sandbox = true`:
 
@@ -152,7 +152,7 @@ graph TB
 
 ## 8. Running it
 
-The runnable workflow lives in `09-Code/` (the L2-only build; `pip install -e .` first). From `09-Code/`:
+The runnable workflow lives in `09-Code/` (the T + L2 (no L1) build; `pip install -e .` first). From `09-Code/`:
 
 - **Unit tests:** `pytest -q` — 92 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py`, `tests/test_schedule.py`, `tests/test_eval_split.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas, LR schedule, benchmark 60/40 partition, answer-weight loss). Ops runbook: [`run.md`](../run.md).
 - **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` — **sequential protocol in one invocation: (1) train on all of MedMCQA → record the MedMCQA validation result (`phase1`), (2) fine-tune on a seed-locked 60% partition of MedQA train, (3) benchmark the complementary 40% exactly once + the official MedQA test (also untouched)**; the untouched MedMCQA validation set drives per-epoch `best.pt` selection, and the final checkpoint is the better of `best.pt` vs `last.pt` on that validation set (recorded in `selected`). Live telemetry every `--log-every` (default 100) optimizer steps — step/total, % of phase, EMA loss, LR, grad norm, tok/s, ETA — plus per-epoch summaries, `--eval-every` validation evals, and `history[loss,lr,gnorm,test]` in `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected`). **Campaign run: `--epochs 100 --batch-size 6 --grad-accum 8 --ft-lr 5e-5 --ft-epochs 10 --answer-weight 10`** — 381,480 optimizer steps (the `--ft-*` knobs cap the 6,106-row fine-tune — T21; `--answer-weight` re-weights the 1-token answer-letter CE that plain LM loss dilutes ~97–99% — T22); measured 6.3 opt steps/s on a T4 (the collator pads to batch max; measured p50 34 MedMCQA / 173 MedQA tokens, max 857, 0 rows exceed 2048) ≈ **17.3 h baseline + ~26 h sandbox ≈ 1.8 days** (scale table, protocol, eval semantics, and progress-line glossary in [`run.md`](../run.md) §3).
@@ -175,7 +175,7 @@ input_ids [B,T]
 loss = CE(shift(logits), shift(labels)) + answer_weight · CE(answer letter) + lambda_sbx · max(0, rho_min − spread_ratio)²
 ```
 
-Shipped (L2-only, what runs today): the same pipeline minus the L1 row — `embed → T (N_T=12) → L2 → head`, seq 2048 (shipped-config value, matching the thesis spec; the `EkdantConfig` dataclass default remains 1024), configs `09-Code/configs/*.json`.
+Shipped (T + L2, no L1 — what runs today): the same pipeline minus the L1 row — `embed → T (N_T=12) → L2 → head`, seq 2048 (shipped-config value, matching the thesis spec; the `EkdantConfig` dataclass default remains 1024), configs `09-Code/configs/*.json`.
 
 Generate mode (design): carry L1 fixed state + T window KV (≤512 entries) + run the sandbox per generated token; sample with temperature/top-k/top-p.
 

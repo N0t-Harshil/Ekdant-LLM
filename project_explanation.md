@@ -61,7 +61,7 @@ Two supporting decisions fall out of the same reasoning:
 - **Why a dense windowed T between them, and not more attention** — T's job is only to
   bound the KV cache (window W = 512) and give local exact retrieval. It is not asked
   to reason or to remember long-range.
-- **Why no MoE** — at 12–46M parameters, MoE adds routing machinery without the
+- **Why no MoE** — at 12–50M parameters, MoE adds routing machinery without the
   capacity to exploit it. L2 spends the same parameters on *hypothesis diversity*
   instead. The sandbox is the mixture mechanism.
 ---
@@ -288,7 +288,7 @@ behaviour. Lead with this section; it demonstrates method.
 |---|---|---|---|
 | **1** | The energy loop was **readout-invariant** | Peer-mean descent (any doubly-stochastic mixing) preserves the mean exactly — `logits(S=0) == logits(S=8)`. Spread falls to **0.356** at η = 0.0625 while the output never changes. | **AGD**: external anchor + per-trajectory gate. Retained as a contrast ablation (Fig. 7). |
 | **2** | The agreement loss was **minimized by collapse** | `min C = 0` is attained by collapse; the optimizer is rewarded for defeating the very term meant to detect it. | **Floor**: `max(0, ρ_min − ρ)²` — non-degenerate, minimum on the non-collapsed set. |
-| **3** | The evaluation plan was **not measurable at this scale** | GSM8K/HumanEval are scaling-held-out: the smallest model reported past 80% GSM8K is 34B. | Cost-matched RQ2 with percolation on XS/S; ties declared publishable. |
+| **3** | The evaluation plan was **not measurable at this scale** | GSM8K/HumanEval are scaling-held-out: the smallest model reported past 80% GSM8K is 34B. | RQ2 decided on MedMCQA/MedQA letter accuracy (runnable at 50M); ties declared publishable. |
 | **4** | **Ambiguous discretization convention** | Our own worked example cited exact ZOH while computing the first-order form — a **43% discrepancy** on that example. | Resolved explicitly in the discretization section; the general lesson is that specification and implementation must agree on which convention is in force *before* any number is quoted. |
 
 **The strongest demonstration (Fig. 7).** Both variants' energy decreases — the
@@ -343,7 +343,7 @@ are new parameters, and that increase is the honest cost of the correction.
 
 | Done | Not done |
 |---|---|
-| ✅ Full thesis document: 26 pages, 7 figures, 65 references, 4 proofs, 0 build errors, 0 broken refs | ❌ Model source code: L2-only (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
+| ✅ Full thesis source (`thesis.tex`): 7 figures, 65 references, 4 propositions with proofs, no undefined references; `thesis.pdf` must be rebuilt after the scope alignment | ❌ Model source code: T + L2 (no L1) (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
 | ✅ Model code + **92 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on all of MedMCQA → seed-locked 60% MedQA fine-tune → untouched 40% benchmark, better-of checkpoint selection, anti-overfit knobs T21/T22) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
@@ -392,7 +392,7 @@ Implemented in `09-Code/src/ekdant/` — pure PyTorch: `model.py`, `transformer_
 (`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`,
 `test_data.py`, `test_schedule.py`, `test_eval_split.py`) and
 architecture-matched A/B configs (`configs/sandbox_50m.json` vs `baseline_50m.json`,
-differing only in `use_sandbox`). It is **L2-only**: forward is embed → T (windowed
+differing only in `use_sandbox`). It is **T + L2 (no L1)**: forward is embed → T (windowed
 dense) → L2 (sandbox) → head; the L1 SSM storage remains designed in the vault/thesis,
 not coded. **Full 3-epoch A/B executed on a T4** (one seed): MedMCQA val baseline
 33.31% vs sandbox 32.01%, MedQA 25.69% vs 26.08% — **a tie within noise at this

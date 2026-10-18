@@ -25,7 +25,7 @@ The A/B is ==architecture-matched only== — the 6.56M delta is exactly L2. Open
 
 **Thesis claim (with L1, designed not shipped):** state is flat in T — full-attention KV grows linearly (6.29 MB @ T=2048 → 201.33 MB @ T=65536, ×32) while Ekdant stays **flat ≈1.58 MB** (L1 state `compressed [B,3·d_state]` per store + windowed KV). ==These are analytic projections; L1 is not in the current code.==
 
-**Shipped L2-only stack:** T uses a sliding window W=512, so the KV cache is bounded per layer: 2 (K+V) × W × (n_kv_heads·head_dim) × 2 B (bf16) = 2×512×128×2 = 0.25 MB/layer → **≈3.0 MB flat for any T ≥ W** (12 layers), versus O(T) for a full-attention model of the same width. Weights are constant anyway (~100 MB bf16 @ 50M). The L1 integration would shrink the *activation* side further (O(1) state), but the windowed-KV bound above is what the current code actually delivers.
+**Shipped T + L2 (no L1) stack:** T uses a sliding window W=512, so the KV cache is bounded per layer: 2 (K+V) × W × (n_kv_heads·head_dim) × 2 B (bf16) = 2×512×128×2 = 0.25 MB/layer → **≈3.0 MB flat for any T ≥ W** (12 layers), versus O(T) for a full-attention model of the same width. Weights are constant anyway (~100 MB bf16 @ 50M). The L1 integration would shrink the *activation* side further (O(1) state), but the windowed-KV bound above is what the current code actually delivers.
 
 ## 3. Sandbox compute cost model (per token, K=4 / R=2 / S=8)
 

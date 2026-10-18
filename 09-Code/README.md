@@ -1,7 +1,7 @@
 # Ekdant — 50M sandbox-first training
 
 The model is **embed → T → L2**: a windowed dense Transformer backbone with
-the L2 sandbox layer on top. The codebase is L2-only — the L1 SSM storage
+the L2 sandbox layer on top. The codebase is T + L2 (no L1) — the L1 SSM storage
 layer lives in the thesis vault (`04-Model-DeepDive/`) but is not part of
 this package.
 
@@ -32,9 +32,9 @@ baseline depth) is the follow-up.
 
 ### Deviations from the thesis parameter table
 
-The thesis table (`thesis.tex` §Parameters) is a *closed-form estimate* that it
-itself says "must be confirmed with `estimate_model_size` before any results
-table is published." Measured against it at M scale:
+The thesis now reports the measured numbers below (`thesis.tex`
+§Parameters, "as built") and keeps the old closed-form estimate for the full
+three-stage design alongside. Measured against that estimate at M scale:
 
 | component | thesis | this code | status |
 |---|---|---|---|
@@ -43,11 +43,11 @@ table is published." Measured against it at M scale:
 | T depth | N_T=6 | 12 | intentional — larger backbone for the 50M run |
 | L2 | 2.8M | 6.56M | **over — see note** |
 
-> **Open item: L2 is 2.3× the thesis estimate (6.56M vs 2.8M).** The thesis
+> **Open item: L2 is 2.3× the thesis estimate (6.56M vs 2.8M).** The estimate
 > budgets ~0.965M for debate across R=2 rounds; the build spends 4.72M because
 > it uses full `q,k,v` H×H cross-projections plus an H→2H→H MLP, untied across
-> rounds. Fixing this means either slimming/tieing L2, or updating the thesis
-> table — **decide before any results table is published.** It does not affect
+> rounds. The thesis now states the measured 6.56M and this explanation; the
+> remaining decision is whether to slim/tie L2 in a future build. It does not affect
 > the current A/B: the baseline simply omits L2, so the delta between arms is
 > the *measured* 6.56M.
 
@@ -72,8 +72,9 @@ No-install fallback (works without pip; from `09-Code/`):
 PYTHONPATH=src python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 
-Requires PyTorch 2.x + CUDA 12.x. No `mamba-ssm`, `flash-attn`, `triton` or
-`causal-conv1d` — every kernel is pure PyTorch, so it runs on any CUDA build.
+Requires PyTorch 2.x; real runs need a CUDA GPU (CPU works for tests and
+smoke runs). No `mamba-ssm`, `flash-attn`, `triton` or `causal-conv1d` —
+every kernel is pure PyTorch, so it runs on any CUDA build.
 
 Full operations runbook (train / resume / test / benchmark, both arms):
 [`../run.md`](../run.md).
@@ -96,9 +97,10 @@ python -m ekdant.train --variant sandbox --out runs/sandbox --batch-size 8
 
 Both phases run inside one invocation, strictly sequential: train+test on
 all of MedMCQA, then fine-tune on 60% of MedQA, then benchmark the
-untouched 40%. The tokenizer is trained once on the MedMCQA sample and
-reused, so the two variants see the **same vocabulary** — required for a
-fair comparison.
+untouched 40%. Each run directory trains its tokenizer once on the same
+seeded MedMCQA sample (both logged runs learned 26,766 entries), so the two
+variants see the **same vocabulary** — required for a fair comparison. Copy
+`tokenizer.json` from the first arm's `--out` to guarantee it.
 
 ### Useful flags
 
@@ -149,7 +151,8 @@ runs/<variant>/
   config.json        exact EkdantConfig used
   last.pt            every-epoch checkpoint (resume artifact; incl. history)
   best.pt            peak medmcqa_val during the fine-tune — candidate checkpoint
-  results.json       history (loss/lr/gnorm + phase-2 val curve)
+  results.json       history (loss/lr/gnorm per epoch, MedMCQA-val curve for both phases,
+                     sandbox diagnostics for the sandbox arm)
                      + phase1{medmcqa_val} + test{medmcqa_val, medqa_bench, medqa_test} + selected{...}
 ```
 
@@ -179,9 +182,9 @@ PY
 ## What the sandbox logs
 
 The sandbox variant emits three **separately named** diagnostics in `aux`
-(and per-step in the history via the loss):
+(only `spread_ratio` enters the loss, through the floor):
 
-- `anchor_energy` — mean ‖T_k − a_t‖², how far trajectories sit from the
+- `anchor_energy` — mean ½‖T_k − a_t‖², how far trajectories sit from the
   external anchor
 - `trajectory_variance` — diversity across the K trajectories
 - `spread_ratio` — ρ, the health ratio; a collapse floor fires when ρ < 0.05

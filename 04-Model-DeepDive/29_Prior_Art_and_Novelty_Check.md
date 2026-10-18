@@ -52,7 +52,7 @@ Spec: `loss += 0.1·C` (training term) and "`V → 0` is failure, never success"
 
 **Fix adopted — spread floor.** Define the dimensionless ratio `ρ = V_pre / mean_{t,d} hT²` (fraction of backbone activation energy the K hypotheses still span) and penalize only below a floor:
 
-`L += sandbox_weight · max(0, ρ_min − ρ)²`, with `ρ_min = 0.05`.
+`L += sandbox_weight · max(0, ρ_min − ρ)²`, with `ρ_min = 0.05` (design weight 0.1; shipped `lambda_sbx = 1.0`).
 
 This is non-degenerate by construction: exactly zero while the hypotheses keep ≥5% of the backbone spread, positive only once they collapse, and comparable across `H`, `T`, and model size (which the raw variance was not). Verified: healthy run ρ 1.95 → 1.22 pays **0**; collapsed run (×0.001, ρ = 1e-6) pays **0.0025**. `ρ` is a monitor, never a term to be minimized directly.
 

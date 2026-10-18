@@ -39,7 +39,7 @@ Shapes with thesis defaults (K = 4 paths, R = 2 debate rounds, S = 8 energy step
 | `n_sandbox_paths = 4` | K trajectories; ablate 1 / 4 / 8 (K = 1 is the CoT control) |
 | `n_debate_rounds = 2` | Cross-reading depth; ablate 0 / 2 / 3 |
 | `sandbox_steps = 8` | Anchored gated descent iterations. Moves the readout (verified); ablate 0 / 4 / 8 |
-| `sandbox_weight = 0.1` | Weight on the **spread floor** `max(0, ρ_min − ρ)²` — not on raw agreement (tune 0.05–0.3) |
+| `sandbox_weight = 0.1` | Weight on the **spread floor** `max(0, ρ_min − ρ)²` — not on raw agreement (tune 0.05–0.3). Design value; the shipped configs use `lambda_sbx = 1.0` |
 | `sandbox_rho_min = 0.05` | Minimum fraction of backbone activation energy the K hypotheses must keep spanning; collapse threshold |
 | `lm_weight = 1.0` | Next-token loss weight (fixed) |
 
@@ -74,7 +74,7 @@ Shapes: `hT [B,T,H]` in; K=4, R=2, S=8; all ops plain torch (build recipe → [2
   - `anchor_energy` `E = mean_{k,t} E_k` — monitor, the quantity AGD descends. Not a loss.
   - `trajectory_variance` `V_pre` — mean squared distance to consensus, measured **after the debate rounds and before descent**. This is the honest measure of whether diversity survived cross-examination.
   - `spread_ratio` `ρ = V_pre / mean_{t,d} hT²` — **dimensionless**: the fraction of backbone activation energy the K hypotheses still span. Collapse is `ρ → 0`, and it is comparable across H, T, and scale.
-- **Total loss (revised):** `L = lm_weight · CE(shift(logits), shift(labels)) + sandbox_weight · max(0, ρ_min − ρ)²`.
+- **Total loss (revised):** `L = lm_weight · CE(shift(logits), shift(labels)) + sandbox_weight · max(0, ρ_min − ρ)²`. As shipped: `lambda_sbx = 1.0`, plus the optional answer-letter CE `answer_weight · CE(logits[answer_pos−1], letter)` applied to both arms (T22).
   The second term is a **floor**, not an agreement penalty: it is exactly zero while the hypotheses keep at least `ρ_min` of the backbone's spread, and it grows only once they collapse. That makes it non-degenerate by construction — a bare `0.1·C` agreement term was minimized *by* the collapse the design forbids ([29](29_Prior_Art_and_Novelty_Check.md) §3.2). Checked numerically: a healthy run (ρ 1.95 → 1.22) pays 0; a collapsed run (ρ = 1e-6) pays `(0.05 − 1e-6)² = 0.0025`.
 - **RQ3 calibration:** agreement `â = 1/(1+V)` plotted against per-example accuracy — the plot that decides whether consensus works as confidence.
 - **Overturn accounting (per round):** count wrong→right vs. right→wrong transitions; majority pressure suppressing corrections shows up here first (C9).

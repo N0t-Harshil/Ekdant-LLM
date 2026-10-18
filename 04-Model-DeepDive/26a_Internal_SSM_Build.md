@@ -33,7 +33,7 @@ Per position, with input-dependent selection:
 
 ## 5. Tests that prove it (design target `test_ekdant.py`)
 
-> L1 is not in the current `09-Code` package (L2-only build); these are design-target tests for when L1 is integrated. Shipped tests cover T + L2 only.
+> L1 is not in the current `09-Code` package (T + L2 (no L1) build); these are design-target tests for when L1 is integrated. Shipped tests cover T + L2 only.
 
 Shapes `[B,T,H]` + `compressed [B,3·d_state]` triple; grads reach all 3 channels' Δ/B/C; fusion weights move; feedback port carries `f`; selective-copying unit check (B5 Table 1 style); O(1) curve 512/2048/4096; 10-step loss decrease.
 
