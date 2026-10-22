@@ -9,7 +9,7 @@ Three layers, cheapest first. Nothing below needs a GPU except the real runs.
 ## Layer 1 — Unit suite (CPU, ~10 s)
 
 ```bash
-cd 09-Code && pip install -e .[dev] && pytest -q      # 92 tests
+cd 09-Code && pip install -e .[dev] && pytest -q      # 93 tests
 ```
 
 | File | Tests | What it pins down |
@@ -17,7 +17,7 @@ cd 09-Code && pip install -e .[dev] && pytest -q      # 92 tests
 | `test_model.py` | 26 | forward shapes and aux outputs for both arms, tied head adds no parameters, `use_sandbox` is the only A/B difference, shipped configs consistent and depth-matched, floor penalty zero when healthy / fires when collapsed, gradients reach the backbone, answer-weighted loss (scaling, `0` = legacy, gradient reaches the answer position), config validation (incl. every config-valid `readout` builds a model), loss decreases, no blocked imports |
 | `test_sandbox.py` | 21 | shapes for K=1/4, three separately named diagnostics, orthogonal init and spread gains, descent moves the readout while the peer-mean target is a no-op (the T12 regression), per-trajectory gates, spread floor and ρ at init, `lowest_energy` readout is per-position and causal, diagnostics count only real tokens (T24), loss decreases |
 | `test_transformer.py` | 14 | causal and windowed mask, future tokens never change the past, RoPE round-trip, GQA head repetition, RMSNorm, SwiGLU, gradients through every block |
-| `test_data.py` | 18 | MedMCQA flat schema and 0-indexed `cop`, MedQA dict schema, rejection of short/blank/unknown rows, letter resolution, unlabelled rows dropped, prompt template, letter-id binding, collate, `evaluate` scores the answer position, is sample-weighted, and reports sandbox diagnostics only for the sandbox arm |
+| `test_data.py` | 19 | MedMCQA flat schema and 0-indexed `cop`, MedQA dict schema, rejection of short/blank/unknown rows, letter resolution, unlabelled rows dropped, prompt template, letter-id binding, collate, `evaluate` scores the answer position, is sample-weighted, reports sandbox diagnostics only for the sandbox arm, and the offline toggle reaches every flag `datasets` reads (T26) |
 | `test_schedule.py` | 10 | warmup + cosine, per-stage LR reset, `--ft-lr` / `--ft-epochs` overrides, resume offsets, trailing grad-accumulation flush leaks no grads (T23), seeded shuffle generator |
 | `test_eval_split.py` | 3 | the 60/40 MedQA partition is disjoint, deterministic for a seed, and sized as the protocol constant says |
 

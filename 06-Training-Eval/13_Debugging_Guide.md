@@ -13,6 +13,7 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 - **`0 examples` / empty dataset** — a schema mismatch in `data.py::_normalise_row` (MedMCQA ships flat `opa..opd` + `cop`, 0-indexed int; MedQA ships an `options` dict). This silently trained on nothing once (T16); `load_examples` now raises when a split is fully unlabelled.
 - **Accuracy equals the "A" rate / 0.00 %** — you are scoring the unlabelled MedMCQA public test split (`cop = -1`, T18) or reading the wrong logit position (T17). Score the MedMCQA *validation* split; the evaluator reads `logits[answer_pos - 1]` against the letter *index*.
 - **First run downloads, later runs are offline** — `data.py` defaults `HF_HUB_OFFLINE=1`; it goes online for exactly one attempt when the cache is empty. Set `HF_HUB_OFFLINE=0` only to force hub checks.
+- **`ConnectionError: Couldn't reach 'openlifescienceai/medmcqa' on the Hub (OfflineModeIsEnabled)` on a fresh machine** — the first-run download was blocked because the online toggle missed the flag newer `datasets` reads (T26, fixed). Pull the latest code. On an old checkout, start the first run with `HF_HUB_OFFLINE=0 HF_DATASETS_OFFLINE=0 python -m ekdant.train …` once to fill the cache.
 - **Verify:** `python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 50 --epochs 1 --batch-size 4`.
 
 ### 2. Checkpoint / resume failures
@@ -49,7 +50,7 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 - Memory only becomes a concern with near-2048-token inputs; MedMCQA p99 is 118 tokens and MedQA p99 is 364.
 
 ### 8. Tests fail
-- `pytest -q` (92 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
+- `pytest -q` (93 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
 - A config change that makes `EkdantConfig` and `Sandbox` disagree (e.g. a new readout name) is caught by `test_every_config_valid_readout_builds_a_model`.
 
 ### How to reproduce an issue

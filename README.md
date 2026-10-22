@@ -23,7 +23,7 @@ A windowed dense Transformer (T) topped by a parallel debate sandbox (L2), train
 | [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, validation + held-out protocol, debugging, performance | Ch. 5/6 |
 | [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T23), defense-ordered future work | Ch. 7 |
 | [08-Thesis](08-Thesis/thesis.md) | thesis.md + thesis.tex/pdf + [glossary](08-Thesis/GLOSSARY.md) | Draft |
-| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 92 tests, A/B configs | Build |
+| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 93 tests, A/B configs | Build |
 | [papers/](papers/00_Papers_Index.md) | 66 PDFs (all thesis-cited) + indexes | Sources |
 
 ## Day-1 (new collaborator)
@@ -34,7 +34,7 @@ A windowed dense Transformer (T) topped by a parallel debate sandbox (L2), train
 cd 09-Code
 pip install -e .[dev]     # note: trailing dot is required
 python -c "import ekdant; print('ok')"
-pytest -q                    # 92 tests, CPU, ~10s
+pytest -q                    # 93 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```
 
@@ -50,7 +50,7 @@ Debugging: see [13_Debugging_Guide](06-Training-Eval/13_Debugging_Guide.md). Iss
 
 | Done | Not done |
 |---|---|
-| ✅ T + L2 code, 92 green tests, A/B configs; both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration (RQ1 untested) |
+| ✅ T + L2 code, 93 green tests, A/B configs; both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration (RQ1 untested) |
 | ✅ Full 3-epoch A/B on a T4: MedMCQA val 33.31 % vs 32.01 %, MedQA 25.69 % vs 26.08 % — a tie; legacy 100-epoch baseline: 33.33 % / `medqa_bench` 26.89 % | ❌ 100-epoch sequential campaign for both arms (prepared in `run.md` §3) |
 | ✅ Thesis aligned to the built model (T + L2, MedMCQA/MedQA); 4 proofs, 65 refs | ❌ Ch. 6 result tables `[PENDING]`; `thesis.pdf` needs a rebuild |
 | ✅ 66-paper library, all cited | ❌ Depth-/parameter-matched control, K/R/S ablations, multi-seed |

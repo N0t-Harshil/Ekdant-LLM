@@ -344,7 +344,7 @@ are new parameters, and that increase is the honest cost of the correction.
 | Done | Not done |
 |---|---|
 | ✅ Full thesis source (`thesis.tex`): 7 figures, 65 references, 4 propositions with proofs, no undefined references; `thesis.pdf` must be rebuilt after the scope alignment | ❌ Model source code: T + L2 (no L1) (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
-| ✅ Model code + **92 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on all of MedMCQA → seed-locked 60% MedQA fine-tune → untouched 40% benchmark, better-of checkpoint selection, anti-overfit knobs T21/T22) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
+| ✅ Model code + **93 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on all of MedMCQA → seed-locked 60% MedQA fine-tune → untouched 40% benchmark, better-of checkpoint selection, anti-overfit knobs T21/T22) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
 | ✅ Cost-matched protocol fixed *before* any run | ❌ Phase-1 epochs to re-pick: the legacy 100-epoch baseline memorised MedMCQA (33.33 % val, same as 3 epochs) — sandbox diagnostics now logged, LR bug fixed |
@@ -388,7 +388,7 @@ them. L2 spends them on hypothesis diversity instead — the sandbox *is* the mi
 
 **Q: Where is the code?**
 Implemented in `09-Code/src/ekdant/` — pure PyTorch: `model.py`, `transformer_stack.py`,
-`sandbox.py`, `output_head.py`, `train.py`, `data.py`, with **92 passing unit tests**
+`sandbox.py`, `output_head.py`, `train.py`, `data.py`, with **93 passing unit tests**
 (`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`,
 `test_data.py`, `test_schedule.py`, `test_eval_split.py`) and
 architecture-matched A/B configs (`configs/sandbox_50m.json` vs `baseline_50m.json`,

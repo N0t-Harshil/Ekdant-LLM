@@ -40,7 +40,11 @@ def _hub_offline(off: bool) -> None:
     val = "1" if off else "0"
     os.environ["HF_HUB_OFFLINE"] = val
     os.environ["HF_DATASETS_OFFLINE"] = val
+    # datasets >= 2.19 checks config.HF_HUB_OFFLINE; HF_DATASETS_OFFLINE is
+    # only a back-compat alias it never reads, so setting just the alias
+    # left a fresh machine (empty cache) unable to download (T26).
     for mod_name, attr in (("huggingface_hub.constants", "HF_HUB_OFFLINE"),
+                           ("datasets.config", "HF_HUB_OFFLINE"),
                            ("datasets.config", "HF_DATASETS_OFFLINE")):
         try:
             setattr(__import__(mod_name, fromlist=[attr]), attr, off)

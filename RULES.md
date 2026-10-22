@@ -199,7 +199,7 @@ After the sync, `grep` again for the old wording/number to make sure no copy is 
 
 End every task with a short report, in this order:
 1. **What changed** — files and the reason, one line each.
-2. **Verification** — the exact test result (`92 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
+2. **Verification** — the exact test result (`93 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
 3. **What you did not do** and **decisions for the user** — open questions, risks (e.g. "this changes the sandbox arm's training; the baseline is unaffected"), recommendations you chose not to implement.
 
 No filler, no praise of the work, no claims beyond what you verified.
@@ -212,7 +212,7 @@ No filler, no praise of the work, no claims beyond what you verified.
 - The answer letter is 1 token in ~34–173, so plain LM loss barely trains the decision → `--answer-weight` (T22).
 - Long fine-tunes on 6,106 MedQA rows memorise → `--ft-lr`, `--ft-epochs` (T21). Long phase-1 training memorises MedMCQA too → read the phase-1 validation curve (T25).
 - A trailing gradient-accumulation group used to leak into the next epoch (T23).
-- `load_dataset` used to stall on hub checks → loading is offline-first (T19). Do not re-enable online checks by default.
+- `load_dataset` used to stall on hub checks → loading is offline-first (T19). Do not re-enable online checks by default. The empty-cache fallback must flip `datasets.config.HF_HUB_OFFLINE` (not only the `HF_DATASETS_OFFLINE` alias) or a fresh machine cannot download (T26).
 - The tokenizer lower-cases, so the answer tokens are `a b c d` and `a` is also the English article. Keep this in mind when reasoning about letter priors; changing it means retraining both arms.
 - Sandbox statistics must ignore padding, and the `lowest_energy` readout must be chosen per position (T24).
 - The A/B is *architecture*-matched, not *parameter*-matched — always say so next to any comparison.

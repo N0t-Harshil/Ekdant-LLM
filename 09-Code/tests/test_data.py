@@ -284,3 +284,23 @@ def test_evaluate_reports_sandbox_diagnostics_only_for_sandbox_arm(monkeypatch):
     rb = evaluate(EkdantModel(baseline_config(cfg)), [batch],
                   torch.device("cpu"), off)
     assert "sandbox" not in rb
+
+
+def test_hub_offline_toggle_reaches_every_flag_datasets_reads():
+    # T26: a fresh machine (empty HF cache) must be able to go online once.
+    # datasets >= 2.19 reads config.HF_HUB_OFFLINE; toggling only the
+    # HF_DATASETS_OFFLINE alias left the first-run download blocked.
+    import datasets.config as dcfg
+    import huggingface_hub.constants as hcon
+
+    from ekdant.data import _hub_offline
+
+    try:
+        _hub_offline(False)
+        assert dcfg.HF_HUB_OFFLINE is False
+        assert hcon.HF_HUB_OFFLINE is False
+        _hub_offline(True)
+        assert dcfg.HF_HUB_OFFLINE is True
+        assert hcon.HF_HUB_OFFLINE is True
+    finally:
+        _hub_offline(True)
