@@ -3,6 +3,31 @@
 
 # Data Pipeline (Ekdant) — Thesis Ch. 4 source
 
+## v2 data (current, `gen_data.py`)
+
+```
+PubMedQA pqa_artificial (211,269) ─ seeded hold-out ─┬─ 209,269 ── phase 1: question + abstract → conclusion
+                                                      └─ 2,000 ── validation every 25 % of the epoch · retention
+MedQuAD (16,407 rows, 14,345 unique questions) ─ split by question (seed 17) ─┬─ 50 %: fine-tune half ─┬─ 90 % of its questions ── phase 2
+                                                                              │                        └─ 10 % ── checkpoint selection
+                                                                              └─ 50 %: benchmark half ── scored once
+```
+
+| Source | Fields used | Notes |
+|---|---|---|
+| `qiaojin/PubMedQA`, `pqa_artificial`, train | `question`, `context.contexts` (joined), `long_answer` | abstract p50 324 / p99 627 tokens; conclusion p50 47 / p99 130 (SmolLM2 tokenizer); ~85M tokens per epoch. `pqa_labeled` shares 0 PubMed ids with it (unused, available as a later test) |
+| `keivalya/MedQuad-MedicalQnADataset`, train | `Question`, `Answer`, `qtype` | 3,474 rows share a question; answer p50 182 / p90 529 / p99 1,636 / max 5,646 tokens; 1,761 answers exceed 512 |
+
+- **Prompts:** `Question: {q}\nContext: {abstract}\nAnswer:` (PubMedQA) and `Question: {q}\nAnswer:` (MedQuAD); target ` {answer}` + EOS.
+- **Labels:** −100 on every prompt token — the loss and perplexity cover answer tokens only.
+- **Caps:** answers cut at 512 tokens (no EOS when cut; 89 % of MedQuAD answers fit whole); the abstract is trimmed from its end so a row fits 1,024 tokens. Rows that still do not fit are dropped and counted.
+- **Split by question:** keys are `question.strip().lower()`; one seeded permutation over the sorted keys, so rows sharing a question stay together and every arm gets identical sets. The same disease can still appear in both halves under different question types.
+- **Empty rows** (blank question or answer) are dropped at load.
+- **Tokenizer:** SmolLM2's own (49,152 entries, case-preserving); pad = EOS (id 0).
+- Loading is offline-first, like v1 (T19/T26).
+
+The rest of this note describes the v1 MCQ data (`--task mcq`).
+
 ## Overview
 
 Two public datasets, used **strictly in sequence, never jointly**. The same code path serves both A/B arms, and the tokenizer is trained once and reused so both see the identical vocabulary.
@@ -42,7 +67,11 @@ D. <option D>
 Answer:
 ```
 
-Evaluation reads the logits at the one position that predicts the letter token (`answer_pos - 1`) and takes the argmax over the four letter-token ids — no free-form generation and no option re-scoring. Chance is 25 %.
+Evaluation reads the logits at the one position that predicts the letter token (`answer_pos - 1`) and takes the argmax over the four letter-token ids — no free-form generation and no option re-scoring.
+
+**Chance is not 25 %.** The answer letters are not balanced, so a model that always outputs the most common letter scores the *majority rate*: MedMCQA validation **32.11 %** (always A), `medqa_bench` **25.69 %** (always B), `medqa_test` **27.73 %** (always A). Compare every accuracy with these, and check `pred_counts` — a model piled on one letter has learned only the label prior (T27).
+
+Gold-letter balance: MedMCQA train A 29.29 % (most common); MedQA train close to balanced (60 % fine-tune part: A 25.25, B 26.33, C 25.20, D 23.21 %).
 
 ## §3 Loading and normalisation (`data.py`)
 
@@ -71,7 +100,7 @@ Measured with the real tokenizer on all four splits:
 
 ```bash
 cd 09-Code
-pip install -e .[dev] && pytest -q                         # 93 tests, includes the data and split tests
+pip install -e .[dev] && pytest -q                         # 131 tests, includes the data and split tests
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke
 python -m ekdant.train --variant sandbox|baseline --out runs/<variant> ...                        # real run (see run.md §3)
 ```

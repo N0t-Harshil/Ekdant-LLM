@@ -2,6 +2,24 @@
 
 > [!note] **Shipped surface.** §1 lists every knob in `09-Code/configs/sandbox_50m.json` and `baseline_50m.json` (read from the JSONs and `EkdantConfig`). §2 lists the training-time CLI flags. §3–§4 are as-built parameter math and the tokenizer. The earlier XS/S/M design sizes with L1 are summarised in §5 for the thesis only.
 
+## 0. v2 config (`configs/v2_smollm2_135m.json`, `V2Config`) and flags
+
+| Key | Value | Meaning |
+|---|---|---|
+| `backbone` | `HuggingFaceTB/SmolLM2-135M` | Hugging Face model id |
+| `addon` | set by `--variant` (`baseline`→`none`, `sandbox`, `mlp_control`→`mlp`) | which add-on sits on the last hidden state |
+| `n_sandbox` | 4 | K trajectories |
+| `debate_rounds` | 4 | R (v1: 2) |
+| `sandbox_mlp_ratio` | 4.0 | debate MLP width / H (v1: 2.0) |
+| `descent_steps`, `eta` | 8, 0.0625 | S, η |
+| `rho_min`, `lambda_sbx` | 0.05, 1.0 | spread floor |
+| `readout` | `mean` | consensus |
+| `max_seq_len`, `max_answer` | 1024, 512 | sequence cap (context trimmed), answer cap |
+
+Flags (`python -m ekdant.train --task gen …`): `--variant {baseline,sandbox,mlp_control}`, `--batch-size 8`, `--grad-accum 4`, `--lr 5e-5` (backbone), `--addon-lr 1e-3`, `--warmup 200`, `--epochs 1` (PubMedQA), `--ft-epochs 3` (MedQuAD), `--eval-fraction 0.25`, `--pubmed-holdout 2000`, `--gen-subset 1000`, `--gen-subset-pubmed 500`, `--max-new 256`, `--max-new-pubmed 128`, `--gen-batch 32`, `--limit`, `--seed 17`, `--log-every 50`, `--gpu auto`, `--min-free-gb 20`, `--resume`, `--eval-only`.
+
+Sections 1–5 below are the v1 (`--task mcq`) configs.
+
 ## 1. Model configs (`09-Code/configs/*.json`)
 
 Two JSONs, identical architecture — **only `use_sandbox` differs** (sandbox 50.09M / baseline 43.53M at N_T=12; delta = L2's measured 6.56M). Every knob maps 1:1 to an `EkdantConfig` field (`09-Code/src/ekdant/model.py`); unknown keys raise in `from_dict`.

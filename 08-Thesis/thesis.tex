@@ -197,11 +197,18 @@ update---descending toward the running mean of the trajectories---is
 and replaced it with an externally anchored, per-trajectory gated step that
 provably decreases each trajectory's energy and does move the readout. Both
 defects, their proofs, and their numerical consequences are reported rather
-than removed. The model is evaluated as an architecture-matched A/B pair at
-50.09M (with L2) versus 43.53M (the identical backbone without L2) parameters,
-trained from scratch on a single GPU: first on all of MedMCQA, then fine-tuned
-on a seed-locked 60\% of MedQA and benchmarked on the untouched 40\% plus the
-official MedQA test set. Every falsifiable claim in the supporting vault
+than removed. A first, from-scratch evaluation (an architecture-matched A/B
+at 50.09M versus 43.53M parameters on MedMCQA and MedQA) learned only the
+answer-letter prior: every score sat at the rate of always choosing the most
+common letter, so it could not test L2. The evaluated configuration therefore
+places L2 on a pretrained SmolLM2-135M backbone as a zero-initialised gated
+residual, scaled to the same share of the model (19.59M of 154.11M
+parameters), and compares three arms that start identical: the backbone alone,
+the backbone with L2, and the backbone with a same-size feed-forward block. All
+three are trained on PubMedQA (question and abstract to conclusion), fine-tuned
+on half of MedQuAD and benchmarked once on the other half, split by question,
+using reference-answer perplexity with a paired-bootstrap confidence interval
+as the primary measure. Every falsifiable claim in the supporting vault
 is backed by one of 66 locally stored papers or by an explicit hand
 derivation, and an explicit prior-art audit states which claims are \emph{not}
 novel---including a compute-matched study in our own library that reports no
@@ -279,6 +286,11 @@ collapse.
         closest compute-matched published study reports \emph{no reliable
         gain} for its own version of this mechanism
         (Section~\ref{sec:counter-evidence}).
+  \item \textbf{A three-arm test of L2 on a pretrained backbone.} L2 enters
+        as a zero-initialised gated residual, so every arm starts as the same
+        pretrained model; a same-size feed-forward control separates a gain
+        from the mechanism from a gain from parameters
+        (Section~\ref{sec:v2}).
   \item \textbf{A falsifiability apparatus.} 66 locally stored papers, a
         claim-to-evidence index, hand-worked numerical examples requiring only
         a calculator, and a cost-matched evaluation protocol that fixes the
@@ -293,12 +305,12 @@ collapse.
     cost in exact retrieval? This requires L1, which is not implemented, so
     RQ1 is not tested in this thesis; the protocol is kept in
     Section~\ref{sec:rq1} so the follow-up is pre-specified.
-  \item[RQ2 (reasoning)] On medical multiple-choice questions, does the same
-    backbone with the $K$-trajectory sandbox beat the identical backbone
-    without it? The built comparison is architecture-matched, not
-    parameter-matched (the sandbox arm carries $+6.56$M parameters and extra
-    compute), so a depth- or parameter-matched control remains the
-    informative follow-up; see Section~\ref{sec:counter-evidence}.
+  \item[RQ2 (reasoning)] On generative medical question answering, does
+    adding the $K$-trajectory sandbox to a pretrained backbone lower the
+    perplexity of held-out reference answers more than adding a feed-forward
+    block of the same size, and more than further training of the backbone
+    alone? The same-size control makes the comparison parameter-matched as
+    well as architecture-matched (Section~\ref{sec:v2}).
   \item[RQ3 (honesty)] Is trajectory agreement calibrated against per-example
     accuracy, and can collapse be detected early by a monitored statistic
     rather than discovered post hoc?
@@ -307,15 +319,18 @@ collapse.
 \subsection{Non-goals and scope}
 
 \noindent
-Ekdant is a text-only model studied at the 50M-parameter scale and trained
-from scratch on two medical multiple-choice datasets (MedMCQA and MedQA); it
-is not a general-purpose language model. It is
+Ekdant is a text-only model. The evaluated configuration adds stage L2 to a
+pretrained 135M-parameter backbone (SmolLM2-135M) and trains it on two medical
+question-answering datasets (PubMedQA and MedQuAD); a from-scratch 50M pilot on
+MedMCQA and MedQA is reported as the motivation. It is not a general-purpose
+language model. It is
 not a tool-using agent (the ReAct line of work \cite{yao2022react} is cited to
 draw this boundary explicitly), not multimodal, and not a mixture-of-experts
 model. At this scale, mixture-of-experts and sparse/dense hybrids add routing
 machinery without the capacity to exploit it; stage L2 spends the same
 parameters on hypothesis diversity instead. Every component is implemented in
-plain PyTorch with no external CUDA kernels, which keeps the thesis
+plain PyTorch with no external CUDA kernels (the pretrained backbone is loaded
+through the \texttt{transformers} library), which keeps the thesis
 reproducible and auditable at the cost of raw speed
 (Section~\ref{sec:limitations}).
 
@@ -1337,6 +1352,50 @@ replaced by AGD, because the anchor $W_a \in \mathbb{R}^{H \times H}$ and gate
 $W_g \in \mathbb{R}^{2H \times H}$ are new parameters; the budget increase is
 the honest cost of the correction.
 
+\subsection{Evaluated instantiation: pretrained backbone and gated add-on}
+\label{sec:v2}
+
+\noindent
+The from-scratch pilot (Section~\ref{sec:results}) showed that a 50M model
+trained only on MedMCQA learns the answer-letter prior and nothing a sandbox
+could build on. The evaluated configuration therefore keeps stage L2 exactly as
+specified above and changes what it sits on. The backbone is SmolLM2-135M
+\cite{allal2025smollm2}: 30 layers, width $H=576$, 9 query and 3 key--value
+heads, a 49{,}152-entry vocabulary and a tied output head. Let $h_t$ be its
+final (normalised) hidden state. Each arm applies an add-on $f$ through a
+per-channel gate $g\in\mathbb{R}^{H}$,
+\begin{equation}
+  h'_t = h_t + g \odot \bigl(f(h_t) - h_t\bigr),\qquad g = 0 \text{ at initialisation},
+  \label{eq:gated-addon}
+\end{equation}
+and the backbone's own head maps $h'_t$ to logits. With $g=0$ every arm
+reproduces the pretrained model exactly, so any later difference is caused by
+training the add-on; the mean $|g|$ shows how much the model chooses to use it.
+The gated residual also removes the handicap of the pilot, where the consensus
+replaced the backbone state.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\rowcolor{ekHeadBG}\color{white}\textbf{Arm} & \color{white}\textbf{$f(h)$} & \color{white}\textbf{Parameters (measured)} \\
+\midrule
+Baseline & none ($h'=h$) & 134{,}515{,}008 \\
+Sandbox & L2 consensus, $K{=}4$, $R{=}4$, MLP $4\times$, $S{=}8$ & 154{,}107{,}072 ($+19{,}592{,}064$) \\
+MLP control & pre-norm SwiGLU of matched size & 154{,}106{,}496 ($+19{,}591{,}488$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+L2 is scaled to the share of the model it had in the pilot (13.1\%): four
+debate rounds with a debate MLP of width $4H$ give 12.7\%, whereas the pilot's
+two rounds of width $2H$ would give 5.8\% at this width. The MLP control is
+needed because $K=1$ is not a size-matched control: with one trajectory the
+cross-read has nothing to attend to and the debate receives zero input. Since
+every L2 operation is per position, decoding reuses the backbone's key--value
+cache and applies the add-on to each new token's state.
+
 % =====================================================================
 \section{Design audit: four defects found and fixed}
 \label{sec:audit}
@@ -1563,8 +1622,40 @@ which convention is in force before any number derived from either is quoted.
 % =====================================================================
 
 \noindent
-The evaluated model is trained on two public medical multiple-choice datasets,
-used strictly in sequence and never jointly.
+The evaluated configuration (Section~\ref{sec:v2}) uses two public generative
+medical datasets, in sequence and never jointly.
+
+\paragraph{PubMedQA.}
+\texttt{qiaojin/PubMedQA}, configuration \texttt{pqa\_artificial}
+\cite{jin2019pubmedqa}: 211{,}269 research questions, each with the abstract
+of a PubMed article and the article's conclusion. A seeded draw holds out
+2{,}000 rows; the other 209{,}269 train phase~1 (question and abstract
+$\to$ conclusion). Measured with the SmolLM2 tokenizer, an abstract has median
+324 and 99th-percentile 627 tokens and a conclusion median 47 and
+99th-percentile 130, about 85M tokens per epoch.
+
+\paragraph{MedQuAD.}
+\texttt{keivalya/MedQuad-MedicalQnADataset} \cite{benabacha2019medquad}:
+16{,}407 consumer-health question--answer pairs from NIH websites, with
+14{,}345 unique questions (3{,}474 rows share a question). The split is by
+unique question, so rows sharing a question always land together: a seeded
+permutation of the questions assigns half to the benchmark, scored once and
+never trained on or used for selection, and half to fine-tuning, of which
+10\% of the questions are held back to choose the checkpoint. Answers have
+median 182 and maximum 5{,}646 tokens; they are cut at 512 tokens, which keeps
+89\% of them whole.
+
+\paragraph{Prompts and loss.}
+Prompts are \texttt{Question: \{q\}} followed by \texttt{Context: \{abstract\}}
+for PubMedQA, then \texttt{Answer:}; the target is the answer followed by the
+end-of-sequence token. The loss and every perplexity cover the answer tokens
+only. Sequences are capped at 1{,}024 tokens by trimming the abstract, never
+the answer.
+
+\paragraph{Pilot data (from-scratch build).}
+The pilot (Section~\ref{sec:results}) used two medical multiple-choice
+datasets, in sequence and never jointly, described in the rest of this
+section.
 
 \paragraph{MedMCQA.}
 \texttt{openlifescienceai/medmcqa}: 182{,}822 training rows, of which 326 carry
@@ -1615,8 +1706,21 @@ are included in the parameter counts.
 % =====================================================================
 
 \noindent
-Both arms share one recipe, so the presence of L2 is the only variable. The
-campaign recipe (see the runbook \texttt{run.md}) is:
+\textbf{Evaluated configuration.} All three arms share one recipe and one
+data order, so the add-on is the only variable: AdamW with two learning-rate
+groups (backbone $5\times10^{-5}$; add-on and gate $10^{-3}$, without weight
+decay on the gate), a cosine schedule per phase with 200 warm-up steps,
+gradient clipping at $1.0$, bf16 autocast on A100 GPUs, and an effective batch
+of 32 sequences. Phase~1 is one epoch of PubMedQA, validated on the 2{,}000
+held-out rows every quarter of the epoch; phase~2 is three epochs of the
+MedQuAD fine-tuning half, validated each epoch. The final checkpoint is the
+better of the best and the last phase-2 checkpoint on the validation
+questions. Each arm runs on its own GPU; the seed is 17.
+
+\noindent
+\textbf{Pilot recipe.} Both pilot arms shared one recipe, so the presence of
+L2 was the only variable. The campaign recipe (see the runbook
+\texttt{run.md}, Part~B) is:
 
 \begin{center}
 \small
@@ -1665,7 +1769,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 93-test unit suite must
+one epoch, with save, resume and evaluation) and the 131-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1696,7 +1800,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by a $93$-test CPU unit suite
+Correctness is gated by a $131$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises
@@ -1726,8 +1830,25 @@ on a saved checkpoint without training (\texttt{--eval-only}).
 \subsection{RQ2: reasoning}
 
 \noindent
-All scoring is letter-accuracy on held-out multiple-choice rows.
-Chance is $25\%$. The decision gate is the MedQA 40\% benchmark partition
+\textbf{Evaluated configuration.} The primary measure is the perplexity of
+the reference answer on the MedQuAD benchmark half (mean negative
+log-likelihood over answer tokens), measured before training, after phase~1
+and at the end, and broken down by question type because many MedQuAD answers
+follow fixed templates. Arms are compared by a paired bootstrap
+\cite{koehn2004bootstrap} over questions (1{,}000 resamples): a difference
+counts only if its 95\% interval excludes zero. ROUGE-L \cite{lin2004rouge}
+and token F1 on 1{,}000 greedily generated answers report whether the content
+of written answers changes, and perplexity on the PubMedQA held-out rows after
+the fine-tune measures forgetting.
+
+\noindent
+\textbf{Pilot.} All scoring is letter-accuracy on held-out multiple-choice rows.
+The reference floor is not $25\%$: the gold letters are unbalanced, so a
+model that always outputs the most common letter scores $32.11\%$ on MedMCQA
+validation (always A), $25.69\%$ on the MedQA benchmark partition (always B)
+and $27.73\%$ on the MedQA test split (always A). Every evaluation records
+the predicted-letter counts and this majority rate, and results are read
+against it. The decision gate is the MedQA 40\% benchmark partition
 (\texttt{medqa\_bench}, 4{,}072 rows, scored once), with the official MedQA
 test split (1{,}273 rows) as a second untouched number. The MedMCQA validation
 split (4{,}170 usable rows) is the selection set, and its phase-1 versus final values
@@ -1769,6 +1890,27 @@ target, which isolates the correction of Defect~1.
 \label{sec:results}
 
 \noindent
+\paragraph{Evaluated configuration (pending).}
+The three-arm runs are prepared and tested but not yet performed. A CPU run on
+a few dozen rows with the real backbone completed end to end as a pipeline
+check; it is not a result.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\rowcolor{ekHeadBG}\color{white}\textbf{Arm} & \color{white}\textbf{Zero-shot ppl} & \color{white}\textbf{Benchmark ppl} & \color{white}\textbf{$\Delta$ vs.\ baseline (95\% CI)} & \color{white}\textbf{ROUGE-L / F1} & \color{white}\textbf{$|g|$} \\
+\midrule
+Baseline & \textit{[PENDING]} & \textit{[PENDING]} & --- & \textit{[PENDING]} & --- \\
+Sandbox & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} \\
+MLP control & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The from-scratch pilot below is the reason for this configuration.
+
 \paragraph{Pipeline-scale pilot (completed).}
 A full 3-epoch A/B on a single T4 (full data, one seed, per-stage learning
 rate) is the only completed head-to-head run. It predates the sequential
@@ -1807,6 +1949,21 @@ answer-letter weight (Section~\ref{sec:training}), and the reason the phase-1
 validation curve is now recorded every epoch: the number of phase-1 epochs
 should be chosen from that curve before the sandbox arm is run.
 
+\paragraph{Current recipe, 2 phase-1 epochs (baseline complete).}
+With the capped fine-tune and the answer-letter weight, the phase-1
+validation curve of a 20-epoch baseline peaked after the second epoch
+($33.33\%$) and then fell while training loss kept dropping, so phase~1 was
+cut to two epochs. The 2-epoch baseline reached $33.91\%$ on MedMCQA
+validation after phase~1 (majority rate $32.11\%$), $25.44\%$ on the MedQA
+benchmark partition (majority $25.69\%$) and $29.62\%$ on the MedQA test
+split (majority $27.73\%$). Only the last clears its majority rate, by
+$1.9$ points against a noise standard deviation of about $1.3$. At this
+scale the backbone has learned little beyond the answer-letter prior. The
+pilot's sandbox arm reached $32.23\%$ after phase~1 and then stopped on an
+out-of-memory error caused by other jobs on a shared GPU; it was not re-run,
+because the pilot was superseded by the evaluated configuration
+(Section~\ref{sec:v2}).
+
 \paragraph{Pending tables.}
 The tables below are placeholders. They fix the required content and its
 provenance in advance; no number is reported until the run produces it.
@@ -1818,7 +1975,7 @@ provenance in advance; no number is reported until the run produces it.
 \rowcolor{ekHeadBG}\color{white}\textbf{Table} & \color{white}\textbf{Status} \\
 \midrule
 \rowcolor{ekRowW}
-Campaign recipe (capped fine-tune, answer weight): \texttt{medqa\_bench}, \texttt{medqa\_test}, MedMCQA phase-1 $\to$ final & \textit{[PENDING]} --- both arms, same seed (only the legacy baseline exists) \\
+Campaign recipe (capped fine-tune, answer weight): \texttt{medqa\_bench}, \texttt{medqa\_test}, MedMCQA phase-1 $\to$ final & superseded by the evaluated configuration (Section~\ref{sec:v2}) \\
 Cost report: parameters, tokens$\times K$, FLOPs, wall-clock & \textit{[PENDING]} \\
 Depth- or parameter-matched control (no L2) & \textit{[PENDING]} \\
 $K, R, S$ ablations & \textit{[PENDING]} \\
@@ -1875,9 +2032,18 @@ tie.
 \label{sec:limitations}
 
 \begin{description}
-  \item[Scale.] At the 50M-parameter scale, absolute benchmark numbers will be far
-    below published frontier results. The claims are about \emph{mechanisms}
-    moving a metric, never about state-of-the-art quality.
+  \item[Scale.] At the 135M-parameter scale (and 50M in the pilot), absolute
+    numbers will be far below published frontier results. The claims are about
+    \emph{mechanisms} moving a metric, never about state-of-the-art quality.
+  \item[Pretrained backbone.] The evaluated L2 is an add-on to a model trained
+    elsewhere on about two trillion tokens; a result says whether L2 helps
+    such a model, not whether it helps a model trained from scratch, and the
+    backbone's pretraining data cannot be audited for overlap with the medical
+    test questions.
+  \item[Generative metrics.] Perplexity rewards predicting the reference
+    wording, and MedQuAD answers are partly templated; ROUGE-L and token F1
+    reward surface overlap, not correctness. Per-type perplexity and the
+    paired bootstrap limit, but do not remove, these weaknesses.
   \item[No L1.] The selective-SSM storage layer is specified but not
     built, so the memory claim (P1) and RQ1 are untested here. A fixed-size
     recurrent state is a lossy summary, and exact associative recall is
@@ -1887,8 +2053,9 @@ tie.
     wrong. $\rhodim$ detects \emph{collapse}, not \emph{error}; a diverse but
     uniformly wrong set will not trip the floor. This is why RQ3 measures
     calibration rather than assuming agreement implies correctness.
-  \item[Compute cost.] Stage L2 adds $K{=}4$ trajectories, $R{=}2$ debate
-    rounds and $S{=}8$ descent steps per token \eqref{eq:l2-cost}; the
+  \item[Compute cost.] Stage L2 adds $K{=}4$ trajectories, $R$ debate
+    rounds ($2$ in the pilot, $4$ in the evaluated configuration) and $S{=}8$
+    descent steps per token \eqref{eq:l2-cost}; the
     sandbox arm is estimated at roughly $1.5\times$ the baseline's wall-clock
     on a T4 (not yet timed on a full run). Gains must be reported alongside parameters, tokens$\times K$ and
     FLOPs, and the arms are architecture-matched, not parameter-matched.
@@ -1904,11 +2071,10 @@ tie.
     denote option labels, and the letter prior inherited from running text is a
     possible bias toward option~A. Both arms share it, so it does not favour
     either side of the comparison.
-  \item[No identity path around L2.] In the sandbox arm the consensus replaces
-    the backbone state before the head; the backbone reaches the output only
-    through the learned trajectory projections. This is the design under test,
-    but it is a handicap the baseline does not carry, and a residual variant
-    is an untested alternative.
+  \item[No identity path around L2 (pilot only).] In the pilot's sandbox arm
+    the consensus replaced the backbone state before the head, a handicap the
+    baseline did not carry. The evaluated configuration adds L2 as a gated
+    residual (Equation~\ref{eq:gated-addon}) and so removes it.
   \item[Small-data fine-tune.] The MedQA phase has only 6{,}106 rows, so the
     recipe caps its learning rate and epochs to resist memorisation
     (Section~\ref{sec:training}); the 3-epoch pilot's MedQA stage was too
@@ -1919,7 +2085,11 @@ tie.
 \section{Reproducibility}
 
 \noindent
-Seed $17$ (which also locks the 60/40 MedQA partition); a small set of
+For the evaluated configuration: seed $17$ (which also fixes the PubMedQA
+hold-out, the MedQuAD question split and every epoch's data order); one
+configuration file for all three arms; checkpoints that store the optimiser
+state and the position inside an epoch, so an interrupted run resumes exactly.
+For the pilot: seed $17$ (which also locks the 60/40 MedQA partition); a small set of
 configuration knobs, each mapped to an ablation; two committed configuration
 files that differ only in \texttt{use\_sandbox}; a tokenizer saved with each
 run; checkpoint resume; and a claim-to-evidence index mapping every load-bearing statement to either a
@@ -1945,9 +2115,11 @@ the unbounded per-token cache with a fixed-size selective state, and remains
 future work; stage T, as built, bounds the cache at a local window and
 restores exact local retrieval; stage L2, as built, makes reasoning
 inspectable by materializing several live hypotheses and lets them confront
-one another. On the one completed head-to-head run, the sandbox and its
-no-sandbox baseline tie at pipeline scale, which the thesis committed in
-advance to report as it stands.
+one another. In the from-scratch pilot, both arms learned only the
+answer-letter prior, so the head-to-head ended in an uninformative tie; the
+evaluated configuration therefore tests L2 on a pretrained backbone against
+both the backbone alone and a same-size control, and its results will be
+reported as they stand, including a tie.
 
 \noindent
 The substantive result of this thesis is as much about the corrections as
@@ -1965,6 +2137,11 @@ would argue, the minimum standard for a claim about a new mechanism.
 \begin{thebibliography}{99}
 \small
 
+\bibitem{allal2025smollm2} L. B. Allal et al. SmolLM2: when smol goes big---data-centric training of a small language model. arXiv:\allowbreak 2502.02737, 2025.
+\bibitem{jin2019pubmedqa} Q. Jin et al. PubMedQA: a dataset for biomedical research question answering. EMNLP 2019. arXiv:\allowbreak 1909.06146.
+\bibitem{benabacha2019medquad} A. Ben Abacha and D. Demner-Fushman. A question-entailment approach to question answering. BMC Bioinformatics 20, 2019.
+\bibitem{lin2004rouge} C.-Y. Lin. ROUGE: a package for automatic evaluation of summaries. Text Summarization Branches Out (ACL Workshop), 2004.
+\bibitem{koehn2004bootstrap} P. Koehn. Statistical significance tests for machine translation evaluation. EMNLP 2004.
 \bibitem{gu2020hippo} A. Gu et al. How to train your HiPPO: state space models as implicit recurrent regularization. NeurIPS 2020. arXiv:\allowbreak 2008.07669.
 \bibitem{tay2020lra} J. Tay et al. Efficiently learning long sequences with structured state spaces. ICLR 2021. arXiv:\allowbreak 2011.04006.
 \bibitem{gu2021s4} A. Gu et al. Efficiently modeling long-range dependencies with structured state spaces. ICLR 2022. arXiv:\allowbreak 2111.00396.

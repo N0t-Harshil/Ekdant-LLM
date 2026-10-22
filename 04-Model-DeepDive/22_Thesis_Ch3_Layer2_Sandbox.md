@@ -3,6 +3,8 @@
 > Thesis Ch. 3 §2. Background: [`20_Thesis_Ch2_Sandbox_Papers.md`](../03-Background/20_Thesis_Ch2_Sandbox_Papers.md) · PDFs: [`papers/Sandbox_Reasoning/`](../papers/Sandbox_Reasoning/) · Index: [`papers/00_Papers_Index.md`](../papers/00_Papers_Index.md)
 > Code: `src/ekdant/sandbox.py` + `src/ekdant/output_head.py` · Config: [`12_Configuration_Guide.md`](../02-Architecture/12_Configuration_Guide.md) · Eval: [`09_Validation_System.md`](../06-Training-Eval/09_Validation_System.md)
 
+> [!important] **v2 placement (current build).** L2 now sits on a pretrained SmolLM2-135M (H=576) as a **zero-init gated residual** `h + g ⊙ (consensus − h)`, scaled to **R=4 debate rounds with a 4× debate MLP** (19,592,064 params, 12.7 % of the model — v1's share was 13.1 %), and is compared with the plain backbone and a same-size MLP control. Everything below (mechanism, math, diagnostics) is unchanged. Spec: [30](../07-Management/30_Design_v2_Pretrained_Backbone.md).
+
 ## 1. Problem: one pass that hides its reasoning and misstates its confidence
 
 A single autoregressive pass produces one answer with one probability distribution. When it fails, nothing records which step went wrong; when it succeeds, its softmax score still does not mean "I am sure." L2 exists to make reasoning inspectable and confidence observable: keep several live hypotheses, let them confront each other, and read agreement across them as the confidence signal.

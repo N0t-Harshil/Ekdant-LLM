@@ -286,6 +286,39 @@ def test_evaluate_reports_sandbox_diagnostics_only_for_sandbox_arm(monkeypatch):
     assert "sandbox" not in rb
 
 
+def test_evaluate_reports_letter_counts_and_majority_baseline(monkeypatch):
+    # The 2-epoch A/B sat at the always-"A" rate of MedMCQA val (32.11 %),
+    # not at 25 %; evaluate() must expose what the model predicts and the
+    # majority-letter accuracy so a prior-only model is visible.
+    import torch
+
+    import ekdant.train as T
+    from ekdant.train import evaluate, fmt_letters
+
+    monkeypatch.setattr(T, "LETTER_IDS", [1, 2, 3, 4])
+
+    class AlwaysB(torch.nn.Module):
+        def forward(self, input_ids, **kw):
+            logits = torch.zeros(*input_ids.shape, 8)
+            logits[..., 2] = 1.0  # letter B
+            return type("Out", (), {"logits": logits,
+                                    "loss": torch.tensor(1.0)})()
+
+    ids = torch.randint(5, 8, (5, 6))
+    batch = {"input_ids": ids, "labels": ids.clone(),
+             "attention_mask": torch.ones(5, 6, dtype=torch.long),
+             "answer_pos": torch.full((5,), 4, dtype=torch.long),
+             "answer_target": torch.tensor([0, 0, 0, 1, 3]),
+             "answer_ids": torch.ones(5, dtype=torch.long)}
+    off = lambda: torch.autocast("cpu", enabled=False)  # noqa: E731
+    r = evaluate(AlwaysB(), [batch], torch.device("cpu"), off)
+    assert r["pred_counts"] == {"A": 0, "B": 5, "C": 0, "D": 0}
+    assert r["gold_counts"] == {"A": 3, "B": 1, "C": 0, "D": 1}
+    assert r["accuracy"] == 0.2 and r["majority_accuracy"] == 0.6
+    assert fmt_letters(r) == "pred A/B/C/D=0/5/0/0 majority=60.00%"
+    assert fmt_letters({"accuracy": 0.5}) == ""
+
+
 def test_hub_offline_toggle_reaches_every_flag_datasets_reads():
     # T26: a fresh machine (empty HF cache) must be able to go online once.
     # datasets >= 2.19 reads config.HF_HUB_OFFLINE; toggling only the

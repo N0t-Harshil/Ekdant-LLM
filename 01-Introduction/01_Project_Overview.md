@@ -2,6 +2,8 @@
 
 > Thesis Ch. 1. Read next: `02` (method) → `19`/`20` (background papers) → `21`/`22` (how each layer works).
 
+> [!important] **Current experiment: v2.** The sandbox (L2) is tested on a pretrained SmolLM2-135M against the plain backbone and a same-size MLP control, on generative medical QA (PubMedQA → MedQuAD), scored by perplexity with a paired bootstrap. The v1 from-scratch MCQ build stayed at the majority-letter rate (T27), so it could not answer the research question. Spec: [30](../07-Management/30_Design_v2_Pretrained_Backbone.md).
+
 ## 1. The problem
 
 Large language models are almost synonymous with the Transformer decoder: alternating self-attention and MLP blocks trained with next-token prediction. That stack has three properties this thesis treats as limitations for its target use cases:
@@ -96,7 +98,7 @@ The thesis covers text-only training from scratch on MedMCQA and MedQA, letter-a
 | L2 (`09-Code/src/ekdant/sandbox.py` + `output_head.py`) | Implemented + tested |
 | Wiring + config (`model.py`; `configs/sandbox_50m.json` / `baseline_50m.json`) | Implemented (embed → T → L2 → head) |
 | Training + evaluation (`train.py`) | Implemented: sequential protocol, resume, eval-only |
-| Tests (`09-Code/tests/`) | **93 passing** (model, sandbox, transformer, data, LR schedule, benchmark split) |
+| Tests (`09-Code/tests/`) | **131 passing** (model, sandbox, transformer, data, LR schedule, benchmark split) |
 | Pipeline-scale A/B (3 epochs, T4) | Done — a tie (see `STATUS.md`) |
 | 100-epoch campaign | Prepared in `run.md` §3 — pending |
 | Background library (66 PDFs) | Ready (`papers/00_Papers_Index.md`) |

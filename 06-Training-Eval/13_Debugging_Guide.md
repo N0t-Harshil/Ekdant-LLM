@@ -6,6 +6,14 @@
 
 All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdout; run artifacts go to `--out` (`runs/<variant>/`: `results.json`, `last.pt`, `best.pt`, `tokenizer.json`, `config.json`).
 
+## v2 (`--task gen`) failures
+
+- **`error: GPU n has only x GB free`** — other users' jobs fill that GPU; choose another with `CUDA_VISIBLE_DEVICES` (check `nvidia-smi`).
+- **`expected m1 and m2 to have the same dtype … BFloat16`** — old code: transformers 5 loads SmolLM2 in bf16; `load_backbone` now casts to float32 (T28).
+- **`|g|` stays ≈ 0** — the model is not using the add-on. Not a bug; report it.
+- **Perplexity gap between arms** — real only if `python -m ekdant.gen_eval compare` shows a 95 % CI that excludes 0.
+- **Batched generation differs from one-at-a-time** — position ids must count real tokens (`cumsum(mask) − 1`); covered by `test_generate_batched_equals_single`.
+
 ## Common Failures & Diagnosis
 
 ### 1. Dataset loading fails or finds nothing
@@ -30,6 +38,8 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 
 ### 4. Training looks fine but accuracy does not move
 - **Train CE collapses (≈ 0.05) while held-out accuracy plateaus** — memorisation of the small MedQA fine-tune set (T21). Use `--ft-lr 5e-5 --ft-epochs 10`.
+- **Accuracy equals the majority rate (MedMCQA val 32.11 %, `medqa_bench` 25.69 %, `medqa_test` 27.73 %)** — the model learned only the label prior; `pred_counts` in `results.json` shows it piled on one letter (T27).
+- **Out of memory with PyTorch holding only a few GiB** — other processes share the GPU; check `nvidia-smi` before blaming the batch size.
 - **Train CE low, letter accuracy at chance** — supervision dilution (T22): the letter is 1 token in ~34 / ~173. Use `--answer-weight 10`.
 - **Sandbox arm only: `spread_ratio` pinned at the floor** — the K trajectories have collapsed (T8) and L2 is doing nothing. Raise `rho_min` first; report it either way. (`spread_ratio` is computed in `aux` but is not yet written to `results.json`.)
 
@@ -50,7 +60,7 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 - Memory only becomes a concern with near-2048-token inputs; MedMCQA p99 is 118 tokens and MedQA p99 is 364.
 
 ### 8. Tests fail
-- `pytest -q` (93 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
+- `pytest -q` (131 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
 - A config change that makes `EkdantConfig` and `Sandbox` disagree (e.g. a new readout name) is caught by `test_every_config_valid_readout_builds_a_model`.
 
 ### How to reproduce an issue

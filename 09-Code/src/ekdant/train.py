@@ -179,6 +179,16 @@ def lr_at(step, total, base, warmup):
     return base * 0.5 * (1.0 + math.cos(math.pi * p))
 
 
+def fmt_letters(r: Dict) -> str:
+    """Predicted-letter counts and the always-majority-letter accuracy, so a
+    model that only learned the label prior is visible in the log."""
+    if "pred_counts" not in r:
+        return ""
+    pc = "/".join(str(v) for v in r["pred_counts"].values())
+    return (f"pred A/B/C/D={pc} "
+            f"majority={r['majority_accuracy']*100:.2f}%")
+
+
 def fmt_duration(seconds: float) -> str:
     seconds = max(0, int(seconds))
     h, rem = divmod(seconds, 3600)
@@ -282,6 +292,10 @@ def evaluate(model, loader, device, autocast,
     correct = seen = 0
     loss_sum = n = 0
     diag: Dict[str, float] = {}
+    # Letter histograms: a model that learned only the label prior predicts
+    # one letter and scores the gold-majority rate, not 25 %.
+    pred_hist = torch.zeros(len(LETTER_IDS), dtype=torch.long)
+    gold_hist = torch.zeros(len(LETTER_IDS), dtype=torch.long)
     for batch in loader:
         batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
         with autocast():
@@ -300,15 +314,33 @@ def evaluate(model, loader, device, autocast,
         pred = got[:, LETTER_IDS].argmax(-1)
         correct += int((pred == batch["answer_target"]).sum())
         seen += len(pred)
+        pred_hist += torch.bincount(pred.cpu(), minlength=len(LETTER_IDS))
+        gold_hist += torch.bincount(batch["answer_target"].cpu(),
+                                    minlength=len(LETTER_IDS))
     r = {"loss": loss_sum / max(1, n), "accuracy": correct / max(1, seen),
-         "n": seen}
+         "n": seen,
+         "pred_counts": dict(zip("ABCD", pred_hist.tolist())),
+         "gold_counts": dict(zip("ABCD", gold_hist.tolist())),
+         "majority_accuracy": int(gold_hist.max()) / max(1, seen)}
     if diag:
         r["sandbox"] = _mean_diag(diag, n)
     return r
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    # --task gen = v2 (pretrained backbone, generative QA, train_gen.py);
+    # --task mcq (default) = the v1 MCQ protocol below, unchanged.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--task", choices=["mcq", "gen"], default="mcq")
+    known, rest = pre.parse_known_args(argv)
+    if known.task == "gen":
+        from ekdant import train_gen
+        return train_gen.main(rest)
+
     ap = argparse.ArgumentParser()
+    ap.add_argument("--task", choices=["mcq", "gen"], default="mcq",
+                    help="mcq = v1 MedMCQA/MedQA protocol (this help); "
+                         "gen = v2 generative protocol (--task gen --help)")
     ap.add_argument("--variant", choices=["sandbox", "baseline"], required=True)
     ap.add_argument("--config", default=None)
     ap.add_argument("--out", required=True)
@@ -327,7 +359,7 @@ def main() -> None:
                          "loss (0 = legacy pure LM loss; 10 recommended - "
                          "the letter is only ~1 token in ~34 MedMCQA / "
                          "~173 MedQA tokens, so plain CE dilutes the "
-                         "decision signal ~97-99%)")
+                         "decision signal ~97-99%%)")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--no-compile", action="store_true")
     ap.add_argument("--seed", type=int, default=17)
@@ -344,7 +376,7 @@ def main() -> None:
     ap.add_argument("--eval-only", action="store_true",
                     help="no training; run the final protocol "
                          "(better-of selection + benchmark)")
-    args = ap.parse_args()
+    args = ap.parse_args(rest)
 
     torch.manual_seed(args.seed)
     distributed = setup_dist()
@@ -497,7 +529,7 @@ def main() -> None:
         r = evaluate(raw, tloader, device, autocast, args.answer_weight)
         results["phase1"] = {"medmcqa_val": r}
         log(f"[phase1 test medmcqa_val] acc={r['accuracy']*100:.2f}% "
-            f"loss={r['loss']:.4f} n={r['n']}  "
+            f"loss={r['loss']:.4f} n={r['n']} {fmt_letters(r)}  "
             f"(after MedMCQA training, before MedQA fine-tune)")
         _write_results()
 
@@ -572,7 +604,8 @@ def main() -> None:
                         history[-1]["test"] = {"medmcqa_val": r}
                         log(f"[{stage_name}] ep{epoch} monitor medmcqa_val "
                             f"acc={r['accuracy']*100:.2f}% "
-                            f"loss={r['loss']:.4f} n={r['n']}")
+                            f"loss={r['loss']:.4f} n={r['n']} "
+                            + fmt_letters(r))
                         _write_results()
                     if (args.eval_every > 0
                             and stage_name == "medqa_ft"
@@ -592,7 +625,8 @@ def main() -> None:
                         results["test"] = {"medmcqa_val": r}
                         log(f"[{stage_name}] ep{epoch} eval medmcqa_val "
                             f"acc={r['accuracy']*100:.2f}% "
-                            f"loss={r['loss']:.4f} n={r['n']}")
+                            f"loss={r['loss']:.4f} n={r['n']} "
+                            + fmt_letters(r))
                         cur = r["accuracy"]
                         if cur > best_acc:
                             best_acc = cur
@@ -664,7 +698,7 @@ def main() -> None:
         results["test"][name] = r
         if is_main:
             log(f"[test {name}] acc={r['accuracy']*100:.2f}% "
-                f"loss={r['loss']:.4f} n={r['n']}")
+                f"loss={r['loss']:.4f} n={r['n']} {fmt_letters(r)}")
 
     if is_main:
         _write_results()

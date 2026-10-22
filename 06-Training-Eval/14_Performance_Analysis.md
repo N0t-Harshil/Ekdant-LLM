@@ -4,6 +4,16 @@
 
 All numbers below are from `estimate_model_size` / direct param counts on the shipped A/B configs (`09-Code/configs/{sandbox,baseline}_50m.json`, H=512, V=32768, N_T=12, W=512, K=4, R=2, S=8). Inference-state and compute figures are ==analytic projections==, not measurements — the only completed head-to-head run is the 3-epoch pipeline-scale A/B (a tie; see `STATUS.md`); the 100-epoch campaign numbers are pending.
 
+## 0. v2 parameter table (measured on the real backbone)
+
+| arm | backbone | add-on | total |
+|---|---|---|---|
+| `baseline` | 134,515,008 | 0 | 134,515,008 |
+| `sandbox` | 134,515,008 | 19,592,064 (L2 19,591,488 + gate 576) | 154,107,072 |
+| `mlp_control` | 134,515,008 | 19,591,488 | 154,106,496 |
+
+Time and memory on the A100s: **not yet measured** (`results.cost` records params, tokens, wall-clock and peak memory per arm). A CPU smoke run (`--limit 64`) took 10 m 31 s end to end; that is a pipeline check, not a speed figure.
+
 ## 1. Parameter table (measured)
 
 | component | formula | params |

@@ -4,6 +4,17 @@
 
 `09-Code/src/ekdant/train.py` orchestrates Ekdant training (`python -m ekdant.train --variant sandbox|baseline`: **phase 1 MedMCQA train+test → phase 2 MedQA 60% fine-tune → 40% benchmark**, one invocation, never jointly trained): one architecture, two losses (LM CE + spread floor), A/B pretrain only. The SFT/instruct/DPO stages in §1 are thesis design, not shipped.
 
+## 0. v2 runner (`train_gen.py`, `--task gen`) — current
+
+1. **Pre-flight:** pick the GPU (`--gpu auto` = most free memory) and refuse below `--min-free-gb 20` — the pod's A100s are shared (the v1 sandbox OOM happened on a full GPU 0). Fresh-run guard as in v1.
+2. **Zero-shot:** perplexity of the untrained arm on PubMedQA held-out, MedQuAD validation and MedQuAD benchmark (`results.zero_shot`).
+3. **Phase 1 — PubMedQA** (1 epoch): AdamW with two LR groups (backbone 5e-5, add-on + gate 1e-3; no weight decay on the gate or 1-D params), cosine per phase, 200 warm-up steps, clip 1.0 applied separately to the backbone and the add-on (`clip_grads` — the add-on's gradient must not shrink the backbone's update relative to the baseline), bf16 on A100, effective batch 32 (8 × 4). Validation on the 2,000 held-out rows every 25 % of the epoch; `last.pt` at each point.
+4. **Phase 2 — MedQuAD fine-tune half** (3 epochs): validation slice each epoch → `best.pt` on lowest NLL.
+5. **Final:** better of `best.pt` / `last.pt` on the validation slice (ties keep `best.pt`), then the benchmark half once: perplexity, per-type perplexity, ROUGE-L / token F1 on 1,000 greedy generations (≤ 256 new tokens), and PubMedQA held-out retention (+ 500 generations, ≤ 128 tokens). `cost`: params, tokens, wall-clock, peak memory.
+6. **Resume:** `last.pt` stores the optimiser state, the stage/epoch and the batch position; each epoch's order comes from a generator seeded by (seed, stage, epoch), so `--resume` continues exactly (`test_resume_mid_epoch_matches_uninterrupted`); a resume with changed flags or variant is refused, zero-shot is never measured on loaded weights, and wall-clock accumulates across resumes.
+
+Sections 1–5 below describe the v1 runner.
+
 ## 1. Design history (superseded)
 
 The original thesis plan was a general pre-training run: three sizes (XS ≈12M / S ≈21M / M ≈46M) with an L1 SSM front end, 50K steps on a 54-dataset code/web/docs mixture, then SFT and DPO-lite, driven by `config_ekdant_xs/s/m.yaml`. None of that exists in this repo. The project narrowed to a single **50M-class T + L2 A/B on medical multiple-choice QA**; L1 is a specified extension, not code. The shipped model and loss:
@@ -66,7 +77,7 @@ Data loads through `data.py::load_examples` (offline-first: cached loads skip th
 
 **Resume + eval-only (both verified end-to-end).** `--resume` loads `last.pt` weights/step/history, skips already-completed (stage, epoch) pairs (tagged `completed = (epoch counts of earlier stages summed) + epoch + 1` — the legacy `stage_index × epochs` when both phases share `--epochs`), reuses the `--out` tokenizer + exact `config.json` (which takes precedence over `configs/`), and preserves the recorded `phase1` result in `results.json`; optimizer moments restart cold. `--eval-only` skips training entirely and re-runs the final protocol (better-of selection on `medmcqa_val`, then the 40% benchmark + official MedQA test). Keep `--variant`/`--out`/`--epochs` (and `--ft-epochs`/`--ft-lr`, if used) identical to the original run. Details: [run.md](../run.md) §4.
 
-**Evaluation = letter accuracy (fixed — was T17).** `evaluate()` gathers the logits row at `answer_pos - 1` (the position that *predicts* the answer, since `logits[t]` predicts token `t+1`), restricts to the 4 letter-token ids (`LETTER_IDS`), and argmaxes vs `answer_target` — which is the **letter index 0–3**, not the answer's vocab id. One forward per example instead of four option-continuation scorings (plus mean CE loss). Both halves are load-bearing: reading `answer_pos` (the off-by-one) or comparing against the vocab id each silently collapse accuracy to ~0% while CE stays correct, so a trained model scores zero. Regression-tested by `test_evaluate_scores_answer_position_and_index`.
+**Evaluation = letter accuracy (fixed — was T17).** `evaluate()` gathers the logits row at `answer_pos - 1` (the position that *predicts* the answer, since `logits[t]` predicts token `t+1`), restricts to the 4 letter-token ids (`LETTER_IDS`), and argmaxes vs `answer_target` — which is the **letter index 0–3**, not the answer's vocab id. One forward per example instead of four option-continuation scorings (plus mean CE loss). It also returns `pred_counts` / `gold_counts` (A–D histograms) and `majority_accuracy` — the floor every result is read against, not 25 % (T27). Both halves are load-bearing: reading `answer_pos` (the off-by-one) or comparing against the vocab id each silently collapse accuracy to ~0% while CE stays correct, so a trained model scores zero. Regression-tested by `test_evaluate_scores_answer_position_and_index`.
 
 ## 3. Losses (shipped vs thesis — one flag difference)
 
@@ -92,7 +103,7 @@ Optional (`--answer-weight w`, default 0 = legacy): `+ w · CE(logits[answer_pos
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 93 tests, CPU, ~10s
+pytest -q    # 131 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 

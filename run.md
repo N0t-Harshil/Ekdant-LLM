@@ -1,26 +1,203 @@
 # run.md — Ekdant operations runbook
 
-How to **install, train, resume, test and benchmark** both Ekdant models, from
-a clean machine to a number you can quote. Every command was run end to end
-on CPU (smoke size, both arms) and the full suite passes (93 tests); the
-reference numbers in §3 and §6 come from the real T4 run logs.
+How to **install, train, resume, test and benchmark** Ekdant, from a clean
+machine to a number you can quote. All commands run from `09-Code/` unless
+stated otherwise.
 
-All commands run from `09-Code/` unless stated otherwise.
+There are two experiments in the code:
+
+| | **v2 — current** (Part A) | v1 — from-scratch pilot (Part B) |
+|---|---|---|
+| backbone | pretrained **SmolLM2-135M** | 43.53M model trained from scratch |
+| arms | `baseline`, `sandbox` (+19.59M L2), `mlp_control` (same-size MLP) | `baseline`, `sandbox` |
+| data | PubMedQA → MedQuAD (write the answer) | MedMCQA → MedQA (pick A–D) |
+| main number | reference-answer perplexity on the MedQuAD benchmark half | letter accuracy on `medqa_bench` |
+| start with | `python -m ekdant.train --task gen …` | `python -m ekdant.train …` (`--task mcq` is the default) |
+
+v1 is kept so its results can be reproduced: every v1 result sat at the
+majority-letter rate (T27), which is why v2 exists — see
+[30_Design_v2](07-Management/30_Design_v2_Pretrained_Backbone.md).
 
 ---
 
-## Quick start (copy-paste)
+# Part A — v2: pretrained backbone, generative medical QA
+
+## A1. Quick start
 
 ```bash
 git clone https://github.com/N0t-Harshil/Ekdant-LLM.git
 cd Ekdant-LLM/09-Code
-pip install -e .[dev]                       # the trailing dot matters
-python -m pytest                            # 93 tests, CPU, ~10 s — all must pass
+pip install -e .[dev]               # trailing dot matters; installs transformers too
+python -m pytest                    # all tests must pass (CPU, no downloads)
+```
 
-# 2-minute smoke test of both models (downloads the datasets on first use)
+The first real run downloads SmolLM2-135M (~270 MB), PubMedQA `pqa_artificial`
+(~233 MB) and MedQuAD (~9 MB) into the Hugging Face cache; later runs read the
+cache offline.
+
+## A2. What one run does
+
+```
+zero-shot      score the untrained arm on every evaluation set (the floor)
+phase 1        PubMedQA: question + abstract → write the conclusion
+               (209,269 rows; 2,000 held out, scored every 25 % of the epoch)
+phase 2        MedQuAD fine-tune half: question → write the answer
+               (10 % of its questions held back to pick the best checkpoint)
+final          better of best.pt / last.pt on that 10 % → score the MedQuAD
+               benchmark half ONCE + the PubMedQA held-out rows again
+```
+
+MedQuAD is split by **unique question** (16,407 rows, 14,345 questions): every
+row sharing a question lands in the same half, so no benchmark answer leaks
+into training. The split, the hold-out, the data order and the starting
+weights are identical for all three arms; the add-on starts as a no-op (its
+gate is 0), so at step 0 all three arms give the backbone's exact output.
+
+| arm (`--variant`) | added on top of SmolLM2 | added params |
+|---|---|---|
+| `baseline` | nothing | 0 |
+| `sandbox` | L2: 4 trajectories, 4 debate rounds (4× MLP), 8 anchored descent steps, gated residual | 19.59M |
+| `mlp_control` | one SwiGLU block of the same size, gated residual | ≈19.6M |
+
+The MLP control answers "is any gain from the sandbox, or just from 19.6M more
+parameters?".
+
+## A3. Train all three arms (shared 4×A100 pod)
+
+The GPUs are shared with other users. **Check free memory first** — the v1
+sandbox run crashed because PyTorch defaults to GPU 0, which was nearly full.
+
+```bash
+nvidia-smi                                  # pick GPUs with >= 20 GB free
+cd 09-Code
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3"
+
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS --variant baseline    --out runs/v2_baseline > v2_baseline.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS --variant sandbox     --out runs/v2_sandbox  > v2_sandbox.log  2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup python -m ekdant.train $FLAGS --variant mlp_control --out runs/v2_mlp      > v2_mlp.log      2>&1 &
+
+tail -f v2_sandbox.log                      # Ctrl-C stops watching, not training
+```
+
+Replace `1/2/3` with whichever GPUs `nvidia-smi` shows as free. One arm per GPU
+means all three finish in about the time of one. Keep `$FLAGS` identical for
+all three; only `--variant` and `--out` change.
+
+Each run checks its GPU before loading anything and refuses to start with less
+than 20 GB free (`--min-free-gb`), or when CUDA is not available at all — it
+never falls back to CPU unless you pass `--gpu cpu` (smoke runs only). Without
+`CUDA_VISIBLE_DEVICES`, `--gpu auto` (the default) picks the visible GPU with
+the most free memory.
+
+**Settings (all arms):** backbone LR 5e-5, add-on LR 1e-3 (`--addon-lr`),
+cosine per phase with 200 warm-up steps, effective batch 32 sequences, bf16 on
+A100, gradient clip 1.0 applied **separately** to the backbone and the add-on
+(so the add-on can never shrink the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens. If
+the sandbox arm runs out of memory, move **all three** to
+`--batch-size 4 --grad-accum 8` (still 32).
+
+**Time:** not yet measured on the A100s. One PubMedQA epoch is ~85M tokens;
+the first `eta=` lines of each log give the real figure. The sandbox arm is
+slower than the other two (4 debate rounds × 4 trajectories per token).
+
+## A4. Watching a run
+
+```
+variant=sandbox addon=sandbox backbone=HuggingFaceTB/SmolLM2-135M params total=… addon=19.59M device=cuda:0
+rows pubmedqa=…(-dropped) pubmedqa_held=2000(-0) medquad_ft=… medquad_val=… medquad_bench=…
+zero-shot ppl pubmedqa_held=… medquad_val=… medquad_bench=…
+[pubmedqa] ep0 step 50/… loss=… lr=… gnorm=<backbone>/<add-on> |g|=… eta=…
+[pubmedqa] ep0 25% val pubmedqa_held ppl=…
+[medquad_ft] ep0 done … val medquad_val ppl=…
+[medquad_ft] ep0 new best medquad_val -> best.pt
+final benchmark uses best.pt (medquad_val nll …)
+[test medquad_bench] ppl=… rouge_l=… token_f1=… n=…
+[test pubmedqa_held] ppl=… rouge_l=… token_f1=…
+wrote runs/v2_sandbox/results.json
+```
+
+- **ppl** (perplexity) — how surprised the model is by the reference answer;
+  **lower is better**. It is the main number.
+- **|g|** — mean size of the add-on's gate. 0 means the model is not using the
+  add-on at all; watch whether it grows.
+- `(-dropped)` — rows that could not fit 1,024 tokens even with the abstract
+  trimmed (expected to be 0 or near 0).
+
+## A5. Resume
+
+Re-run the exact same command with `--resume` added. `last.pt` is written at
+every phase-1 validation point (each 25 % of the epoch) and every epoch end,
+and stores the optimiser state and the position inside the epoch, so a resumed
+run continues **exactly** where it stopped (tested). The checkpoint also stores
+the flags that fix the data order and schedule; a resume with a different
+`--variant`, `--batch-size`, `--grad-accum`, LR, epochs, `--eval-fraction`,
+`--limit` or `--seed` is refused. A fresh run refuses to start in a folder that
+already has `last.pt`. Wall-clock in `cost` adds up across resumes.
+
+`--eval-only` (with an existing `--out`) skips training and re-runs the final
+protocol.
+
+## A6. Compare the three arms
+
+```bash
+python -m ekdant.gen_eval compare runs/v2_baseline runs/v2_sandbox runs/v2_mlp
+```
+
+It prints, per arm, the benchmark perplexity, ROUGE-L, token F1, gate size and
+PubMedQA held-out perplexity. Then, for each arm against the baseline, it gives
+the **per-token NLL difference with a 95 % confidence interval** (a paired
+bootstrap that resamples whole questions, weighted by answer tokens exactly
+like the headline perplexity). **Negative = better than the
+baseline. A difference is real only if the interval does not contain 0;
+otherwise report a tie.**
+
+How to read the three arms:
+
+| outcome | meaning |
+|---|---|
+| sandbox better than baseline **and** than mlp_control | evidence the sandbox mechanism helps |
+| sandbox ≈ mlp_control, both better than baseline | the gain is extra capacity, not the sandbox |
+| all within each other's interval | a tie — report it (the thesis pre-committed to this) |
+
+## A7. `results.json` (v2)
+
+| key | what |
+|---|---|
+| `zero_shot.{pubmedqa_held,medquad_val,medquad_bench}` | untrained scores (`nll`, `ppl`, `tokens`, `n`); written only by a fresh run, never from loaded weights |
+| `history[]` | every validation point: stage, epoch, fraction of epoch, `val`, train loss, gate size |
+| `phase1` | PubMedQA held-out + MedQuAD val after phase 1 |
+| `selected` | which checkpoint ran the benchmark, and both validation NLLs |
+| `test.medquad_bench` | **the benchmark**: `ppl`, `by_type` (per question type), `rouge_l`, `token_f1` (1,000 generated answers), per-row lists for the bootstrap |
+| `test.pubmedqa_held` | retention of phase 1 after the fine-tune (+ ROUGE-L/F1 on 500 rows) |
+| `test.gate_magnitude` | final mean `|g|` |
+| `cost` | params, tokens seen, wall-clock, peak GPU memory — report these with every number |
+
+`addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
+`trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
+
+## A8. v2 troubleshooting
+
+| symptom | fix |
+|---|---|
+| `error: GPU n has only x GB free` | other users' jobs fill that GPU — pick another with `CUDA_VISIBLE_DEVICES` |
+| `error: CUDA is not available` | the GPU/driver is broken in this container; fix it (the run will not silently use the CPU). `--gpu cpu` only for smoke runs |
+| `error: this run was started with different settings` | resume with the original flags (the message lists them) |
+| `CUDA out of memory` mid-run | all three arms to `--batch-size 4 --grad-accum 8`, then `--resume` |
+| `expected m1 and m2 to have the same dtype … BFloat16` | old code: transformers 5 loads SmolLM2 in bf16; fixed (the backbone is cast to float32) — `git pull` |
+| `|g|` stays ≈ 0 for the whole run | the model chose not to use the add-on; that is a result — report it |
+| `ModuleNotFoundError: transformers` | `pip install -e .` again (v2 added the dependency) |
+
+---
+
+# Part B — v1: from-scratch MCQ pilot (kept for reproducibility)
+
+Every v1 command below still works unchanged (`--task mcq` is the default).
+
+## Quick start (v1)
+
+```bash
 python -m ekdant.train --variant baseline --out /tmp/bas --limit 64 --epochs 1 --ft-epochs 1 --batch-size 4 --no-compile
 python -m ekdant.train --variant sandbox  --out /tmp/sbx --limit 64 --epochs 1 --ft-epochs 1 --batch-size 4 --no-compile
-
 # real training + benchmark: §3.3 (one model at a time, GPU)
 ```
 
@@ -145,10 +322,12 @@ never results.
 > validation loss 4.61. Phase 1 memorises MedMCQA long before epoch 100. Every
 > phase-1 epoch now prints a `monitor medmcqa_val` line: run once, see where
 > that curve stops rising, and use roughly that many epochs for both models.
+> With the current recipe the curve peaked at epoch 1 (20-epoch run: 27.36 →
+> 33.33 → 32.16 → 32.13 %; 2-epoch run: 32.57 → 33.91 %), so **use `--epochs 2`**.
 
 Step counts at effective batch 48: phase 1 = **3,802 optimizer steps per
 epoch**; phase 2 = **128 per epoch** (1,280 for 10 epochs). For example
-`--epochs 100` gives 380,200 + 1,280 = **381,480** steps.
+`--epochs 2` gives 7,604 + 1,280 = **8,884** steps; `--epochs 100` gave 381,480.
 
 ### 3.3 Full A/B — commands
 
@@ -158,7 +337,7 @@ other difference invalidates the comparison.
 
 ```bash
 cd 09-Code
-FLAGS="--batch-size 6 --grad-accum 8 --epochs 100 --ft-lr 5e-5 --ft-epochs 10 --answer-weight 10"
+FLAGS="--batch-size 6 --grad-accum 8 --epochs 2 --ft-lr 5e-5 --ft-epochs 10 --answer-weight 10"
 
 # 1) baseline first
 nohup python -m ekdant.train --variant baseline --out runs/baseline $FLAGS > baseline.log 2>&1 &
@@ -171,7 +350,7 @@ nohup python -m ekdant.train --variant sandbox --out runs/sandbox $FLAGS > sandb
 tail -f sandbox.log
 ```
 
-Replace `--epochs 100` with your choice from §3.2. Multi-GPU: replace
+`--epochs 2` is where the phase-1 validation curve peaked (§3.2, §6.3). Multi-GPU: replace
 `python -m` with `torchrun --nproc_per_node=4 -m` (still one model at a
 time; `--batch-size` is per GPU, so the effective batch grows with GPUs).
 
@@ -189,7 +368,12 @@ Measured on the baseline: **~6.3 optimizer steps/s ≈ 10 min per MedMCQA epoch*
 (fp16, ~11.9k tokens/s); one phase-2 epoch ≈ 25 s; each MedMCQA-validation
 check adds a few seconds per epoch. The sandbox model does K = 4 trajectories,
 2 debate rounds and 8 descent steps per token — **estimated** at ~1.5× the
-baseline (not yet timed on a full run; its first `eta=` line tells you).
+baseline on a T4 (its first `eta=` line tells you).
+
+**Measured on a shared 80 GB GPU** (2-epoch recipe, batch 6 × 8): baseline
+18m42s + 15m08s for the two MedMCQA epochs (~7.9k tokens/s), ~31 s per
+fine-tune epoch, ~45 min end to end. Sandbox 23m15s + 18m25s (~6.5k tokens/s,
+**~1.2× the baseline**). The first epoch includes `torch.compile` warm-up.
 
 | `--epochs` | optimizer steps | baseline | sandbox (est.) |
 |---|---|---|---|
@@ -319,7 +503,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 93 tests
+python -m pytest            # 131 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
@@ -349,7 +533,13 @@ re-scoring on another machine (CPU works, just slower).
 
 **Letter accuracy:** at the position right before the answer letter, the
 model's scores for the four letter tokens (A–D) are compared and the highest
-one is its answer. No free-form generation. Chance = 25 %.
+one is its answer. No free-form generation.
+
+**Chance is not 25 %.** The answer letters are not balanced, so a model that always outputs the most common letter scores the *majority rate*: MedMCQA validation **32.11 %** (always A), `medqa_bench` **25.69 %** (always B), `medqa_test` **27.73 %** (always A). Compare every accuracy with these, and check `pred_counts` — a model piled on one letter has learned only the label prior (T27).
+
+Every evaluation in `results.json` also stores `pred_counts` (how often the
+model chose each letter), `gold_counts` and `majority_accuracy`, and the log
+line ends with `pred A/B/C/D=… majority=…%`.
 
 | key in `results.json` | rows | role |
 |---|---|---|
@@ -382,6 +572,20 @@ noise on an accuracy is about ±0.7 points. A gap smaller than ~2 points is a
 tie — report it as one. A tie is a publishable result for this thesis.
 
 ### 6.3 Reference numbers (what a real run looks like)
+
+**2-epoch baseline, current recipe** (`--epochs 2 --ft-lr 5e-5 --ft-epochs 10
+--answer-weight 10`, batch 6 × 8, one seed, shared 80 GB GPU): MedMCQA
+validation 32.57 % after epoch 0 and **33.91 %** after phase 1 (majority 32.11 %);
+best fine-tune checkpoint 34.39 % (fine-tune epoch 1); `medqa_bench` **25.44 %**
+(majority 25.69 %); `medqa_test` **29.62 %** (majority 27.73 %). Only the MedQA
+test number clears its majority rate, by 1.9 points (noise ±1.3). The sandbox
+run with the same flags reached 32.23 % after phase 1, then stopped with a CUDA
+out-of-memory error at the start of phase 2 because other processes held the
+shared GPU. It was not re-run: v1 was superseded by v2 (Part A, T28).
+
+A 20-epoch baseline with the same recipe was stopped early: its monitor line
+peaked at epoch 1 (33.33 %) and fell after, while training loss kept dropping —
+the reason the recipe now uses `--epochs 2`.
 
 **3-epoch A/B** (T4, batch 6 × 8, one seed). It predates the 60/40 protocol —
 it fine-tuned on all of MedQA and has no `medqa_bench` — so never compare it
@@ -452,10 +656,11 @@ numbers already measured. The benchmark belongs to the checkpoint named in
 | hangs right before an evaluation, no output | old code (T19, fixed): a network check stalled. `git pull` — loading is now offline-first |
 | `pyarrow requires NumPy 2.0` | old clone without version caps: `git pull && pip install -e .`, or `pip install "datasets==3.6.0" "pyarrow<21"`; never upgrade numpy on a conda image |
 | `torch.amp has no attribute GradScaler` | torch < 2.3 (old Kaggle images): fixed in code — `git pull`. On T4/P100 (no bf16) the run switches to fp16 automatically and says so |
-| out of GPU memory | lower `--batch-size` and raise `--grad-accum` to keep the effective batch at 48 |
+| out of GPU memory | first run `nvidia-smi`: if other processes hold the GPU (the error lists them, e.g. "Process … has 54.82 GiB memory in use" while PyTorch itself holds ~4 GiB), wait or move to a free GPU — the batch is not the problem. Otherwise lower `--batch-size` and raise `--grad-accum` to keep the effective batch at 48. Phase 2 (MedQA, ~5× longer prompts) needs more memory than phase 1 |
+| accuracy ≈ the majority rate, `pred_counts` piled on one letter | the model learned only the label prior (T27) — not a 25 %-chance result. Report it against the majority rate |
 | `torch.compile` crashes or is slow | add `--no-compile` |
 | phase-1 training loss keeps falling but validation stops improving | memorisation (T25) — use fewer `--epochs` |
-| fine-tune loss near 0 but benchmark near chance | MedQA memorised (T21) — use `--ft-lr 5e-5 --ft-epochs 10` |
+| fine-tune loss near 0 but benchmark near the majority rate | MedQA memorised (T21) — use `--ft-lr 5e-5 --ft-epochs 10` |
 | sandbox `spread_ratio` stuck below 0.05 | the K trajectories collapsed (T8); report it — it is a result. Raising `rho_min` is the first knob to try |
 | accuracy exactly 0.00 % on thousands of rows | very old code (T17, fixed): `git pull` |
 | "accuracy" equals how often the model says A | very old code scoring the unlabelled MedMCQA test split (T18, fixed): `git pull` |

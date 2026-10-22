@@ -2,6 +2,17 @@
 
 > Map: [README](../README.md) · Canonical: [02](../02-Architecture/02_System_Architecture.md)
 
+## v2 names
+
+| Name | Meaning |
+|---|---|
+| backbone | pretrained SmolLM2-135M (H=576, 30 layers, vocab 49,152) |
+| add-on | the block on the backbone's last hidden state: L2 (`sandbox`), SwiGLU (`mlp_control`) or none (`baseline`) |
+| gate `g` | per-channel vector in `h + g ⊙ (f(h) − h)`, initialised to 0; `|g|` = its mean absolute value |
+| reference-answer perplexity | `exp` of the mean NLL over answer tokens of the reference answer — the v2 primary metric (lower is better) |
+| paired bootstrap | 95 % CI of the per-answer NLL difference between two arms, resampling whole questions |
+| benchmark half | the MedQuAD questions never trained on or used for selection, scored once |
+
 ## Tensors & dims
 
 | Symbol | Meaning | XS / S / M |

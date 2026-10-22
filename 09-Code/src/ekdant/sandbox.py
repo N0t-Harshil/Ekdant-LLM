@@ -164,6 +164,7 @@ class Sandbox(nn.Module):
         readout: str = "mean",
         gain_lo: float = 0.8,
         gain_hi: float = 1.25,
+        mlp_ratio: float = 2.0,
     ):
         super().__init__()
         if readout not in ("mean", "lowest_energy"):
@@ -178,7 +179,8 @@ class Sandbox(nn.Module):
         self.rho_min = rho_min
         self.readout = readout
         self.init_proj = DiverseInit(dim, K, gain_lo, gain_hi)
-        self.debate = nn.ModuleList([DebateRound(dim) for _ in range(rounds)])
+        self.debate = nn.ModuleList(
+            [DebateRound(dim, mlp_ratio=mlp_ratio) for _ in range(rounds)])
         self.descent = AnchoredDescent(dim)
 
     def forward(self, hT: torch.Tensor,

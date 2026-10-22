@@ -1,0 +1,14 @@
+{
+  "backbone": "HuggingFaceTB/SmolLM2-135M",
+  "addon": "none",
+  "n_sandbox": 4,
+  "debate_rounds": 4,
+  "sandbox_mlp_ratio": 4.0,
+  "descent_steps": 8,
+  "eta": 0.0625,
+  "rho_min": 0.05,
+  "lambda_sbx": 1.0,
+  "readout": "mean",
+  "max_seq_len": 1024,
+  "max_answer": 512
+}

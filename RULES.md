@@ -8,9 +8,9 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 
 1. **Never invent a number.** Every number you write (accuracy, parameter count, row count, step count, test count) must come from the code, a config, a log, `results.json`, or an existing vault file you just read. If you cannot point to the source, write `[PENDING]` or ask.
 2. **L1 is not built.** The selective-SSM storage layer (L1) and the M3 write-back are *specified* in the vault and thesis but **do not exist in code**. Never describe them as implemented, trained, measured or tested.
-3. **Never touch the benchmark protocol** without the user explicitly asking: MedMCQA (phase 1) → seed-locked 60 % of MedQA (phase 2) → untouched 40 % benchmark scored once. Never train on the 40 %, never select a checkpoint on it, never score MedMCQA's public **test** split (it has no labels, `cop = -1`).
-4. **Keep the A/B fair.** `sandbox_50m.json` and `baseline_50m.json` must differ **only** in `use_sandbox`. Anything that changes one arm's training must change the other's identically.
-5. **No external kernels or frameworks.** Never add `mamba-ssm`, `causal-conv1d`, `flash-attn`, `triton`, AutoGen, CrewAI, LangGraph, or pretrained weights. Pure PyTorch only. Do not add any new dependency without asking.
+3. **Never touch the benchmark protocols** without the user explicitly asking. **v2 (current, `--task gen`):** PubMedQA `pqa_artificial` (phase 1, 2,000 rows held out) → MedQuAD fine-tune half (phase 2; 10 % of its questions pick the checkpoint) → MedQuAD benchmark half scored once. MedQuAD is split by unique question — never let one question reach two sets. **v1 (`--task mcq`):** MedMCQA (phase 1) → seed-locked 60 % of MedQA (phase 2) → untouched 40 % benchmark scored once. In both: never train on the benchmark, never select a checkpoint on it; never score MedMCQA's public **test** split (no labels, `cop = -1`).
+4. **Keep the comparison fair.** v2: the three arms (`baseline`, `sandbox`, `mlp_control`) share one config file and differ **only** in `--variant` (the add-on); every flag is identical. v1: `sandbox_50m.json` and `baseline_50m.json` differ **only** in `use_sandbox`. Anything that changes one arm's training must change every arm's identically.
+5. **No external kernels or frameworks.** Never add `mamba-ssm`, `causal-conv1d`, `flash-attn`, `triton`, AutoGen, CrewAI, LangGraph. The only pretrained weights are the v2 backbone (SmolLM2-135M through `transformers`, approved by the user 2026-10-22). Do not add any other dependency or model without asking.
 6. **Every code fix gets a test** in `09-Code/tests/`, and the full suite must pass before you say you are done.
 7. **Code and vault move together.** A change is not finished until every vault file that describes it is updated (see §6, the sync map).
 8. **Report honestly.** If a test fails, show the failure. If you skipped a step, say so. A tie or a negative result is reported as a tie or a negative result — never softened.
@@ -24,7 +24,12 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 | Fact | Value | Source of truth |
 |---|---|---|
 | Degree | MSc thesis, Hochschule Heilbronn | `08-Thesis/thesis.tex` title page |
-| Built model | `embed → T (windowed dense Transformer) → L2 (sandbox) → tied head` | `09-Code/src/ekdant/model.py` |
+| Built model, v2 (current) | `SmolLM2-135M → last hidden state h → h + g ⊙ (f(h) − h) → SmolLM2 tied lm_head`; `g ∈ R^576` starts at 0, so every arm equals the backbone at step 0 | `09-Code/src/ekdant/model.py` (`EkdantLM`, `GatedAddOn`), `backbone.py` |
+| v2 arms | `baseline` (no add-on) **134,515,008** params; `sandbox` (+L2 **19,592,064**, total 154,107,072, 12.7 %); `mlp_control` (+SwiGLU **19,591,488**) | measured with `count_parameters` on the real backbone |
+| v2 L2 | K=4, **R=4 debate rounds, debate MLP 4×**, S=8, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` (scaled to v1's 13.1 % share of the model) | `configs/v2_smollm2_135m.json` |
+| v2 data | PubMedQA `pqa_artificial` 211,269 (2,000 held out); MedQuAD 16,407 rows / 14,345 unique questions, split 50/50 by question, 10 % of the fine-tune half's questions = validation | `gen_data.py`, `train_gen.py` |
+| v2 metrics | reference-answer perplexity (primary) + per-question-type; ROUGE-L / token F1 on 1,000 generated answers; paired bootstrap 95 % CI between arms | `gen_eval.py` |
+| Built model, v1 (`--task mcq`, from-scratch pilot) | `embed → T (windowed dense Transformer) → L2 (sandbox) → tied head` | `09-Code/src/ekdant/model.py` (`EkdantModel`) |
 | Not built | L1 selective SSM + M3 write-back | `04-Model-DeepDive/21_*`, `26a_*` (design only) |
 | A/B sizes | sandbox **50.09M** / baseline **43.53M** (L2 = 6.56M, T = 26.75M, embeddings 16.78M) | `estimate_model_size`, `tests/test_model.py` |
 | Backbone | H=512, N_T=12, 8 Q heads / 2 KV heads, window 512, SwiGLU 1024, RoPE base 1e5 | `09-Code/configs/*.json` |
@@ -33,7 +38,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 | Seed | 17 (also fixes the 60/40 MedQA split) | `train.py --seed` |
 | Tokenizer | BPE, 32,768 configured (26,766 actually learned), lower-cased | `data.py::Tokenizer` |
 | Tests | run `pytest -q` and count — do not trust a number written in a doc | `09-Code/tests/` |
-| Completed results | 3-epoch A/B tie (MedMCQA val 33.31 % vs 32.01 %); legacy 100-epoch baseline (33.33 % / `medqa_bench` 26.89 %) | `run.md` §6, `07-Management/10_Known_Issues.md` |
+| Completed results | v2: none yet (`[PENDING]`). v1: 3-epoch A/B tie (MedMCQA val 33.31 % vs 32.01 %); legacy 100-epoch baseline (33.33 % / `medqa_bench` 26.89 %); 2-epoch baseline 33.91 % / 25.44 % / 29.62 % — all at the majority-letter rate (T27) | `run.md` §6, `07-Management/10_Known_Issues.md` |
 
 If any of these disagree with the code, **the code is right** and the doc is stale — fix the doc (and tell the user).
 
@@ -65,7 +70,7 @@ run.md                     operations runbook: train / resume / test / benchmark
 papers/                    66 PDFs + indexes — never edit or delete PDFs
 ```
 
-Code modules (`09-Code/src/ekdant/`): `model.py` (config, assembly, loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (datasets, tokenizer, collate), `train.py` (sequential protocol, resume, eval), `__init__.py` (re-exports).
+Code modules (`09-Code/src/ekdant/`): `model.py` (v1 `EkdantModel`; v2 `V2Config`, `GatedAddOn`, `EkdantLM`), `transformer_stack.py` (v1 T), `sandbox.py` (L2), `output_head.py` (v1 tied head), `data.py` (v1 datasets, tokenizer, collate), `train.py` (v1 protocol + `--task` dispatch), `backbone.py` (v2 SmolLM2 loading), `gen_data.py` (v2 datasets, split), `gen_eval.py` (v2 metrics, generation, bootstrap, `compare`), `train_gen.py` (v2 protocol), `__init__.py` (re-exports).
 
 ---
 
@@ -95,14 +100,16 @@ Work in this order every time. Do not skip steps because a task "looks small".
 ## 4. Rules for changing code
 
 - **Match the surrounding code**: same naming, type hints, docstring density, comment style, import order. Comments explain *why*, never restate *what*.
-- **Keep the forward pass causal.** Position *t* may depend only on positions ≤ *t* of the same example. Nothing may mix information across batch rows. Every sandbox op is per position; keep it that way.
+- **Keep the forward pass causal.** Position *t* may depend only on positions ≤ *t* of the same example. Nothing may mix information across batch rows. Every sandbox op is per position; keep it that way — v2 generation relies on it to reuse the backbone's KV cache (`test_kv_cache_step_matches_full_forward_with_sandbox`).
+- **v2 add-ons start as a no-op.** The gate is initialised to 0 so all arms equal the backbone at step 0 (`test_all_arms_equal_backbone_at_init`). Never initialise it otherwise without asking.
+- **v2 loss is on answer tokens only** (prompt labels −100); v2 diagnostics are over answer tokens.
 - **Padding is on the right** and has `labels = -100`. Statistics (means, variances, ρ) must count real tokens only — pass `attention_mask`.
-- **Evaluation reads `logits[answer_pos - 1]`** (the position that *predicts* the letter) and compares against the letter **index** 0–3, never a vocab id.
+- **v1 evaluation reads `logits[answer_pos - 1]`** (the position that *predicts* the letter) and compares against the letter **index** 0–3, never a vocab id.
 - **Config changes**: a new knob goes in `EkdantConfig` with a default that reproduces old behaviour, in both JSONs (identical value unless it is `use_sandbox`), in `validate()` if it has legal values, and in `12_Configuration_Guide.md`.
 - **CLI flags** default to the old behaviour so old commands and `--resume` keep working.
 - **Checkpoints**: never rename or remove keys in `last.pt` / `best.pt` (`model, cfg, step, completed, opt_step, history, best_medmcqa`); only add.
 - **`results.json`**: only add keys; never rename `phase1`, `test.medqa_bench`, `test.medqa_test`, `test.medmcqa_val`, `selected`, `history`.
-- **No new files under `src/ekdant/`** without asking (the thesis claims a 7-module package).
+- **No new files under `src/ekdant/`** without asking (11 modules today: the v1 seven + `backbone.py`, `gen_data.py`, `gen_eval.py`, `train_gen.py`, approved 2026-10-22).
 - **Tests**: one test per behaviour, named as a sentence (`test_lowest_energy_readout_is_per_position_and_causal`), CPU-only, tiny shapes, seeded, < 1 s each. Put it in the file for that module.
 
 ---
@@ -114,7 +121,10 @@ pip install -e .[dev]                 # the trailing dot is required
 python -m pytest -q                   # full suite, CPU, ~10 s — must be all green
 python -m pytest tests/test_sandbox.py -v -k readout    # one area
 
-# smoke run per arm (~2 min CPU each) — required after any train.py / model.py change
+# v2 smoke (CPU, ~10 min, downloads SmolLM2 once) — required after any v2 change
+python -m ekdant.train --task gen --variant sandbox --out <scratch>/v2 --limit 64 --epochs 1 --ft-epochs 1 --gen-subset 4 --gen-subset-pubmed 4 --max-new 24 --max-new-pubmed 24 --batch-size 2 --grad-accum 2 --warmup 2 --gpu cpu
+
+# v1 smoke run per arm (~2 min CPU each) — required after any v1 train.py / model.py change
 python -m ekdant.train --variant sandbox  --out <scratch>/sbx --limit 64 --epochs 1 --ft-epochs 1 --batch-size 4 --no-compile
 python -m ekdant.train --variant baseline --out <scratch>/bas --limit 64 --epochs 1 --ft-epochs 1 --batch-size 4 --no-compile
 ```
@@ -147,6 +157,7 @@ EOF
 | You changed | Also update |
 |---|---|
 | Any behaviour in `model.py` / `sandbox.py` / `transformer_stack.py` | `02-Architecture/API_Reference.md`, `02_System_Architecture.md`, the matching `04-Model-DeepDive/26*` build manual, `thesis.tex` if the method text describes it |
+| `train_gen.py` / `gen_data.py` / `gen_eval.py` / `backbone.py` (v2) | `run.md` Part A, `05-Data/05_Data_Pipeline.md` §v2, `06-Training-Eval/07_Training_Pipeline.md` §v2, `09_Validation_System.md`, `API_Reference.md`, `thesis.tex` §Data / §Evaluation |
 | `train.py` flags or protocol | `09-Code/README.md` flag table, `run.md` (§3 flags, §6, §8), `06-Training-Eval/07_Training_Pipeline.md`, `12_Configuration_Guide.md` §2 |
 | A config JSON | `12_Configuration_Guide.md` §1, `thesis.tex` parameter table if sizes change, `estimate_model_size` tests |
 | `data.py` | `05-Data/05_Data_Pipeline.md`, `thesis.tex` §Data, `thesis.md` Ch. 4 |
@@ -199,7 +210,7 @@ After the sync, `grep` again for the old wording/number to make sure no copy is 
 
 End every task with a short report, in this order:
 1. **What changed** — files and the reason, one line each.
-2. **Verification** — the exact test result (`93 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
+2. **Verification** — the exact test result (`131 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
 3. **What you did not do** and **decisions for the user** — open questions, risks (e.g. "this changes the sandbox arm's training; the baseline is unaffected"), recommendations you chose not to implement.
 
 No filler, no praise of the work, no claims beyond what you verified.
@@ -213,6 +224,11 @@ No filler, no praise of the work, no claims beyond what you verified.
 - Long fine-tunes on 6,106 MedQA rows memorise → `--ft-lr`, `--ft-epochs` (T21). Long phase-1 training memorises MedMCQA too → read the phase-1 validation curve (T25).
 - A trailing gradient-accumulation group used to leak into the next epoch (T23).
 - `load_dataset` used to stall on hub checks → loading is offline-first (T19). Do not re-enable online checks by default. The empty-cache fallback must flip `datasets.config.HF_HUB_OFFLINE` (not only the `HF_DATASETS_OFFLINE` alias) or a fresh machine cannot download (T26).
+- v2: the shared pod has 4× A100 80 GB used by other people; GPU 0 is often nearly full. Pin each run with `CUDA_VISIBLE_DEVICES`; `train_gen.py` refuses to start below `--min-free-gb` (the v1 sandbox OOM).
+- v2: `transformers` 5 loads SmolLM2 in bf16; `load_backbone` casts to float32 or the float32 add-on crashes (`test_load_backbone_returns_float32`).
+- v2: a perplexity gap is real only if the paired-bootstrap 95 % CI excludes 0 (`gen_eval compare`, token-weighted like the headline perplexity); otherwise it is a tie.
+- v2 fairness: gradients are clipped separately for the backbone and the add-on (`clip_grads`), so the add-on can never shrink the backbone's update relative to the baseline arm.
+- **Never compare with 25 % chance** (v1). Compare with the majority rate: MedMCQA val 32.11 % (A), `medqa_bench` 25.69 % (B), `medqa_test` 27.73 % (A), and quote `pred_counts` (T27).
 - The tokenizer lower-cases, so the answer tokens are `a b c d` and `a` is also the English article. Keep this in mind when reasoning about letter priors; changing it means retraining both arms.
 - Sandbox statistics must ignore padding, and the `lowest_energy` readout must be chosen per position (T24).
-- The A/B is *architecture*-matched, not *parameter*-matched — always say so next to any comparison.
+- v1's A/B is *architecture*-matched, not *parameter*-matched — always say so next to any v1 comparison. v2 adds `mlp_control` precisely so the sandbox is also compared at matched parameters.

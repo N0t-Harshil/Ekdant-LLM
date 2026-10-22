@@ -1,4 +1,16 @@
-# Ekdant — 50M sandbox-first training
+# Ekdant — sandbox (L2) experiments
+
+> **v2 (current):** pretrained SmolLM2-135M + a gated add-on (L2 sandbox, a same-size MLP control, or none), trained on PubMedQA then half of MedQuAD and benchmarked on the other half by perplexity. Start it with `python -m ekdant.train --task gen …` — full commands in [`../run.md`](../run.md) Part A, design in [`30_Design_v2`](../07-Management/30_Design_v2_Pretrained_Backbone.md).
+>
+> | v2 arm | added | total params |
+> |---|---|---|
+> | `baseline` | — | 134.52M |
+> | `sandbox` | L2 19.59M (K=4, R=4, 4× MLP, S=8) | 154.11M |
+> | `mlp_control` | SwiGLU 19.59M | 154.11M |
+>
+> v2 modules: `backbone.py`, `gen_data.py`, `gen_eval.py`, `train_gen.py`; `model.py` adds `V2Config`, `GatedAddOn`, `EkdantLM`.
+>
+> **Everything below describes v1** (`--task mcq`, the default): the from-scratch 50M MCQ pilot, kept so its results reproduce.
 
 The model is **embed → T → L2**: a windowed dense Transformer backbone with
 the L2 sandbox layer on top. The codebase is T + L2 (no L1) — the L1 SSM storage
@@ -211,5 +223,5 @@ cost of the sandbox arm (wall-clock estimated at ≈1.5× the baseline).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 93 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 131 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```
