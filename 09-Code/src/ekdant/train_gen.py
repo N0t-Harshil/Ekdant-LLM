@@ -112,8 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--grad-accum", type=int, default=4)
     ap.add_argument("--lr", type=float, default=5e-5, help="backbone LR")
-    ap.add_argument("--addon-lr", type=float, default=1e-3,
-                    help="add-on + gate LR")
+    ap.add_argument("--addon-lr", type=float, default=1e-4,
+                    help="add-on + gate LR (1e-3 kept inflating L2's weights, "
+                         "T34)")
     ap.add_argument("--warmup", type=int, default=200)
     ap.add_argument("--epochs", type=int, default=1, help="phase-1 epochs")
     ap.add_argument("--ft-epochs", type=int, default=3, help="phase-2 epochs")
@@ -305,13 +306,16 @@ def main(argv: Optional[List[str]] = None) -> None:
             skip = st_done if (si, epoch) == (st_stage, st_epoch) else 0
             model.train()
             opt.zero_grad(set_to_none=True)
-            t0, loss_ema, group_bad = time.time(), None, False
+            t0, loss_ema, group_bad, l2_rms = time.time(), None, False, None
             for bi in range(skip, nb):
                 b = collate([ds[i] for i in batches[bi]])
                 ids, mask = b["input_ids"].to(device), b["attention_mask"].to(device)
                 with autocast():
-                    loss = model(ids, attention_mask=mask,
-                                 labels=b["labels"].to(device)).loss
+                    out = model(ids, attention_mask=mask,
+                                labels=b["labels"].to(device))
+                loss = out.loss
+                if "consensus_rms" in out.aux:
+                    l2_rms = float(out.aux["consensus_rms"])
                 tokens_seen += int(mask.sum())
                 lv = loss.item()
                 # T32 guard: a non-finite loss or gradient never reaches the
@@ -352,6 +356,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                             f"loss={loss_ema:.4f} lr={opt.param_groups[0]['lr']:.2e} "
                             f"gnorm={gn_backbone:.2f}/{gn_addon:.2f} "
                             f"|g|={model.addon.gate_magnitude() if model.addon else 0:.4f} "
+                            + (f"l2={l2_rms:.3g} " if l2_rms is not None else "") +
                             f"eta={fmt_duration((nb - bi - 1) / max(rate, 1e-9))}")
                 if si == 0 and bi + 1 in eval_at:
                     r = score("pubmedqa_held")
@@ -365,6 +370,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             r = score(val_name)
             entry = {"stage": stage, "epoch": epoch, "at": 1.0,
                      "train_loss": loss_ema, "val": _strip_rows(r),
+                     "l2_rms": l2_rms,
                      "gate_magnitude": model.addon.gate_magnitude()
                      if model.addon else 0.0}
             history.append(entry)

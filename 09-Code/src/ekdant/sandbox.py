@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ekdant.transformer_stack import RMSNorm
+
 RHO_MIN_DEFAULT = 0.05
 
 
@@ -102,8 +104,12 @@ class CrossRead(nn.Module):
 class DebateRound(nn.Module):
     """Repair gate lets a trajectory decline the crowd."""
 
-    def __init__(self, dim: int, mlp_ratio: float = 2.0, gate_bias: float = -2.0):
+    def __init__(self, dim: int, mlp_ratio: float = 2.0, gate_bias: float = -2.0,
+                 norm_input: bool = False):
         super().__init__()
+        # Pre-norm (v2, T33): the round reads a fixed-size input, so weight
+        # growth cannot compound across rounds. Off for v1 (unchanged).
+        self.norm = RMSNorm(dim) if norm_input else nn.Identity()
         self.read = CrossRead(dim)
         hidden = int(dim * mlp_ratio)
         self.gate = nn.Linear(2 * dim, dim)
@@ -115,8 +121,9 @@ class DebateRound(nn.Module):
         nn.init.constant_(self.gate.bias, gate_bias)
 
     def forward(self, traj: torch.Tensor) -> torch.Tensor:
-        cross = self.read(traj)
-        gamma = torch.sigmoid(self.gate(torch.cat([traj, cross], dim=-1)))
+        x = self.norm(traj)
+        cross = self.read(x)
+        gamma = torch.sigmoid(self.gate(torch.cat([x, cross], dim=-1)))
         return (1.0 - gamma) * traj + gamma * self.mlp(cross)
 
 
@@ -165,6 +172,7 @@ class Sandbox(nn.Module):
         gain_lo: float = 0.8,
         gain_hi: float = 1.25,
         mlp_ratio: float = 2.0,
+        norm_inputs: bool = False,
     ):
         super().__init__()
         if readout not in ("mean", "lowest_energy"):
@@ -180,7 +188,8 @@ class Sandbox(nn.Module):
         self.readout = readout
         self.init_proj = DiverseInit(dim, K, gain_lo, gain_hi)
         self.debate = nn.ModuleList(
-            [DebateRound(dim, mlp_ratio=mlp_ratio) for _ in range(rounds)])
+            [DebateRound(dim, mlp_ratio=mlp_ratio, norm_input=norm_inputs)
+             for _ in range(rounds)])
         self.descent = AnchoredDescent(dim)
 
     def forward(self, hT: torch.Tensor,

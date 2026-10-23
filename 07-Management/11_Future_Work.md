@@ -19,7 +19,7 @@
 ## High (should finish)
 
 - **L1 integration** — add `ssm_storage.py` (selective SSM, three stores) before T, the L1 → T shape assertion (T9), the O(1)-state proof (same `compressed [B, 3·d_state]` shape and flat peak memory for T = 512 / 2048 / 4096), and the M3 write-back. Unlocks RQ1 and the layer-addition ladder (backbone-only → +L2 → +L1+L2). Until then the thesis states L1 as specified-not-built.
-- **CI** — `pytest -q` on every push in `09-Code/` (141 tests, CPU, ~10 s).
+- **CI** — `pytest -q` on every push in `09-Code/` (145 tests, CPU, ~10 s).
 - **Cost report** — tokens × K, FLOPs, wall-clock per arm (C8); the runner currently logs tok/s only.
 - **Rebuild `thesis.pdf`** from the updated `thesis.tex` (`pdflatex` three times); the committed PDF predates the T + L2 alignment.
 

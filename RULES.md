@@ -25,7 +25,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 |---|---|---|
 | Degree | MSc thesis, Hochschule Heilbronn | `08-Thesis/thesis.tex` title page |
 | Built model, v2 (current) | `SmolLM2-135M → last hidden state h → h + g ⊙ (RMSNorm(f(h)) − h) → SmolLM2 tied lm_head`; `g ∈ R^576` starts at 0, so every arm equals the backbone at step 0 | `09-Code/src/ekdant/model.py` (`EkdantLM`, `GatedAddOn`), `backbone.py` |
-| v2 arms | `baseline` (no add-on) **134,515,008** params; `sandbox` (+L2 **19,592,640**, total 154,107,648, 12.7 %) | measured with `count_parameters` on the real backbone |
+| v2 arms | `baseline` (no add-on) **134,515,008** params; `sandbox` (+L2 **19,594,944**, total 154,109,952, 12.7 %) | measured with `count_parameters` on the real backbone |
 | v2 L2 | K=4, **R=4 debate rounds, debate MLP 4×**, S=8, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` (scaled to v1's 13.1 % share of the model) | `configs/v2_baseline.json`, `configs/v2_sandbox.json` (identical except `addon`) |
 | v2 data | PubMedQA `pqa_artificial` 211,269 (2,000 held out); MedQuAD 16,407 rows / 14,345 unique questions, split 50/50 by question, 10 % of the fine-tune half's questions = validation | `gen_data.py`, `train_gen.py` |
 | v2 metrics | reference-answer perplexity (primary) + per-question-type; ROUGE-L / token F1 on 1,000 generated answers; paired bootstrap 95 % CI between arms | `gen_eval.py` |
@@ -229,7 +229,7 @@ No filler, no praise of the work, no claims beyond what you verified.
 - v2: the shared pod has 4× A100 80 GB used by other people; GPU 0 is often nearly full. Pin each run with `CUDA_VISIBLE_DEVICES`; `train_gen.py` refuses to start below `--min-free-gb` (the v1 sandbox OOM).
 - v2: the pod has PyTorch 2.2.2; `transformers` 5.x needs ≥ 2.6 and silently disables its models, so it is pinned `<5` (T30). Do not raise the pin without upgrading PyTorch on the pod.
 - v2: `transformers` 5 loads SmolLM2 in bf16; `load_backbone` casts to float32 or the float32 add-on crashes (`test_load_backbone_returns_float32`).
-- v2: L2 sits after SmolLM2's final norm, so its output must be normalised before the gate (T32) — never remove `GatedAddOn.out_norm`. Non-finite steps are skipped, not applied.
+- v2: L2 sits after SmolLM2's final norm, so its output must be normalised before the gate (T32) — never remove `GatedAddOn.out_norm`, and keep the debate pre-norm on (`sandbox_prenorm`, T33): without it the consensus compounds to overflow. Keep the add-on LR at 1e-4 (T34); watch `l2=` in the sandbox log — it must stay roughly flat. Non-finite steps are skipped, not applied.
 - v2: a perplexity gap is real only if the paired-bootstrap 95 % CI excludes 0 (`gen_eval compare`, token-weighted like the headline perplexity); otherwise it is a tie.
 - v2 fairness: gradients are clipped separately for the backbone and the add-on (`clip_grads`), so the add-on can never shrink the backbone's update relative to the baseline arm.
 - **Never compare with 25 % chance** (v1). Compare with the majority rate: MedMCQA val 32.11 % (A), `medqa_bench` 25.69 % (B), `medqa_test` 27.73 % (A), and quote `pred_counts` (T27).

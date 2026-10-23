@@ -290,3 +290,16 @@ def test_run_stops_after_too_many_bad_steps(tiny, tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as e:
         G.main(_args(tiny, tmp_path / "run", extra=["--max-bad-steps", "3"]))
     assert e.value.code == 1          # the guard, not an argparse error (2)
+
+
+def test_addon_lr_default_is_1e_4():
+    # T34: 1e-3 (20x the backbone LR) kept inflating L2's weights; v1 used 3e-4
+    assert G.build_parser().parse_args(["--variant", "sandbox", "--out", "x"]).addon_lr == 1e-4
+
+
+def test_history_records_l2_size_for_sandbox(tiny, tmp_path):
+    out = tmp_path / "run"
+    G.main(_args(tiny, out))
+    r = json.loads((out / "results.json").read_text())
+    ends = [h for h in r["history"] if h.get("at") == 1.0]
+    assert ends and all(h["l2_rms"] > 0 for h in ends)

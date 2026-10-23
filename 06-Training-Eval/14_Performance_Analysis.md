@@ -9,7 +9,7 @@ All numbers below are from `estimate_model_size` / direct param counts on the sh
 | arm | backbone | add-on | total |
 |---|---|---|---|
 | `baseline` | 134,515,008 | 0 | 134,515,008 |
-| `sandbox` | 134,515,008 | 19,592,640 (L2 19,591,488 + gate 576 + output norm 576) | 154,107,648 |
+| `sandbox` | 134,515,008 | 19,594,944 (L2 19,593,792 incl. 4 × 576 debate pre-norm + gate 576 + output norm 576) | 154,109,952 |
 
 Time and memory on the A100s: **not yet measured** (`results.cost` records params, tokens, wall-clock and peak memory per arm). A CPU smoke run (`--limit 64`) took 10 m 31 s end to end; that is a pipeline check, not a speed figure.
 

@@ -60,3 +60,18 @@ def test_addon_contribution_bounded_when_sandbox_output_explodes():
     bound = 0.5 * (32 ** 0.5 + h.abs().max()) + 1e-4
     assert torch.isfinite(out).all()
     assert (out - h).abs().max() <= bound
+
+
+def test_addon_reports_consensus_rms_over_real_tokens():
+    # T34: L2's internal size must be visible in the training log - the
+    # output norm hides it from the loss (T32/T33)
+    torch.manual_seed(0)
+    h = torch.randn(2, 5, 32)
+    mask = torch.ones(2, 5, dtype=torch.long)
+    mask[1, 3:] = 0
+    addon = GatedAddOn(32, dict(SBX, rounds=1, mlp_ratio=2.0))
+    _, aux = addon(h, mask)
+    c = addon.sandbox(h, mask=mask).consensus
+    per_tok = c.pow(2).mean(-1)
+    want = (per_tok * mask).sum() / mask.sum()
+    assert torch.allclose(aux["consensus_rms"], want.sqrt(), rtol=1e-5)

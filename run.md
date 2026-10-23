@@ -127,7 +127,7 @@ never falls back to CPU unless you pass `--gpu cpu` (smoke runs only). Without
 `CUDA_VISIBLE_DEVICES`, `--gpu auto` (the default) picks the visible GPU with
 the most free memory.
 
-**Settings (both arms):** backbone LR 5e-5, add-on LR 1e-3 (`--addon-lr`),
+**Settings (both arms):** backbone LR 5e-5, add-on LR 1e-4 (`--addon-lr`; was 1e-3, T34),
 cosine per phase with 200 warm-up steps, effective batch 32 sequences, bf16 on
 A100, gradient clip 1.0 applied **separately** to the backbone and the add-on
 (so the add-on can never shrink the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens. If
@@ -144,7 +144,7 @@ slower than the other two (4 debate rounds × 4 trajectories per token).
 variant=sandbox addon=sandbox backbone=HuggingFaceTB/SmolLM2-135M params total=… addon=19.59M device=cuda:0
 rows pubmedqa=…(-dropped) pubmedqa_held=2000(-0) medquad_ft=… medquad_val=… medquad_bench=…
 zero-shot ppl pubmedqa_held=… medquad_val=… medquad_bench=…
-[pubmedqa] ep0 step 50/… loss=… lr=… gnorm=<backbone>/<add-on> |g|=… eta=…
+[pubmedqa] ep0 step 50/… loss=… lr=… gnorm=<backbone>/<add-on> |g|=… l2=… eta=…
 [pubmedqa] ep0 25% val pubmedqa_held ppl=…
 [medquad_ft] ep0 done … val medquad_val ppl=…
 [medquad_ft] ep0 new best medquad_val -> best.pt
@@ -156,6 +156,9 @@ wrote runs/v2_sandbox/results.json
 
 - **ppl** (perplexity) — how surprised the model is by the reference answer;
   **lower is better**. It is the main number.
+- **l2** (sandbox arm only) — typical size (RMS) of L2's output before its
+  normalisation. It should stay roughly flat (order 1–10). A steady climb by
+  ×2 every few hundred steps is the drift behind T32–T34 — report it.
 - **|g|** — mean size of the add-on's gate. 0 means the model is not using the
   add-on at all; watch whether it grows.
 - `(-dropped)` — rows that could not fit 1,024 tokens even with the abstract
@@ -246,6 +249,7 @@ run-to-run variation.
 | `CUDA out of memory` mid-run | both arms to `--batch-size 4 --grad-accum 8`, then `--resume` |
 | `expected m1 and m2 to have the same dtype … BFloat16` | old code: transformers 5 loads SmolLM2 in bf16; fixed (the backbone is cast to float32) — `git pull` |
 | sandbox log: `gnorm` jumps to huge values or `inf`, loss in the thousands, then `OverflowError: math range error` | old code (T32, fixed): the L2 output reached the logits unnormalised. `git pull`, delete `runs/v2_sandbox`, re-run the sandbox arm only (the baseline is unaffected) |
+| sandbox stops with `20 consecutive non-finite steps` around step 200 (gnorm 10¹¹+) | old code (T33, fixed): the debate rounds compounded their size; `git pull` (debate pre-norm), delete that run folder, re-run the sandbox arm |
 | `warning: non-finite loss/gradient at step … - update skipped` | the guard dropped one bad update (T32). A few are harmless; after `--max-bad-steps` (20) in a row the run stops — report it |
 | `|g|` stays ≈ 0 for the whole run | the model chose not to use the add-on; that is a result — report it |
 | `ModuleNotFoundError: transformers` | `pip install -e .` again (v2 added the dependency) |
@@ -568,7 +572,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 141 tests
+python -m pytest            # 145 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

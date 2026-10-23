@@ -4,6 +4,7 @@
   "n_sandbox": 4,
   "debate_rounds": 4,
   "sandbox_mlp_ratio": 4.0,
+  "sandbox_prenorm": true,
   "descent_steps": 8,
   "eta": 0.0625,
   "rho_min": 0.05,

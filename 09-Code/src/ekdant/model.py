@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ekdant.output_head import OutputHead
-from ekdant.sandbox import Sandbox, SandboxOutput
+from ekdant.sandbox import Sandbox, SandboxOutput, masked_mean_bt
 from ekdant.transformer_stack import RMSNorm, TransformerStack
 
 RHO_MIN_DEFAULT = 0.05
@@ -235,7 +235,12 @@ class GatedAddOn(nn.Module):
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         out = self.sandbox(h, mask=mask)
-        return h + self.gate * (self.out_norm(out.consensus) - h), out.aux
+        aux = dict(out.aux)
+        # L2's internal size, which the output norm hides from the loss;
+        # logged so drift is visible during training (T34)
+        aux["consensus_rms"] = masked_mean_bt(
+            out.consensus.detach().float().pow(2).mean(-1), mask).sqrt()
+        return h + self.gate * (self.out_norm(out.consensus) - h), aux
 
     def gate_magnitude(self) -> float:
         return float(self.gate.detach().abs().mean())
@@ -250,6 +255,8 @@ class V2Config:
     n_sandbox: int = 4
     debate_rounds: int = 4
     sandbox_mlp_ratio: float = 4.0
+    # Pre-norm inside every debate round (T33); v1 builds Sandbox without it.
+    sandbox_prenorm: bool = True
     descent_steps: int = 8
     eta: float = 0.0625
     rho_min: float = RHO_MIN_DEFAULT
@@ -273,7 +280,8 @@ class V2Config:
         return dict(K=self.n_sandbox, rounds=self.debate_rounds,
                     steps=self.descent_steps, eta=self.eta,
                     rho_min=self.rho_min, readout=self.readout,
-                    mlp_ratio=self.sandbox_mlp_ratio)
+                    mlp_ratio=self.sandbox_mlp_ratio,
+                    norm_inputs=self.sandbox_prenorm)
 
     def to_dict(self) -> Dict:
         return asdict(self)

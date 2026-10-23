@@ -254,3 +254,33 @@ def test_no_blocked_imports_in_ekdant_package():
         for name in BLOCKED:
             pattern = r"(?:import|from)\s+" + re.escape(name).replace(r"\-", r"[\-_]")
             assert not re.search(pattern, src), f"{path.name} imports {name}"
+
+
+def _consensus_growth(norm_inputs, scale=3.0):
+    """RMS of the consensus after scaling every debate weight by `scale`,
+    relative to before (same input, same init)."""
+    from ekdant.sandbox import Sandbox
+    torch.manual_seed(0)
+    h = torch.randn(2, 6, 32)
+    sbx = Sandbox(32, K=4, rounds=4, steps=8, mlp_ratio=4.0,
+                  norm_inputs=norm_inputs).eval()
+    with torch.no_grad():
+        before = sbx(h).consensus.pow(2).mean().sqrt()
+        for rnd in sbx.debate:
+            for mod in rnd.modules():
+                if isinstance(mod, torch.nn.Linear):
+                    mod.weight.mul_(scale)
+        after = sbx(h).consensus.pow(2).mean().sqrt()
+    return float(after / before)
+
+
+def test_prenorm_debate_stops_size_compounding_across_rounds():
+    # T33: with no normalisation inside, the debate rounds chain ~14 learned
+    # matrices, so a small weight growth compounds round after round; in
+    # training the consensus rms went 0.7 -> 36,560 in 180 steps (fp32
+    # probe) and overflowed in bf16 on the GPU. Pre-norm makes every round
+    # read a fixed-size input, so growth stays proportional, not compounded.
+    compounded = _consensus_growth(norm_inputs=False)
+    bounded = _consensus_growth(norm_inputs=True)
+    assert bounded < 100
+    assert compounded > 10 * bounded
