@@ -13,3 +13,6 @@ runs/
 
 # Local session memory (Claude Code remember plugin)
 .remember/
+
+# Hugging Face access token (v2 configs point here) - never commit
+hf_token.txt

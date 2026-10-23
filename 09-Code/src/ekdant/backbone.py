@@ -7,6 +7,7 @@ online for exactly one attempt (same pattern as ``data.load_examples``).
 
 from __future__ import annotations
 
+import os
 from typing import Callable, TypeVar
 
 from ekdant.data import _hub_offline
@@ -23,6 +24,23 @@ def _offline_first(load: Callable[[], T]) -> T:
             return load()
         finally:
             _hub_offline(True)
+
+
+def apply_hf_token(path: str) -> str:
+    """Make a Hugging Face token available to downloads without ever
+    logging or storing it.  ``HF_TOKEN`` in the environment wins; otherwise
+    the first line of ``path`` (a git-ignored file) is exported as
+    ``HF_TOKEN``.  Returns where it came from: ``env``, ``file`` or ``none``
+    (fine - SmolLM2, PubMedQA and MedQuAD are public)."""
+    if os.environ.get("HF_TOKEN"):
+        return "env"
+    if path and os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            token = f.readline().strip()
+        if token:
+            os.environ["HF_TOKEN"] = token
+            return "file"
+    return "none"
 
 
 def load_backbone(model_id: str):

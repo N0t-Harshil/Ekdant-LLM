@@ -229,3 +229,29 @@ def test_v2_has_only_baseline_and_sandbox_arms():
         V2Config(addon="mlp").validate()
     with pytest.raises(SystemExit):
         G.build_parser().parse_args(["--variant", "mlp_control", "--out", "x"])
+
+
+def test_config_addon_must_match_variant(tiny, tmp_path):
+    cfg = json.loads(open(tiny).read())
+    cfg["addon"] = "none"
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps(cfg))
+    args = _args(str(bad), tmp_path / "run", variant="sandbox")
+    with pytest.raises(SystemExit):
+        G.main(args)
+
+
+def test_hf_token_from_file_is_used_but_never_saved(tiny, tmp_path, monkeypatch):
+    secret = "hf_TESTsecret123"
+    (tmp_path / "tok.txt").write_text(secret + "\n")
+    cfg = json.loads(open(tiny).read())
+    cfg["hf_token_file"] = str(tmp_path / "tok.txt")
+    path = tmp_path / "cfg_tok.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    out = tmp_path / "run"
+    G.main(_args(str(path), out))
+    assert os.environ.get("HF_TOKEN") == secret
+    monkeypatch.delenv("HF_TOKEN")
+    for f in out.iterdir():
+        assert secret.encode() not in f.read_bytes(), f.name

@@ -2,7 +2,9 @@
 
 > [!note] **Shipped surface.** §1 lists every knob in `09-Code/configs/sandbox_50m.json` and `baseline_50m.json` (read from the JSONs and `EkdantConfig`). §2 lists the training-time CLI flags. §3–§4 are as-built parameter math and the tokenizer. The earlier XS/S/M design sizes with L1 are summarised in §5 for the thesis only.
 
-## 0. v2 config (`configs/v2_smollm2_135m.json`, `V2Config`) and flags
+## 0. v2 configs (`configs/v2_baseline.json`, `configs/v2_sandbox.json`, `V2Config`) and flags
+
+One file per arm, identical except `addon` (`test_shipped_v2_configs_differ_only_in_addon`). `--variant X` loads `configs/v2_X.json`; a config whose `addon` disagrees with `--variant` is refused.
 
 | Key | Value | Meaning |
 |---|---|---|
@@ -15,6 +17,7 @@
 | `rho_min`, `lambda_sbx` | 0.05, 1.0 | spread floor |
 | `readout` | `mean` | consensus |
 | `max_seq_len`, `max_answer` | 1024, 512 | sequence cap (context trimmed), answer cap |
+| `hf_token_file` | `configs/hf_token.txt` | path of a **git-ignored** file holding a Hugging Face token (optional; models and datasets are public). The file's first line is exported as `HF_TOKEN` unless that variable is already set. Never put the token itself in the JSON: the config is saved into `last.pt` and `results.json` |
 
 Flags (`python -m ekdant.train --task gen …`): `--variant {baseline,sandbox}`, `--batch-size 8`, `--grad-accum 4`, `--lr 5e-5` (backbone), `--addon-lr 1e-3`, `--warmup 200`, `--epochs 1` (PubMedQA), `--ft-epochs 3` (MedQuAD), `--eval-fraction 0.25`, `--pubmed-holdout 2000`, `--gen-subset 1000`, `--gen-subset-pubmed 500`, `--max-new 256`, `--max-new-pubmed 128`, `--gen-batch 32`, `--limit`, `--seed 17`, `--log-every 50`, `--gpu auto`, `--min-free-gb 20`, `--resume`, `--eval-only`.
 

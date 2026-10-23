@@ -15,7 +15,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 7. **Code and vault move together.** A change is not finished until every vault file that describes it is updated (see §6, the sync map).
 8. **Report honestly.** If a test fails, show the failure. If you skipped a step, say so. A tie or a negative result is reported as a tie or a negative result — never softened.
 9. **Do not delete, move or rename files or folders** unless the user asked. Never run destructive git commands (`reset --hard`, `push --force`, `clean -f`, `checkout -- .`).
-10. **Never commit** unless the user asks. Never commit `runs/`, `*.log`, `.remember/`, `.obsidian/`, checkpoints (`*.pt`) or datasets.
+10. **Never commit** unless the user asks. Never commit `runs/`, `*.log`, `.remember/`, `.obsidian/`, checkpoints (`*.pt`), datasets, or any secret: a Hugging Face token lives only in the git-ignored `09-Code/configs/hf_token.txt` or the `HF_TOKEN` variable — **never in a config JSON** (configs are saved into `last.pt` and `results.json`).
 
 ---
 
@@ -26,7 +26,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 | Degree | MSc thesis, Hochschule Heilbronn | `08-Thesis/thesis.tex` title page |
 | Built model, v2 (current) | `SmolLM2-135M → last hidden state h → h + g ⊙ (f(h) − h) → SmolLM2 tied lm_head`; `g ∈ R^576` starts at 0, so every arm equals the backbone at step 0 | `09-Code/src/ekdant/model.py` (`EkdantLM`, `GatedAddOn`), `backbone.py` |
 | v2 arms | `baseline` (no add-on) **134,515,008** params; `sandbox` (+L2 **19,592,064**, total 154,107,072, 12.7 %) | measured with `count_parameters` on the real backbone |
-| v2 L2 | K=4, **R=4 debate rounds, debate MLP 4×**, S=8, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` (scaled to v1's 13.1 % share of the model) | `configs/v2_smollm2_135m.json` |
+| v2 L2 | K=4, **R=4 debate rounds, debate MLP 4×**, S=8, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` (scaled to v1's 13.1 % share of the model) | `configs/v2_baseline.json`, `configs/v2_sandbox.json` (identical except `addon`) |
 | v2 data | PubMedQA `pqa_artificial` 211,269 (2,000 held out); MedQuAD 16,407 rows / 14,345 unique questions, split 50/50 by question, 10 % of the fine-tune half's questions = validation | `gen_data.py`, `train_gen.py` |
 | v2 metrics | reference-answer perplexity (primary) + per-question-type; ROUGE-L / token F1 on 1,000 generated answers; paired bootstrap 95 % CI between arms | `gen_eval.py` |
 | Built model, v1 (`--task mcq`, from-scratch pilot) | `embed → T (windowed dense Transformer) → L2 (sandbox) → tied head` | `09-Code/src/ekdant/model.py` (`EkdantModel`) |
@@ -212,7 +212,7 @@ After the sync, `grep` again for the old wording/number to make sure no copy is 
 
 End every task with a short report, in this order:
 1. **What changed** — files and the reason, one line each.
-2. **Verification** — the exact test result (`133 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
+2. **Verification** — the exact test result (`137 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
 3. **What you did not do** and **decisions for the user** — open questions, risks (e.g. "this changes the sandbox arm's training; the baseline is unaffected"), recommendations you chose not to implement.
 
 No filler, no praise of the work, no claims beyond what you verified.

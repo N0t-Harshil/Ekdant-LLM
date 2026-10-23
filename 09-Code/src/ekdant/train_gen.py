@@ -24,7 +24,7 @@ from typing import Dict, List, Optional
 
 import torch
 
-from ekdant.backbone import load_backbone, load_tokenizer
+from ekdant.backbone import apply_hf_token, load_backbone, load_tokenizer
 from ekdant.gen_data import (
     GenDataset,
     gen_collate,
@@ -106,8 +106,8 @@ def save_checkpoint(state: Dict, path: str) -> None:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m ekdant.train --task gen")
     ap.add_argument("--variant", choices=sorted(ADDON), required=True)
-    ap.add_argument("--config", default=os.path.join("configs",
-                                                     "v2_smollm2_135m.json"))
+    ap.add_argument("--config", default=None,
+                    help="default: configs/v2_<variant>.json")
     ap.add_argument("--out", required=True)
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--grad-accum", type=int, default=4)
@@ -176,10 +176,18 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1)
         cfg = V2Config.from_dict(ckpt["cfg"])
     else:
-        with open(args.config, encoding="utf-8") as f:
-            cfg = V2Config.from_dict({**V2Config().to_dict(), **json.load(f)})
+        cfg_path = args.config or os.path.join("configs",
+                                               f"v2_{args.variant}.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            raw = json.load(f)
+        if "addon" in raw and raw["addon"] != ADDON[args.variant]:
+            log(f"error: {cfg_path} has addon={raw['addon']!r} but --variant "
+                f"{args.variant} needs addon={ADDON[args.variant]!r}")
+            raise SystemExit(1)
+        cfg = V2Config.from_dict({**V2Config().to_dict(), **raw})
         cfg.addon = ADDON[args.variant]
 
+    log(f"hugging face token: {apply_hf_token(cfg.hf_token_file)}")
     torch.manual_seed(args.seed)
     tok = load_tokenizer(cfg.backbone)
     model = EkdantLM(cfg, load_backbone(cfg.backbone)).to(device)

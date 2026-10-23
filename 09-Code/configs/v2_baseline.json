@@ -10,5 +10,6 @@
   "lambda_sbx": 1.0,
   "readout": "mean",
   "max_seq_len": 1024,
-  "max_answer": 512
+  "max_answer": 512,
+  "hf_token_file": "configs/hf_token.txt"
 }

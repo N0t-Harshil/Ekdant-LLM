@@ -53,6 +53,26 @@ The first real run downloads SmolLM2-135M (~270 MB), PubMedQA `pqa_artificial`
 (~233 MB) and MedQuAD (~9 MB) into the Hugging Face cache; later runs read the
 cache offline.
 
+**Config files:** `configs/v2_baseline.json` and `configs/v2_sandbox.json`,
+identical except `"addon"` (`none` / `sandbox`; a test enforces this). Each run
+loads `configs/v2_<variant>.json` automatically; `--config` overrides it, and a
+config whose `addon` does not match `--variant` is refused.
+
+**Hugging Face token (optional).** SmolLM2-135M, PubMedQA and MedQuAD are
+public, so no token is needed; one only avoids anonymous download rate limits.
+Both configs point to a token **file**, never the token itself:
+
+```bash
+echo "hf_xxxxxxxxxxxxxxxx" > configs/hf_token.txt   # from 09-Code/; git-ignored
+```
+
+The run reads the first line, exports it as `HF_TOKEN` and logs only where it
+came from (`hugging face token: file`). An `HF_TOKEN` environment variable
+takes priority. The token is never written to the log, `last.pt` or
+`results.json` (tested), and `.gitignore` keeps `hf_token.txt` out of git —
+never put a token in a `.json` config, because the config is saved into every
+checkpoint and results file and would be pushed to GitHub.
+
 ## A2. What one run does
 
 ```
@@ -87,6 +107,7 @@ sandbox run crashed because PyTorch defaults to GPU 0, which was nearly full.
 
 ```bash
 nvidia-smi                                  # pick GPUs with >= 20 GB free
+# optional, once: echo "hf_..." > 09-Code/configs/hf_token.txt   (see below)
 cd 09-Code
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3"
 
@@ -521,7 +542,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 133 tests
+python -m pytest            # 137 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

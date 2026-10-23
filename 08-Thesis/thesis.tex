@@ -1764,7 +1764,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 133-test unit suite must
+one epoch, with save, resume and evaluation) and the 137-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1795,7 +1795,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by a $133$-test CPU unit suite
+Correctness is gated by a $137$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises

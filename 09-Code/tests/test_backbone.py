@@ -3,6 +3,7 @@ A tiny random Llama stands in for SmolLM2-135M, so nothing is downloaded."""
 
 import copy
 import json
+import os
 
 import torch
 import torch.nn.functional as F
@@ -76,10 +77,37 @@ def test_param_groups_split_lrs():
 def test_v2_config_round_trip():
     cfg = V2Config(addon="sandbox")
     assert V2Config.from_dict(cfg.to_dict()) == cfg
-    with open("configs/v2_smollm2_135m.json", encoding="utf-8") as f:
-        shipped = V2Config.from_dict(json.load(f))
-    assert shipped.backbone == "HuggingFaceTB/SmolLM2-135M"
-    assert (shipped.debate_rounds, shipped.sandbox_mlp_ratio) == (4, 4.0)
+    for arm in ("baseline", "sandbox"):
+        with open(f"configs/v2_{arm}.json", encoding="utf-8") as f:
+            shipped = V2Config.from_dict(json.load(f))
+        assert shipped.backbone == "HuggingFaceTB/SmolLM2-135M"
+        assert (shipped.debate_rounds, shipped.sandbox_mlp_ratio) == (4, 4.0)
+
+
+def test_shipped_v2_configs_differ_only_in_addon():
+    # fairness: the two arms' config files may differ in nothing but L2
+    a = json.load(open("configs/v2_baseline.json", encoding="utf-8"))
+    b = json.load(open("configs/v2_sandbox.json", encoding="utf-8"))
+    assert (a.pop("addon"), b.pop("addon")) == ("none", "sandbox")
+    assert a == b
+    # the config names a git-ignored token FILE; it never holds a token
+    assert a["hf_token_file"] == "configs/hf_token.txt"
+    assert not any(isinstance(v, str) and v.startswith("hf_") for v in a.values())
+
+
+def test_hf_token_env_wins_then_file(tmp_path, monkeypatch):
+    from ekdant.backbone import apply_hf_token
+    f = tmp_path / "hf_token.txt"
+    f.write_text("  hf_fromfile\n")
+    monkeypatch.setenv("HF_TOKEN", "hf_fromenv")
+    assert apply_hf_token(str(f)) == "env"
+    assert os.environ["HF_TOKEN"] == "hf_fromenv"
+    monkeypatch.delenv("HF_TOKEN")
+    assert apply_hf_token(str(f)) == "file"
+    assert os.environ["HF_TOKEN"] == "hf_fromfile"
+    monkeypatch.delenv("HF_TOKEN")
+    assert apply_hf_token(str(tmp_path / "missing.txt")) == "none"
+    assert "HF_TOKEN" not in os.environ
 
 
 def test_load_backbone_returns_float32(monkeypatch):

@@ -2,7 +2,7 @@
 
 > Status: **built and tested** (2026-10-22; plan [31_Plan_v2_Implementation.md](31_Plan_v2_Implementation.md)); GPU runs pending. Measured: backbone 134,515,008 params; sandbox add-on 19,592,064 (total 154,107,072); MLP control 19,591,488. This note is the record of why v2 exists ([T28](10_Known_Issues.md)).
 
-> [!note] **2026-10-23: the `mlp_control` arm was removed at the user's request.** v2 is a two-arm A/B (`baseline` vs `sandbox`). Consequence, stated in the thesis limitations: the comparison is architecture-matched, not parameter-matched (+19.59M for the sandbox arm). Same day: `transformers` pinned `<5`, because 5.x needs PyTorch ≥ 2.6 and the pod has 2.2.2 (T30).
+> [!note] **2026-10-23: the `mlp_control` arm was removed at the user's request.** v2 is a two-arm A/B (`baseline` vs `sandbox`). Consequence, stated in the thesis limitations: the comparison is architecture-matched, not parameter-matched (+19.59M for the sandbox arm). Same day: one config file per arm (`configs/v2_baseline.json`, `configs/v2_sandbox.json`, identical except `addon`) replaced the shared `v2_smollm2_135m.json`, and an optional Hugging Face token is read from the git-ignored `configs/hf_token.txt` (never stored in a config). Also: `transformers` pinned `<5`, because 5.x needs PyTorch ≥ 2.6 and the pod has 2.2.2 (T30).
 
 ## 1. Why v2
 

@@ -76,6 +76,11 @@ pip install -e .                      # or: pip install -r requirements.txt
 training pod's PyTorch 2.2.2 (T30). Tested: PyTorch 2.2.2 + transformers 4.57.6
 (pod mirror) and PyTorch 2.9.0.
 
+v2 configs: `configs/v2_baseline.json` and `configs/v2_sandbox.json` (identical
+except `addon`). An optional Hugging Face token goes in the git-ignored
+`configs/hf_token.txt` (first line), never in a JSON config — see
+[`../run.md`](../run.md) A1.
+
 > [!important]
 > The trailing **`.` matters** — `pip install -e .` (with the dot) tells pip
 > "install the package in this folder". `pip install -e` alone fails with
@@ -229,5 +234,5 @@ cost of the sandbox arm (wall-clock estimated at ≈1.5× the baseline).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 133 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 137 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```

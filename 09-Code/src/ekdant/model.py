@@ -253,6 +253,10 @@ class V2Config:
     readout: str = "mean"
     max_seq_len: int = 1024
     max_answer: int = 512
+    # Path of a git-ignored file holding a Hugging Face token (optional:
+    # the backbone and datasets are public).  Never the token itself -
+    # this config is saved into last.pt and results.json.
+    hf_token_file: str = ""
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
