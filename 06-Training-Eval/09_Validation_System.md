@@ -9,7 +9,7 @@ Three layers, cheapest first. Nothing below needs a GPU except the real runs.
 ## Layer 1 — Unit suite (CPU, ~10 s)
 
 ```bash
-cd 09-Code && pip install -e .[dev] && pytest -q      # 131 tests
+cd 09-Code && pip install -e .[dev] && pytest -q      # 133 tests
 ```
 
 | File | Tests | What it pins down |
@@ -20,11 +20,12 @@ cd 09-Code && pip install -e .[dev] && pytest -q      # 131 tests
 | `test_data.py` | 20 | MedMCQA flat schema and 0-indexed `cop`, MedQA dict schema, rejection of short/blank/unknown rows, letter resolution, unlabelled rows dropped, prompt template, letter-id binding, collate, `evaluate` scores the answer position, is sample-weighted, reports sandbox diagnostics only for the sandbox arm, and the offline toggle reaches every flag `datasets` reads (T26), and evaluation reports letter counts + the majority rate (T27) |
 | `test_schedule.py` | 10 | warmup + cosine, per-stage LR reset, `--ft-lr` / `--ft-epochs` overrides, resume offsets, trailing grad-accumulation flush leaks no grads (T23), seeded shuffle generator |
 | `test_eval_split.py` | 3 | the 60/40 MedQA partition is disjoint, deterministic for a seed, and sized as the protocol constant says |
-| `test_addon.py` (v2) | 4 | `mlp_ratio` sets the debate width (19.59M at R=4, 4×; 8.30M at the old R=2, 2×), the MLP control is within 1 % of the sandbox add-on, both add-ons are the identity at init, and the zero gate still receives gradient |
-| `test_backbone.py` (v2) | 7 | all three arms give identical logits at init, loss counts answer tokens only, the add-on's diagnostics/floor mask covers exactly the loss positions, a KV-cache step equals the full forward with the sandbox on, LR groups (backbone 5e-5 / add-on 1e-3, no decay on the gate), config round trip, the backbone is cast to float32 (T28) |
+| `test_addon.py` (v2) | 3 | `mlp_ratio` sets the debate width (19.59M at R=4, 4×; 8.30M at the old R=2, 2×), the add-on is the identity at init, and the zero gate still receives gradient |
+| `test_backbone.py` (v2) | 7 | both arms give identical logits at init, loss counts answer tokens only, the add-on's diagnostics/floor mask covers exactly the loss positions, a KV-cache step equals the full forward with the sandbox on, LR groups (backbone 5e-5 / add-on 1e-3, no decay on the gate), config round trip, the backbone is cast to float32 (T28) |
 | `test_gen_data.py` (v2) | 9 | exact prompts, prompt labels −100, answers capped at 512 without EOS, the context (not the answer) is trimmed to fit 1,024, empty rows dropped, the MedQuAD split never puts one question in two sets and is stable, the PubMedQA hold-out, collate padding, rows stored as int32 arrays (host RAM) |
 | `test_gen_eval.py` (v2) | 6 | ROUGE-L / token F1 known values and empty cases, `answer_nll` equals the model loss, batched left-padded generation equals one-at-a-time, the bootstrap CI covers a known shift and its token-weighted form matches the headline perplexity, per-type perplexity |
-| `test_train_gen.py` (v2) | 11 | GPU pre-flight (`auto` = most free, refuses below `--min-free-gb`, never falls back to CPU unless `--gpu cpu`), zero-shot is never measured on loaded weights, resume refuses changed flags or variant, phase-1 checkpoints never fall on the epoch end, backbone and add-on gradients are clipped separately, wall-clock accumulates across resumes, a full tiny run writes every `results.json` key, a mid-epoch stop + `--resume` ends bit-identical to an uninterrupted run, the fresh-run guard, `--task` dispatch and v1 `--help` (T29) |
+| `test_train_gen.py` (v2) | 12 | GPU pre-flight (`auto` = most free, refuses below `--min-free-gb`, never falls back to CPU unless `--gpu cpu`), zero-shot is never measured on loaded weights, resume refuses changed flags or variant, phase-1 checkpoints never fall on the epoch end, backbone and add-on gradients are clipped separately, wall-clock accumulates across resumes, a full tiny run writes every `results.json` key, a mid-epoch stop + `--resume` ends bit-identical to an uninterrupted run, the fresh-run guard, `--task` dispatch and v1 `--help` (T29), only the `baseline` / `sandbox` arms exist |
+| `test_requirements.py` | 2 | `requirements.txt` lists exactly the `pyproject.toml` dependencies, and `transformers` stays pinned `<5` for PyTorch 2.2 (T30) |
 
 ## Layer 2 — Smoke run per arm (~2 min)
 

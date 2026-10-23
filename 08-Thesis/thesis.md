@@ -6,8 +6,8 @@ Supervisor: [Supervisor 1] · Co-supervisor: [Supervisor 2]
 > Compiled from this vault. Canonical spec: [02_System_Architecture.md](../02-Architecture/02_System_Architecture.md). Sources: [01](../01-Introduction/01_Project_Overview.md) · [19](../03-Background/19_Thesis_Ch2_SSM_Storage_Papers.md) · [20](../03-Background/20_Thesis_Ch2_Sandbox_Papers.md) · [21](../04-Model-DeepDive/21_Thesis_Ch3_Layer1_SSM_Storage.md) · [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · [05-Data](../README.md) · [07](../06-Training-Eval/07_Training_Pipeline.md) · [12](../02-Architecture/12_Configuration_Guide.md) · [09/14](../README.md) · [11](../07-Management/11_Future_Work.md).
 
 > [!important] **Scope of the built system.** The evaluated configuration (v2) puts L2 on a
-> pretrained **SmolLM2-135M** as a zero-init gated residual and compares three arms — backbone
-> alone (134.52M), + L2 (+19.59M), + a same-size SwiGLU (+19.59M) — on generative medical QA
+> pretrained **SmolLM2-135M** as a zero-init gated residual and compares two arms — backbone
+> alone (134.52M) and + L2 (+19.59M, architecture-matched) — on generative medical QA
 > (PubMedQA → MedQuAD, split by question), by reference-answer perplexity with a paired bootstrap.
 > The from-scratch pilot (`embed → T → L2 → head`, ~50M, MedMCQA → MedQA) is reported as the
 > motivation: it learned only the answer-letter prior (T27, T28). The L1 selective-SSM storage
@@ -118,7 +118,7 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 ## Ch.3 — Method (cite [02](../02-Architecture/02_System_Architecture.md))
 
-**System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 131 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
+**System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 133 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
 
 **L1 — SSM Storage (design only, not built).** `input_ids [B,T]` → tied embed `[B,T,H]` + RoPE (base 100K, window 4096, YaRN-extendable) → N aSSM blocks (shared trunk + 3 L1 state stores: content/control/sandbox — the third *is an L1 store*, not the L2 layer; per-channel Δ/B/C, scan, gating+residual+norm) → `h [B,T,H]` + pooled triple `compressed [B,3·d_state]` handed to T; the L2 consensus write-back returns via M3. Design sizes — XS: H=256, d=96, N=2, V=32K · S: H=320, d=128, N=4, V=32K · M: H=512, d=256, N=4, V=32K; T=2048 all.
 
@@ -150,9 +150,9 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 ## Ch.5 — Training
 
-**Evaluated configuration (v2)** ([run.md](../run.md) Part A): one recipe for all three arms — AdamW, backbone LR 5e-5, add-on + gate LR 1e-3 (no decay on the gate), cosine per phase with 200 warm-up steps, clip 1.0, bf16, effective batch 32; 1 PubMedQA epoch (validation every 25 %), 3 MedQuAD epochs (validation each epoch → `best.pt`); better of best/last on the validation questions; one arm per A100; seed 17.
+**Evaluated configuration (v2)** ([run.md](../run.md) Part A): one recipe for both arms — AdamW, backbone LR 5e-5, add-on + gate LR 1e-3 (no decay on the gate), cosine per phase with 200 warm-up steps, clip 1.0, bf16, effective batch 32; 1 PubMedQA epoch (validation every 25 %), 3 MedQuAD epochs (validation each epoch → `best.pt`); better of best/last on the validation questions; one arm per A100; seed 17.
 
-**Pilot recipe:** ([run.md](../run.md) §3), identical for both arms: phase 1 = all MedMCQA, 100 epochs, lr 3e-4 cosine, warmup 200; phase 2 = 60% MedQA, 10 epochs, lr 5e-5 (own cosine + warmup); **381,480 optimizer steps**; effective batch 48 (6 × 8 accum on one 16 GB T4); AdamW wd 0.1, betas (0.9, 0.95), clip 1.0, dropout 0.1, bf16/fp16 autocast, `--answer-weight 10`, seed 17 (also locks the 60/40 split). Anti-overfit knobs (`--ft-lr`, `--ft-epochs`) exist because a 40-epoch pilot memorised the small MedQA set (T21). Checkpoint = better of `best.pt` vs `last.pt` on untouched MedMCQA validation. Gate: 131-test suite + smoke run per arm. Knobs: [12](../02-Architecture/12_Configuration_Guide.md).
+**Pilot recipe:** ([run.md](../run.md) §3), identical for both arms: phase 1 = all MedMCQA, 100 epochs, lr 3e-4 cosine, warmup 200; phase 2 = 60% MedQA, 10 epochs, lr 5e-5 (own cosine + warmup); **381,480 optimizer steps**; effective batch 48 (6 × 8 accum on one 16 GB T4); AdamW wd 0.1, betas (0.9, 0.95), clip 1.0, dropout 0.1, bf16/fp16 autocast, `--answer-weight 10`, seed 17 (also locks the 60/40 split). Anti-overfit knobs (`--ft-lr`, `--ft-epochs`) exist because a 40-epoch pilot memorised the small MedQA set (T21). Checkpoint = better of `best.pt` vs `last.pt` on untouched MedMCQA validation. Gate: 133-test suite + smoke run per arm. Knobs: [12](../02-Architecture/12_Configuration_Guide.md).
 
 ---
 
@@ -187,4 +187,4 @@ Critical (defense): pick phase-1 epochs from the validation curve → run the ca
 No L1 (memory claim and RQ1 untested); 50M scale and one seed; architecture-matched, not parameter-matched; debate collapse/false consensus (watch ρ); cost > gain regimes (C8 — report); small MedQA fine-tune set; no custom kernels. Log: [10](../07-Management/10_Known_Issues.md).
 
 ## Reproducibility
-Seed 17 (also locks the 60/40 MedQA partition); two configs differing only in `use_sandbox`; tokenizer saved per run; resume + `--eval-only`; 131 tests; commands in [run.md](../run.md) and [09-Code/README](../09-Code/README.md).
+Pinned dependencies in `09-Code/requirements.txt` (tested on PyTorch 2.2.2 + transformers 4.57.6, the training pod's setup). Seed 17 (also locks the 60/40 MedQA partition); two configs differing only in `use_sandbox`; tokenizer saved per run; resume + `--eval-only`; 133 tests; commands in [run.md](../run.md) and [09-Code/README](../09-Code/README.md).

@@ -9,7 +9,7 @@ There are two experiments in the code:
 | | **v2 — current** (Part A) | v1 — from-scratch pilot (Part B) |
 |---|---|---|
 | backbone | pretrained **SmolLM2-135M** | 43.53M model trained from scratch |
-| arms | `baseline`, `sandbox` (+19.59M L2), `mlp_control` (same-size MLP) | `baseline`, `sandbox` |
+| arms | `baseline`, `sandbox` (+19.59M L2) | `baseline`, `sandbox` |
 | data | PubMedQA → MedQuAD (write the answer) | MedMCQA → MedQA (pick A–D) |
 | main number | reference-answer perplexity on the MedQuAD benchmark half | letter accuracy on `medqa_bench` |
 | start with | `python -m ekdant.train --task gen …` | `python -m ekdant.train …` (`--task mcq` is the default) |
@@ -29,7 +29,25 @@ git clone https://github.com/N0t-Harshil/Ekdant-LLM.git
 cd Ekdant-LLM/09-Code
 pip install -e .[dev]               # trailing dot matters; installs transformers too
 python -m pytest                    # all tests must pass (CPU, no downloads)
+# alternative, dependencies only: pip install -r requirements.txt
 ```
+
+**Requirements** (`09-Code/requirements.txt`, identical to `pyproject.toml`):
+
+| package | pin | why |
+|---|---|---|
+| `torch` | `>=2.2` | the pod runs **2.2.2+cu121** (CUDA 12.2 driver); newer works too |
+| `transformers` | `>=4.45,<5` | **5.x needs PyTorch ≥ 2.6** and silently disables its models on 2.2.2 (T30); 4.57.6 is what the pin installs |
+| `datasets` | `>=2.19,<5` | 5.x needs pyarrow ≥ 24 → numpy ≥ 2, which breaks numpy-1.x conda images |
+| `pyarrow` | `>=12,<21` | same reason |
+| `tokenizers` | `>=0.19` | v1 BPE tokenizer and SmolLM2's |
+| `pytest` | `>=8` | tests (`[dev]` extra) |
+
+The same list is in `09-Code/requirements.txt` and `pyproject.toml`
+(`tests/test_requirements.py` fails if they drift apart). Tested combinations,
+all tests green plus a real-SmolLM2 smoke run: **PyTorch 2.2.2 + transformers
+4.57.6** (datasets 4.0.0, pyarrow 20.0.0, tokenizers 0.22.2, numpy 1.26.4 — a
+mirror of the pod) and PyTorch 2.9.0 on the development machine.
 
 The first real run downloads SmolLM2-135M (~270 MB), PubMedQA `pqa_artificial`
 (~233 MB) and MedQuAD (~9 MB) into the Hugging Face cache; later runs read the
@@ -50,19 +68,19 @@ final          better of best.pt / last.pt on that 10 % → score the MedQuAD
 MedQuAD is split by **unique question** (16,407 rows, 14,345 questions): every
 row sharing a question lands in the same half, so no benchmark answer leaks
 into training. The split, the hold-out, the data order and the starting
-weights are identical for all three arms; the add-on starts as a no-op (its
-gate is 0), so at step 0 all three arms give the backbone's exact output.
+weights are identical for both arms; L2 starts as a no-op (its gate is 0),
+so at step 0 both arms give the backbone's exact output.
 
 | arm (`--variant`) | added on top of SmolLM2 | added params |
 |---|---|---|
 | `baseline` | nothing | 0 |
 | `sandbox` | L2: 4 trajectories, 4 debate rounds (4× MLP), 8 anchored descent steps, gated residual | 19.59M |
-| `mlp_control` | one SwiGLU block of the same size, gated residual | ≈19.6M |
 
-The MLP control answers "is any gain from the sandbox, or just from 19.6M more
-parameters?".
+The comparison is architecture-matched, not parameter-matched: the sandbox arm
+has 19.59M more parameters and does more work per token. Say so next to every
+number.
 
-## A3. Train all three arms (shared 4×A100 pod)
+## A3. Train both arms (shared 4×A100 pod)
 
 The GPUs are shared with other users. **Check free memory first** — the v1
 sandbox run crashed because PyTorch defaults to GPU 0, which was nearly full.
@@ -74,14 +92,13 @@ FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3"
 
 CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS --variant baseline    --out runs/v2_baseline > v2_baseline.log 2>&1 &
 CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS --variant sandbox     --out runs/v2_sandbox  > v2_sandbox.log  2>&1 &
-CUDA_VISIBLE_DEVICES=3 nohup python -m ekdant.train $FLAGS --variant mlp_control --out runs/v2_mlp      > v2_mlp.log      2>&1 &
 
 tail -f v2_sandbox.log                      # Ctrl-C stops watching, not training
 ```
 
-Replace `1/2/3` with whichever GPUs `nvidia-smi` shows as free. One arm per GPU
-means all three finish in about the time of one. Keep `$FLAGS` identical for
-all three; only `--variant` and `--out` change.
+Replace `1/2` with whichever GPUs `nvidia-smi` shows as free. One arm per GPU
+means both finish in about the time of one. Keep `$FLAGS` identical for both;
+only `--variant` and `--out` change.
 
 Each run checks its GPU before loading anything and refuses to start with less
 than 20 GB free (`--min-free-gb`), or when CUDA is not available at all — it
@@ -89,11 +106,11 @@ never falls back to CPU unless you pass `--gpu cpu` (smoke runs only). Without
 `CUDA_VISIBLE_DEVICES`, `--gpu auto` (the default) picks the visible GPU with
 the most free memory.
 
-**Settings (all arms):** backbone LR 5e-5, add-on LR 1e-3 (`--addon-lr`),
+**Settings (both arms):** backbone LR 5e-5, add-on LR 1e-3 (`--addon-lr`),
 cosine per phase with 200 warm-up steps, effective batch 32 sequences, bf16 on
 A100, gradient clip 1.0 applied **separately** to the backbone and the add-on
 (so the add-on can never shrink the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens. If
-the sandbox arm runs out of memory, move **all three** to
+the sandbox arm runs out of memory, move **both** to
 `--batch-size 4 --grad-accum 8` (still 32).
 
 **Time:** not yet measured on the A100s. One PubMedQA epoch is ~85M tokens;
@@ -137,27 +154,27 @@ already has `last.pt`. Wall-clock in `cost` adds up across resumes.
 `--eval-only` (with an existing `--out`) skips training and re-runs the final
 protocol.
 
-## A6. Compare the three arms
+## A6. Compare the two arms
 
 ```bash
-python -m ekdant.gen_eval compare runs/v2_baseline runs/v2_sandbox runs/v2_mlp
+python -m ekdant.gen_eval compare runs/v2_baseline runs/v2_sandbox
 ```
 
 It prints, per arm, the benchmark perplexity, ROUGE-L, token F1, gate size and
-PubMedQA held-out perplexity. Then, for each arm against the baseline, it gives
+PubMedQA held-out perplexity. Then, for the sandbox against the baseline, it gives
 the **per-token NLL difference with a 95 % confidence interval** (a paired
 bootstrap that resamples whole questions, weighted by answer tokens exactly
 like the headline perplexity). **Negative = better than the
 baseline. A difference is real only if the interval does not contain 0;
 otherwise report a tie.**
 
-How to read the three arms:
+How to read it:
 
 | outcome | meaning |
 |---|---|
-| sandbox better than baseline **and** than mlp_control | evidence the sandbox mechanism helps |
-| sandbox ≈ mlp_control, both better than baseline | the gain is extra capacity, not the sandbox |
-| all within each other's interval | a tie — report it (the thesis pre-committed to this) |
+| interval entirely below 0 | the sandbox arm predicts the reference answers better — but it also has 19.59M more parameters, so this does not by itself show the debate mechanism is the cause |
+| interval entirely above 0 | the sandbox arm is worse |
+| interval contains 0 | a tie — report it (the thesis pre-committed to this) |
 
 ## A7. `results.json` (v2)
 
@@ -182,10 +199,11 @@ How to read the three arms:
 | `error: GPU n has only x GB free` | other users' jobs fill that GPU — pick another with `CUDA_VISIBLE_DEVICES` |
 | `error: CUDA is not available` | the GPU/driver is broken in this container; fix it (the run will not silently use the CPU). `--gpu cpu` only for smoke runs |
 | `error: this run was started with different settings` | resume with the original flags (the message lists them) |
-| `CUDA out of memory` mid-run | all three arms to `--batch-size 4 --grad-accum 8`, then `--resume` |
+| `CUDA out of memory` mid-run | both arms to `--batch-size 4 --grad-accum 8`, then `--resume` |
 | `expected m1 and m2 to have the same dtype … BFloat16` | old code: transformers 5 loads SmolLM2 in bf16; fixed (the backbone is cast to float32) — `git pull` |
 | `|g|` stays ≈ 0 for the whole run | the model chose not to use the add-on; that is a result — report it |
 | `ModuleNotFoundError: transformers` | `pip install -e .` again (v2 added the dependency) |
+| tests fail with `LlamaForCausalLM requires the PyTorch library`; log says `PyTorch >= 2.6 is required but found 2.2.2` | `transformers` 5.x was installed; it needs PyTorch ≥ 2.6. `git pull && pip install -e .` installs the pinned `transformers<5` (T30) |
 
 ---
 
@@ -243,7 +261,7 @@ benchmark during training, and never picks a checkpoint with it.
 | need | notes |
 |---|---|
 | Python 3.10+ | verified on 3.11 and 3.12 |
-| PyTorch 2.2+ | CUDA GPU for real runs; CPU is fine for tests and smoke runs |
+| PyTorch 2.2+ | CUDA GPU for real runs; CPU is fine for tests and smoke runs. Exact pins and tested versions: Part A1 and `09-Code/requirements.txt` |
 | internet on the first run | MedMCQA (~183k rows) and MedQA (~11k rows) download into the Hugging Face cache once; after that everything runs offline |
 | disk | a few GB for the dataset cache + ~0.5 GB per run folder |
 | GPU memory | modest: batches are padded only to the longest row in the batch (MedMCQA p50/p99 = 34/118 tokens, MedQA 173/364, max 857). A 16 GB T4 runs batch 6 × accumulation 8 comfortably |
@@ -503,7 +521,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 131 tests
+python -m pytest            # 133 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

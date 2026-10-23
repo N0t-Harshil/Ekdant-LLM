@@ -15,8 +15,10 @@ dependencies = [
     "datasets>=2.19,<5",
     "pyarrow>=12,<21",
     "tokenizers>=0.19",
-    # v2 pretrained backbone (SmolLM2-135M); v1 (--task mcq) does not use it
-    "transformers>=4.45,<6",
+    # v2 pretrained backbone (SmolLM2-135M); v1 (--task mcq) does not use it.
+    # <5: transformers 5.x needs PyTorch >= 2.6 and silently disables its
+    # models on the pod's PyTorch 2.2.2 (T30). Mirrored in requirements.txt.
+    "transformers>=4.45,<5",
 ]
 
 [project.optional-dependencies]

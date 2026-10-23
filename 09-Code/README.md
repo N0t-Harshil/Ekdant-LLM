@@ -1,12 +1,11 @@
 # Ekdant — sandbox (L2) experiments
 
-> **v2 (current):** pretrained SmolLM2-135M + a gated add-on (L2 sandbox, a same-size MLP control, or none), trained on PubMedQA then half of MedQuAD and benchmarked on the other half by perplexity. Start it with `python -m ekdant.train --task gen …` — full commands in [`../run.md`](../run.md) Part A, design in [`30_Design_v2`](../07-Management/30_Design_v2_Pretrained_Backbone.md).
+> **v2 (current):** pretrained SmolLM2-135M + the L2 sandbox as a gated add-on (or nothing, for the baseline), trained on PubMedQA then half of MedQuAD and benchmarked on the other half by perplexity. Start it with `python -m ekdant.train --task gen …` — full commands in [`../run.md`](../run.md) Part A, design in [`30_Design_v2`](../07-Management/30_Design_v2_Pretrained_Backbone.md).
 >
 > | v2 arm | added | total params |
 > |---|---|---|
 > | `baseline` | — | 134.52M |
 > | `sandbox` | L2 19.59M (K=4, R=4, 4× MLP, S=8) | 154.11M |
-> | `mlp_control` | SwiGLU 19.59M | 154.11M |
 >
 > v2 modules: `backbone.py`, `gen_data.py`, `gen_eval.py`, `train_gen.py`; `model.py` adds `V2Config`, `GatedAddOn`, `EkdantLM`.
 >
@@ -67,8 +66,15 @@ three-stage design alongside. Measured against that estimate at M scale:
 
 ```bash
 cd 09-Code
-pip install -e .
+pip install -e .                      # or: pip install -r requirements.txt
 ```
+
+`requirements.txt` and `pyproject.toml` list the same pins
+(`tests/test_requirements.py` checks it): `torch>=2.2`, `datasets>=2.19,<5`,
+`pyarrow>=12,<21`, `tokenizers>=0.19`, **`transformers>=4.45,<5`**, `pytest>=8`.
+`transformers` 5.x needs PyTorch ≥ 2.6 and silently disables its models on the
+training pod's PyTorch 2.2.2 (T30). Tested: PyTorch 2.2.2 + transformers 4.57.6
+(pod mirror) and PyTorch 2.9.0.
 
 > [!important]
 > The trailing **`.` matters** — `pip install -e .` (with the dot) tells pip
@@ -223,5 +229,5 @@ cost of the sandbox arm (wall-clock estimated at ≈1.5× the baseline).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 131 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 133 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```

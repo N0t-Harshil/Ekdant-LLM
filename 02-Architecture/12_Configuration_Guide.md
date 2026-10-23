@@ -7,7 +7,7 @@
 | Key | Value | Meaning |
 |---|---|---|
 | `backbone` | `HuggingFaceTB/SmolLM2-135M` | Hugging Face model id |
-| `addon` | set by `--variant` (`baseline`→`none`, `sandbox`, `mlp_control`→`mlp`) | which add-on sits on the last hidden state |
+| `addon` | set by `--variant` (`baseline`→`none`, `sandbox`→`sandbox`) | whether L2 sits on the last hidden state |
 | `n_sandbox` | 4 | K trajectories |
 | `debate_rounds` | 4 | R (v1: 2) |
 | `sandbox_mlp_ratio` | 4.0 | debate MLP width / H (v1: 2.0) |
@@ -16,7 +16,7 @@
 | `readout` | `mean` | consensus |
 | `max_seq_len`, `max_answer` | 1024, 512 | sequence cap (context trimmed), answer cap |
 
-Flags (`python -m ekdant.train --task gen …`): `--variant {baseline,sandbox,mlp_control}`, `--batch-size 8`, `--grad-accum 4`, `--lr 5e-5` (backbone), `--addon-lr 1e-3`, `--warmup 200`, `--epochs 1` (PubMedQA), `--ft-epochs 3` (MedQuAD), `--eval-fraction 0.25`, `--pubmed-holdout 2000`, `--gen-subset 1000`, `--gen-subset-pubmed 500`, `--max-new 256`, `--max-new-pubmed 128`, `--gen-batch 32`, `--limit`, `--seed 17`, `--log-every 50`, `--gpu auto`, `--min-free-gb 20`, `--resume`, `--eval-only`.
+Flags (`python -m ekdant.train --task gen …`): `--variant {baseline,sandbox}`, `--batch-size 8`, `--grad-accum 4`, `--lr 5e-5` (backbone), `--addon-lr 1e-3`, `--warmup 200`, `--epochs 1` (PubMedQA), `--ft-epochs 3` (MedQuAD), `--eval-fraction 0.25`, `--pubmed-holdout 2000`, `--gen-subset 1000`, `--gen-subset-pubmed 500`, `--max-new 256`, `--max-new-pubmed 128`, `--gen-batch 32`, `--limit`, `--seed 17`, `--log-every 50`, `--gpu auto`, `--min-free-gb 20`, `--resume`, `--eval-only`.
 
 Sections 1–5 below are the v1 (`--task mcq`) configs.
 

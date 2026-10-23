@@ -2,6 +2,8 @@
 
 > Status: **built and tested** (2026-10-22; plan [31_Plan_v2_Implementation.md](31_Plan_v2_Implementation.md)); GPU runs pending. Measured: backbone 134,515,008 params; sandbox add-on 19,592,064 (total 154,107,072); MLP control 19,591,488. This note is the record of why v2 exists ([T28](10_Known_Issues.md)).
 
+> [!note] **2026-10-23: the `mlp_control` arm was removed at the user's request.** v2 is a two-arm A/B (`baseline` vs `sandbox`). Consequence, stated in the thesis limitations: the comparison is architecture-matched, not parameter-matched (+19.59M for the sandbox arm). Same day: `transformers` pinned `<5`, because 5.x needs PyTorch ≥ 2.6 and the pod has 2.2.2 (T30).
+
 ## 1. Why v2
 
 The v1 experiment trained a 43.53M model from scratch on MedMCQA (~6M tokens per epoch). Every result sat at the **majority-letter rate** (MedMCQA val 32.11 %, `medqa_bench` 25.69 %, `medqa_test` 27.73 %; T27). 2-epoch baseline: 33.91 % / 25.44 % / 29.62 %. A model that knows no medicine cannot show whether L2 helps, so v1 could only ever produce an uninformative tie.
@@ -20,7 +22,7 @@ v2 fixes the cause, not the symptom: a **pretrained backbone** that already know
 | Dependency | `transformers` added (needed to load the backbone) | user (asked for a pretrained model) |
 | MCQ path | kept behind `--task mcq` so v1 results reproduce | design |
 
-## 3. Models (three arms, trained identically)
+## 3. Models (two arms, trained identically)
 
 ```
 input ids ─► SmolLM2-135M (30 layers, H=576, 9 heads / 3 KV, vocab 49,152, tied head)
@@ -33,13 +35,12 @@ input ids ─► SmolLM2-135M (30 layers, H=576, 9 heads / 3 KV, vocab 49,152, t
 |---|---|---|
 | `baseline` | none (`h' = h`) | 0 |
 | `sandbox` | L2 consensus: K=4, **R=4 debate rounds, debate MLP 4×**, S=8 anchored descent, mean readout, spread floor ρ_min=0.05, λ_sbx=1.0 | **19.59M** (12.7 % of 154.1M; v1 was 13.1 %) |
-| `mlp_control` | one SwiGLU MLP block (pre-norm) with its hidden width sized to match the sandbox arm's added params (±1 %) | ≈19.6M |
 
-- **Zero-init gate:** at step 0 every arm produces the backbone's logits exactly (tested). Any later difference is caused by training the add-on. `|g|` is logged per epoch; it shows whether the model chose to use the add-on.
-- **Why the MLP control and not K=1:** with K=1, `CrossRead` returns zeros, so the debate receives no input. That arm would be "L2 with debate removed", not a same-size control. The MLP control answers the reviewer's question: *is any gain from the sandbox mechanism or from 19.6M extra parameters?*
-- **Reading the outcome:** sandbox better than both → evidence for the mechanism. Sandbox ≈ MLP control > baseline → capacity, not debate. All equal → tie (reported; the thesis pre-committed to this).
+- **Zero-init gate:** at step 0 both arms produce the backbone's logits exactly (tested). Any later difference is caused by training the add-on. `|g|` is logged per epoch; it shows whether the model chose to use the add-on.
+- **Architecture-matched, not parameter-matched:** the sandbox arm adds 19.59M parameters and more compute per token. A same-size control arm was designed and then removed on 2026-10-23 at the user's request; the thesis states the limitation.
+- **Reading the outcome:** sandbox better than baseline (CI below 0) → L2 helps, with the capacity caveat. CI containing 0 → tie (reported; the thesis pre-committed to this).
 - L2 is per-position (debate and descent mix the K trajectories at one token position only), so generation reuses the backbone's KV cache and applies the add-on to each new token's hidden state.
-- New config fields: `backbone` (`"ekdant"` = v1 from-scratch model, or a HF model id), `addon` (`none|sandbox|mlp`), `sandbox_rounds`, `sandbox_mlp_ratio`. The v1 configs keep their old values.
+- New config fields: `backbone` (`"ekdant"` = v1 from-scratch model, or a HF model id), `addon` (`none|sandbox`), `sandbox_rounds`, `sandbox_mlp_ratio`. The v1 configs keep their old values.
 
 ## 4. Data and protocol
 
@@ -108,12 +109,12 @@ Changed: `model.py` (add-on block + gate, `backbone` switch), `sandbox.py` (`mlp
 
 ## 9. Tests (CPU, no downloads: a tiny random `LlamaConfig` stands in for SmolLM2)
 
-1. At init, `sandbox` and `mlp_control` logits equal `baseline` logits exactly.
+1. At init, `sandbox` logits equal `baseline` logits exactly.
 2. Labels are `-100` on every prompt token; loss counts answer tokens only.
 3. The MedQuAD split puts no question in two sets; it is identical across calls with the same seed.
 4. ROUGE-L and token F1 give known values on fixed strings; bootstrap CI contains the true difference on a synthetic case.
 5. KV-cache greedy generation equals full-forward argmax decoding, with the sandbox add-on on.
-6. `mlp_control` added params are within 1 % of the sandbox arm's.
+6. Only the `baseline` and `sandbox` arms exist.
 7. Resume restores optimiser state (loss after resume equals uninterrupted loss on a toy run).
 8. All existing v1 tests keep passing (`--task mcq` unchanged).
 
@@ -122,15 +123,15 @@ Changed: `model.py` (add-on block + gate, `backbone` switch), `sandbox.py` (`mlp
 | Risk | Handling |
 |---|---|
 | Add-on gate stays ≈ 0 | Reported as a finding ("the model did not use L2"); `|g|` is logged |
-| A tie | Pre-committed result (C24 framing); the MLP control still makes it interpretable |
+| A tie | Pre-committed result (C24 framing) |
 | Templated MedQuAD answers dominate perplexity | per-question-type breakdown |
 | Shared-GPU OOM | pre-flight free-memory check; one arm per non-zero GPU |
 | Catastrophic forgetting of phase 1 | PubMedQA held-out scored after phase 2 |
-| `transformers` version on the pod | pin a range tested against the pod's torch; CI test imports it |
+| `transformers` version on the pod | **resolved (T30):** pinned `>=4.45,<5` in `pyproject.toml` and `requirements.txt`; tested on PyTorch 2.2.2 + transformers 4.57.6 |
 
 ## 11. Vault updates when built (same change as the code)
 
-README, STATUS, `run.md` (all sections), RULES (facts, hard rules: three arms, perplexity is primary, majority-rate rule kept for `--task mcq`), `project_explanation.md`, 01 overview, 02 architecture + codebase map + config guide + API reference, 22/26c (L2 at R=4, 4× MLP, gated residual), 05 data pipeline (new datasets and split), 07/09/13/14 training-eval, 10 Known Issues (v1 → v2 decision), 11 Future Work, `thesis.tex` + `thesis.md` (backbone and data chapters rewritten; v1 kept as the "from-scratch pilot" that motivated v2), GLOSSARY.
+README, STATUS, `run.md` (all sections), RULES (facts, hard rules: two arms, perplexity is primary, majority-rate rule kept for `--task mcq`), `project_explanation.md`, 01 overview, 02 architecture + codebase map + config guide + API reference, 22/26c (L2 at R=4, 4× MLP, gated residual), 05 data pipeline (new datasets and split), 07/09/13/14 training-eval, 10 Known Issues (v1 → v2 decision), 11 Future Work, `thesis.tex` + `thesis.md` (backbone and data chapters rewritten; v1 kept as the "from-scratch pilot" that motivated v2), GLOSSARY.
 
 ## 12. Out of scope for v2
 

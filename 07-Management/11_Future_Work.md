@@ -2,8 +2,9 @@
 
 ## Critical (must finish for thesis defense)
 
-- **Run v2, all three arms** — `run.md` Part A: SmolLM2-135M `baseline` / `sandbox` / `mlp_control`, one per free A100, then `python -m ekdant.gen_eval compare`. Fills the v2 results tables (benchmark perplexity with 95 % CI, ROUGE-L / F1, gate size, cost). A tie is reported as a tie.
+- **Run v2, both arms** — `run.md` Part A: SmolLM2-135M `baseline` / `sandbox`, one per free A100, then `python -m ekdant.gen_eval compare`. Fills the v2 results tables (benchmark perplexity with 95 % CI, ROUGE-L / F1, gate size, cost). A tie is reported as a tie.
 - **Measure v2 time and memory** on the A100s and write them into `run.md` A3 (currently not measured).
+- **Parameter-matched control** — a same-size non-sandbox block (removed from v2 on 2026-10-23) would show whether a gain comes from the mechanism or from +19.59M parameters.
 - **Multi-seed v2** if any CI excludes 0 — one seed cannot rule out a lucky split of training order.
 
 **v1 items below are superseded by v2** (T28) and kept for the record:
@@ -18,7 +19,7 @@
 ## High (should finish)
 
 - **L1 integration** — add `ssm_storage.py` (selective SSM, three stores) before T, the L1 → T shape assertion (T9), the O(1)-state proof (same `compressed [B, 3·d_state]` shape and flat peak memory for T = 512 / 2048 / 4096), and the M3 write-back. Unlocks RQ1 and the layer-addition ladder (backbone-only → +L2 → +L1+L2). Until then the thesis states L1 as specified-not-built.
-- **CI** — `pytest -q` on every push in `09-Code/` (131 tests, CPU, ~10 s).
+- **CI** — `pytest -q` on every push in `09-Code/` (133 tests, CPU, ~10 s).
 - **Cost report** — tokens × K, FLOPs, wall-clock per arm (C8); the runner currently logs tok/s only.
 - **Rebuild `thesis.pdf`** from the updated `thesis.tex` (`pdflatex` three times); the committed PDF predates the T + L2 alignment.
 

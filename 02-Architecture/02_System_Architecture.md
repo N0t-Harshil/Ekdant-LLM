@@ -19,11 +19,10 @@ input ids ─► SmolLM2-135M (30 layers, H=576, 9 heads / 3 KV, vocab 49,152, t
 |---|---|---|---|
 | `baseline` | — (`h' = h`) | 0 | 134,515,008 |
 | `sandbox` | L2 consensus: K=4, **R=4 debate rounds, debate MLP 4×**, S=8 anchored descent (η=0.0625), mean readout | 19,592,064 | 154,107,072 |
-| `mlp_control` | pre-norm SwiGLU sized to the sandbox add-on (±1 %) | 19,591,488 | 154,106,496 |
 
-- **Zero-init gate:** every arm produces the backbone's exact logits at step 0, so any later difference comes from training the add-on. `|g|` (mean absolute gate) is logged; it shows whether the model uses the add-on.
+- **Zero-init gate:** both arms produce the backbone's exact logits at step 0, so any later difference comes from training the add-on. `|g|` (mean absolute gate) is logged; it shows whether the model uses the add-on.
 - **L2 scaled to the model:** v1's L2 was 13.1 % of its model (6.56M of 50.09M); at R=4 / 4× the v2 L2 is 12.7 %. The old R=2 / 2× setting would be only 8.30M (5.8 %).
-- **Why the MLP control:** with K=1 the debate reads nothing (`CrossRead` returns zeros), so K=1 is "L2 without debate", not a same-size control. The MLP control separates "the sandbox mechanism helps" from "19.6M more parameters help".
+- **Architecture-matched, not parameter-matched:** the sandbox arm has +19.59M parameters and more compute per token, so a gain could come from capacity; a same-size control is future work (it was removed from v2 on 2026-10-23).
 - **Loss:** next-token CE on **answer tokens only** + the spread floor `λ_sbx · relu(ρ_min − ρ)²` (sandbox arm; ρ over answer tokens).
 - **Generation:** L2 mixes trajectories within one position only, so decoding reuses the backbone's KV cache and applies the add-on to each new token (tested).
 - Code: `backbone.py` (load SmolLM2, offline-first, cast to float32), `model.py` (`V2Config`, `GatedAddOn`, `EkdantLM`), `gen_data.py`, `gen_eval.py`, `train_gen.py`. Runbook: [run.md](../run.md) Part A.
@@ -178,7 +177,7 @@ graph TB
 
 The runnable workflow lives in `09-Code/` (the T + L2 (no L1) build; `pip install -e .` first). From `09-Code/`:
 
-- **Unit tests:** `pytest -q` — 131 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py`, `tests/test_schedule.py`, `tests/test_eval_split.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas, LR schedule, benchmark 60/40 partition, answer-weight loss). Ops runbook: [`run.md`](../run.md).
+- **Unit tests:** `pytest -q` — 133 tests in `tests/test_model.py`, `tests/test_sandbox.py`, `tests/test_transformer.py`, `tests/test_data.py`, `tests/test_schedule.py`, `tests/test_eval_split.py` (forward shapes, A/B config match, gradient flow, spread floor, data schemas, LR schedule, benchmark 60/40 partition, answer-weight loss). Ops runbook: [`run.md`](../run.md).
 - **Train (single GPU):** `python -m ekdant.train --variant sandbox --out runs/sandbox` or `python -m ekdant.train --variant baseline --out runs/baseline` — **sequential protocol in one invocation: (1) train on all of MedMCQA → record the MedMCQA validation result (`phase1`), (2) fine-tune on a seed-locked 60% partition of MedQA train, (3) benchmark the complementary 40% exactly once + the official MedQA test (also untouched)**; the untouched MedMCQA validation set drives per-epoch `best.pt` selection, and the final checkpoint is the better of `best.pt` vs `last.pt` on that validation set (recorded in `selected`). Live telemetry every `--log-every` (default 100) optimizer steps — step/total, % of phase, EMA loss, LR, grad norm, tok/s, ETA — plus per-epoch summaries, `--eval-every` validation evals, and `history[loss,lr,gnorm,test]` in `results.json` (`test{medmcqa_val, medqa_bench, medqa_test}` + `phase1` + `selected`). **Current recipe: `--epochs 2 --batch-size 6 --grad-accum 8 --ft-lr 5e-5 --ft-epochs 10 --answer-weight 10`** (phase-1 validation peaks at epoch 1, T25) — 8,884 optimizer steps; the older 100-epoch campaign was 381,480 (the `--ft-*` knobs cap the 6,106-row fine-tune — T21; `--answer-weight` re-weights the 1-token answer-letter CE that plain LM loss dilutes ~97–99% — T22); measured 6.3 opt steps/s on a T4 (the collator pads to batch max; measured p50 34 MedMCQA / 173 MedQA tokens, max 857, 0 rows exceed 2048) for 100 epochs ≈ **17.3 h baseline + ~26 h sandbox**; the 2-epoch recipe took ~45 min (baseline) on a shared 80 GB GPU (scale table, protocol, eval semantics, and progress-line glossary in [`run.md`](../run.md) §3).
 - **Train (multi-GPU):** `torchrun --nproc_per_node=4 -m ekdant.train --variant sandbox --out runs/sandbox` (one variant at a time). Configs: `configs/sandbox_50m.json`, `configs/baseline_50m.json` (identical architecture; only `use_sandbox` differs; both seq 2048).
 
@@ -237,7 +236,7 @@ Shipped reality check (measured, `09-Code`): at N_T=12 the A/B comes to **sandbo
 
 ## 13. Test plan
 
-Shipped tests live at `09-Code/tests/` (`test_model`, `test_sandbox`, `test_transformer`, `test_data`, `test_schedule`, `test_eval_split` — 131 passing; see [09](../06-Training-Eval/09_Validation_System.md)). The table is the thesis L1+T+L2 test plan; L1 rows are design-only (L1 not in the current package).
+Shipped tests live at `09-Code/tests/` (`test_model`, `test_sandbox`, `test_transformer`, `test_data`, `test_schedule`, `test_eval_split` — 133 passing; see [09](../06-Training-Eval/09_Validation_System.md)). The table is the thesis L1+T+L2 test plan; L1 rows are design-only (L1 not in the current package).
 
 | Test | Proves (spec §) |
 |---|---|
@@ -257,7 +256,7 @@ Shipped tests live at `09-Code/tests/` (`test_model`, `test_sandbox`, `test_tran
 | Allowed (PyTorch core + boring deps) | Blocked for L1/T/L2 (thesis build) |
 |---|---|
 | `torch` (incl. SDPA), `einops`-free code preferred | `mamba-ssm`, `causal-conv1d`, `flash-attn`, `triton` kernels |
-| `transformers` (tokenizer only), `datasets`, `pydantic`, `pyyaml` | AutoGen / CrewAI / LangGraph / any agent framework |
-| `numpy` | Pretrained SSM weights (train from scratch) |
+| `transformers` `>=4.45,<5` (v2: loads the pretrained SmolLM2-135M backbone; pinned for the pod's PyTorch 2.2.2, T30), `datasets`, `tokenizers` | AutoGen / CrewAI / LangGraph / any agent framework |
+| `numpy` | Pretrained SSM weights (L1/T/L2 are built here; only the v2 backbone is pretrained) |
 
 CI guard: `test_model_has_no_blocked_imports` and `test_no_blocked_imports_in_ekdant_package` assert no blocked import inside `src/ekdant/`; the shipped package contains none — every kernel is pure PyTorch.

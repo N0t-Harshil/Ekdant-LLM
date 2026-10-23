@@ -17,7 +17,7 @@ def _arms(seed=0):
     torch.manual_seed(seed)
     lm = tiny_llama()
     return {a: EkdantLM(V2Config(addon=a, **SMALL), copy.deepcopy(lm)).eval()
-            for a in ("none", "sandbox", "mlp")}
+            for a in ("none", "sandbox")}
 
 
 def _batch():
@@ -32,8 +32,7 @@ def test_all_arms_equal_backbone_at_init():
     ids, mask = _batch()
     arms = _arms()
     ref = arms["none"](ids, attention_mask=mask).logits
-    for a in ("sandbox", "mlp"):
-        assert torch.equal(arms[a](ids, attention_mask=mask).logits, ref), a
+    assert torch.equal(arms["sandbox"](ids, attention_mask=mask).logits, ref)
 
 
 def test_loss_counts_answer_tokens_only():

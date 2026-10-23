@@ -203,9 +203,8 @@ answer-letter prior: every score sat at the rate of always choosing the most
 common letter, so it could not test L2. The evaluated configuration therefore
 places L2 on a pretrained SmolLM2-135M backbone as a zero-initialised gated
 residual, scaled to the same share of the model (19.59M of 154.11M
-parameters), and compares three arms that start identical: the backbone alone,
-the backbone with L2, and the backbone with a same-size feed-forward block. All
-three are trained on PubMedQA (question and abstract to conclusion), fine-tuned
+parameters), and compares two arms that start identical: the backbone alone
+and the backbone with L2. Both are trained on PubMedQA (question and abstract to conclusion), fine-tuned
 on half of MedQuAD and benchmarked once on the other half, split by question,
 using reference-answer perplexity with a paired-bootstrap confidence interval
 as the primary measure. Every falsifiable claim in the supporting vault
@@ -286,10 +285,9 @@ collapse.
         closest compute-matched published study reports \emph{no reliable
         gain} for its own version of this mechanism
         (Section~\ref{sec:counter-evidence}).
-  \item \textbf{A three-arm test of L2 on a pretrained backbone.} L2 enters
-        as a zero-initialised gated residual, so every arm starts as the same
-        pretrained model; a same-size feed-forward control separates a gain
-        from the mechanism from a gain from parameters
+  \item \textbf{A clean test of L2 on a pretrained backbone.} L2 enters
+        as a zero-initialised gated residual, so both arms start as the same
+        pretrained model and any later difference is caused by training L2
         (Section~\ref{sec:v2}).
   \item \textbf{A falsifiability apparatus.} 66 locally stored papers, a
         claim-to-evidence index, hand-worked numerical examples requiring only
@@ -307,10 +305,10 @@ collapse.
     Section~\ref{sec:rq1} so the follow-up is pre-specified.
   \item[RQ2 (reasoning)] On generative medical question answering, does
     adding the $K$-trajectory sandbox to a pretrained backbone lower the
-    perplexity of held-out reference answers more than adding a feed-forward
-    block of the same size, and more than further training of the backbone
-    alone? The same-size control makes the comparison parameter-matched as
-    well as architecture-matched (Section~\ref{sec:v2}).
+    perplexity of held-out reference answers more than further training of
+    the backbone alone? The comparison is architecture-matched, not
+    parameter-matched: the sandbox arm carries $+19.59$M parameters and extra
+    compute (Section~\ref{sec:v2}).
   \item[RQ3 (honesty)] Is trajectory agreement calibrated against per-example
     accuracy, and can collapse be detected early by a monitored statistic
     rather than discovered post hoc?
@@ -1382,7 +1380,6 @@ replaced the backbone state.
 \midrule
 Baseline & none ($h'=h$) & 134{,}515{,}008 \\
 Sandbox & L2 consensus, $K{=}4$, $R{=}4$, MLP $4\times$, $S{=}8$ & 154{,}107{,}072 ($+19{,}592{,}064$) \\
-MLP control & pre-norm SwiGLU of matched size & 154{,}106{,}496 ($+19{,}591{,}488$) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1390,9 +1387,7 @@ MLP control & pre-norm SwiGLU of matched size & 154{,}106{,}496 ($+19{,}591{,}48
 \noindent
 L2 is scaled to the share of the model it had in the pilot (13.1\%): four
 debate rounds with a debate MLP of width $4H$ give 12.7\%, whereas the pilot's
-two rounds of width $2H$ would give 5.8\% at this width. The MLP control is
-needed because $K=1$ is not a size-matched control: with one trajectory the
-cross-read has nothing to attend to and the debate receives zero input. Since
+two rounds of width $2H$ would give 5.8\% at this width. Since
 every L2 operation is per position, decoding reuses the backbone's key--value
 cache and applies the add-on to each new token's state.
 
@@ -1706,8 +1701,8 @@ are included in the parameter counts.
 % =====================================================================
 
 \noindent
-\textbf{Evaluated configuration.} All three arms share one recipe and one
-data order, so the add-on is the only variable: AdamW with two learning-rate
+\textbf{Evaluated configuration.} Both arms share one recipe and one
+data order, so L2 is the only variable: AdamW with two learning-rate
 groups (backbone $5\times10^{-5}$; add-on and gate $10^{-3}$, without weight
 decay on the gate), a cosine schedule per phase with 200 warm-up steps,
 gradient clipping at $1.0$, bf16 autocast on A100 GPUs, and an effective batch
@@ -1769,7 +1764,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 131-test unit suite must
+one epoch, with save, resume and evaluation) and the 133-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1800,7 +1795,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by a $131$-test CPU unit suite
+Correctness is gated by a $133$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises
@@ -1891,7 +1886,7 @@ target, which isolates the correction of Defect~1.
 
 \noindent
 \paragraph{Evaluated configuration (pending).}
-The three-arm runs are prepared and tested but not yet performed. A CPU run on
+The two runs are prepared and tested but not yet performed. A CPU run on
 a few dozen rows with the real backbone completed end to end as a pipeline
 check; it is not a result.
 
@@ -1903,7 +1898,6 @@ check; it is not a result.
 \midrule
 Baseline & \textit{[PENDING]} & \textit{[PENDING]} & --- & \textit{[PENDING]} & --- \\
 Sandbox & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} \\
-MLP control & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -2035,6 +2029,11 @@ tie.
   \item[Scale.] At the 135M-parameter scale (and 50M in the pilot), absolute
     numbers will be far below published frontier results. The claims are about
     \emph{mechanisms} moving a metric, never about state-of-the-art quality.
+  \item[Not parameter-matched.] The sandbox arm has $19.59$M more
+    parameters than the baseline and does more work per token, so a gain could
+    come from added capacity rather than from the debate mechanism. A
+    same-size non-sandbox block would separate the two; it is not part of this
+    evaluation and remains future work.
   \item[Pretrained backbone.] The evaluated L2 is an add-on to a model trained
     elsewhere on about two trillion tokens; a result says whether L2 helps
     such a model, not whether it helps a model trained from scratch, and the
@@ -2087,8 +2086,11 @@ tie.
 \noindent
 For the evaluated configuration: seed $17$ (which also fixes the PubMedQA
 hold-out, the MedQuAD question split and every epoch's data order); one
-configuration file for all three arms; checkpoints that store the optimiser
-state and the position inside an epoch, so an interrupted run resumes exactly.
+configuration file for both arms; checkpoints that store the optimiser
+state and the position inside an epoch, so an interrupted run resumes exactly;
+and pinned dependencies (\texttt{09-Code/requirements.txt}), tested with
+PyTorch~2.2.2 and \texttt{transformers}~4.57.6, the versions on the training
+machine.
 For the pilot: seed $17$ (which also locks the 60/40 MedQA partition); a small set of
 configuration knobs, each mapped to an ablation; two committed configuration
 files that differ only in \texttt{use\_sandbox}; a tokenizer saved with each
@@ -2118,8 +2120,8 @@ inspectable by materializing several live hypotheses and lets them confront
 one another. In the from-scratch pilot, both arms learned only the
 answer-letter prior, so the head-to-head ended in an uninformative tie; the
 evaluated configuration therefore tests L2 on a pretrained backbone against
-both the backbone alone and a same-size control, and its results will be
-reported as they stand, including a tie.
+the backbone alone, and its results will be reported as they stand, including
+a tie.
 
 \noindent
 The substantive result of this thesis is as much about the corrections as

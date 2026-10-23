@@ -9,7 +9,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 1. **Never invent a number.** Every number you write (accuracy, parameter count, row count, step count, test count) must come from the code, a config, a log, `results.json`, or an existing vault file you just read. If you cannot point to the source, write `[PENDING]` or ask.
 2. **L1 is not built.** The selective-SSM storage layer (L1) and the M3 write-back are *specified* in the vault and thesis but **do not exist in code**. Never describe them as implemented, trained, measured or tested.
 3. **Never touch the benchmark protocols** without the user explicitly asking. **v2 (current, `--task gen`):** PubMedQA `pqa_artificial` (phase 1, 2,000 rows held out) → MedQuAD fine-tune half (phase 2; 10 % of its questions pick the checkpoint) → MedQuAD benchmark half scored once. MedQuAD is split by unique question — never let one question reach two sets. **v1 (`--task mcq`):** MedMCQA (phase 1) → seed-locked 60 % of MedQA (phase 2) → untouched 40 % benchmark scored once. In both: never train on the benchmark, never select a checkpoint on it; never score MedMCQA's public **test** split (no labels, `cop = -1`).
-4. **Keep the comparison fair.** v2: the three arms (`baseline`, `sandbox`, `mlp_control`) share one config file and differ **only** in `--variant` (the add-on); every flag is identical. v1: `sandbox_50m.json` and `baseline_50m.json` differ **only** in `use_sandbox`. Anything that changes one arm's training must change every arm's identically.
+4. **Keep the comparison fair.** v2: the two arms (`baseline`, `sandbox`) share one config file and differ **only** in `--variant` (L2 or not); every flag is identical. v1: `sandbox_50m.json` and `baseline_50m.json` differ **only** in `use_sandbox`. Anything that changes one arm's training must change every arm's identically.
 5. **No external kernels or frameworks.** Never add `mamba-ssm`, `causal-conv1d`, `flash-attn`, `triton`, AutoGen, CrewAI, LangGraph. The only pretrained weights are the v2 backbone (SmolLM2-135M through `transformers`, approved by the user 2026-10-22). Do not add any other dependency or model without asking.
 6. **Every code fix gets a test** in `09-Code/tests/`, and the full suite must pass before you say you are done.
 7. **Code and vault move together.** A change is not finished until every vault file that describes it is updated (see §6, the sync map).
@@ -25,7 +25,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 |---|---|---|
 | Degree | MSc thesis, Hochschule Heilbronn | `08-Thesis/thesis.tex` title page |
 | Built model, v2 (current) | `SmolLM2-135M → last hidden state h → h + g ⊙ (f(h) − h) → SmolLM2 tied lm_head`; `g ∈ R^576` starts at 0, so every arm equals the backbone at step 0 | `09-Code/src/ekdant/model.py` (`EkdantLM`, `GatedAddOn`), `backbone.py` |
-| v2 arms | `baseline` (no add-on) **134,515,008** params; `sandbox` (+L2 **19,592,064**, total 154,107,072, 12.7 %); `mlp_control` (+SwiGLU **19,591,488**) | measured with `count_parameters` on the real backbone |
+| v2 arms | `baseline` (no add-on) **134,515,008** params; `sandbox` (+L2 **19,592,064**, total 154,107,072, 12.7 %) | measured with `count_parameters` on the real backbone |
 | v2 L2 | K=4, **R=4 debate rounds, debate MLP 4×**, S=8, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` (scaled to v1's 13.1 % share of the model) | `configs/v2_smollm2_135m.json` |
 | v2 data | PubMedQA `pqa_artificial` 211,269 (2,000 held out); MedQuAD 16,407 rows / 14,345 unique questions, split 50/50 by question, 10 % of the fine-tune half's questions = validation | `gen_data.py`, `train_gen.py` |
 | v2 metrics | reference-answer perplexity (primary) + per-question-type; ROUGE-L / token F1 on 1,000 generated answers; paired bootstrap 95 % CI between arms | `gen_eval.py` |
@@ -37,6 +37,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 | Data | MedMCQA 182,496 labelled train / 4,183 val (4,170 usable after row filters); MedQA 10,178 train → 6,106 fine-tune / 4,072 benchmark; MedQA test 1,273 | `09-Code/src/ekdant/data.py`, `train.py` |
 | Seed | 17 (also fixes the 60/40 MedQA split) | `train.py --seed` |
 | Tokenizer | BPE, 32,768 configured (26,766 actually learned), lower-cased | `data.py::Tokenizer` |
+| Dependencies | `torch>=2.2`, `datasets>=2.19,<5`, `pyarrow>=12,<21`, `tokenizers>=0.19`, `transformers>=4.45,<5`, `pytest>=8`; tested on PyTorch 2.2.2 + transformers 4.57.6 (pod mirror) and PyTorch 2.9.0 | `09-Code/requirements.txt` = `pyproject.toml` (`tests/test_requirements.py`) |
 | Tests | run `pytest -q` and count — do not trust a number written in a doc | `09-Code/tests/` |
 | Completed results | v2: none yet (`[PENDING]`). v1: 3-epoch A/B tie (MedMCQA val 33.31 % vs 32.01 %); legacy 100-epoch baseline (33.33 % / `medqa_bench` 26.89 %); 2-epoch baseline 33.91 % / 25.44 % / 29.62 % — all at the majority-letter rate (T27) | `run.md` §6, `07-Management/10_Known_Issues.md` |
 
@@ -159,6 +160,7 @@ EOF
 | Any behaviour in `model.py` / `sandbox.py` / `transformer_stack.py` | `02-Architecture/API_Reference.md`, `02_System_Architecture.md`, the matching `04-Model-DeepDive/26*` build manual, `thesis.tex` if the method text describes it |
 | `train_gen.py` / `gen_data.py` / `gen_eval.py` / `backbone.py` (v2) | `run.md` Part A, `05-Data/05_Data_Pipeline.md` §v2, `06-Training-Eval/07_Training_Pipeline.md` §v2, `09_Validation_System.md`, `API_Reference.md`, `thesis.tex` §Data / §Evaluation |
 | `train.py` flags or protocol | `09-Code/README.md` flag table, `run.md` (§3 flags, §6, §8), `06-Training-Eval/07_Training_Pipeline.md`, `12_Configuration_Guide.md` §2 |
+| A dependency or version pin | `09-Code/pyproject.toml` **and** `09-Code/requirements.txt` (the test fails otherwise), `run.md` A1 requirements table, `09-Code/README.md` Install, RULES §1 |
 | A config JSON | `12_Configuration_Guide.md` §1, `thesis.tex` parameter table if sizes change, `estimate_model_size` tests |
 | `data.py` | `05-Data/05_Data_Pipeline.md`, `thesis.tex` §Data, `thesis.md` Ch. 4 |
 | Number of tests | every doc that states the count — find them with `git grep -n "[0-9]\+ tests\|[0-9]\+-test\|[0-9]\+ passing"` and set them to what `pytest -q` printed; also the per-file table in `09_Validation_System.md` |
@@ -210,7 +212,7 @@ After the sync, `grep` again for the old wording/number to make sure no copy is 
 
 End every task with a short report, in this order:
 1. **What changed** — files and the reason, one line each.
-2. **Verification** — the exact test result (`131 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
+2. **Verification** — the exact test result (`133 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
 3. **What you did not do** and **decisions for the user** — open questions, risks (e.g. "this changes the sandbox arm's training; the baseline is unaffected"), recommendations you chose not to implement.
 
 No filler, no praise of the work, no claims beyond what you verified.
@@ -225,10 +227,11 @@ No filler, no praise of the work, no claims beyond what you verified.
 - A trailing gradient-accumulation group used to leak into the next epoch (T23).
 - `load_dataset` used to stall on hub checks → loading is offline-first (T19). Do not re-enable online checks by default. The empty-cache fallback must flip `datasets.config.HF_HUB_OFFLINE` (not only the `HF_DATASETS_OFFLINE` alias) or a fresh machine cannot download (T26).
 - v2: the shared pod has 4× A100 80 GB used by other people; GPU 0 is often nearly full. Pin each run with `CUDA_VISIBLE_DEVICES`; `train_gen.py` refuses to start below `--min-free-gb` (the v1 sandbox OOM).
+- v2: the pod has PyTorch 2.2.2; `transformers` 5.x needs ≥ 2.6 and silently disables its models, so it is pinned `<5` (T30). Do not raise the pin without upgrading PyTorch on the pod.
 - v2: `transformers` 5 loads SmolLM2 in bf16; `load_backbone` casts to float32 or the float32 add-on crashes (`test_load_backbone_returns_float32`).
 - v2: a perplexity gap is real only if the paired-bootstrap 95 % CI excludes 0 (`gen_eval compare`, token-weighted like the headline perplexity); otherwise it is a tie.
 - v2 fairness: gradients are clipped separately for the backbone and the add-on (`clip_grads`), so the add-on can never shrink the backbone's update relative to the baseline arm.
 - **Never compare with 25 % chance** (v1). Compare with the majority rate: MedMCQA val 32.11 % (A), `medqa_bench` 25.69 % (B), `medqa_test` 27.73 % (A), and quote `pred_counts` (T27).
 - The tokenizer lower-cases, so the answer tokens are `a b c d` and `a` is also the English article. Keep this in mind when reasoning about letter priors; changing it means retraining both arms.
 - Sandbox statistics must ignore padding, and the `lowest_energy` readout must be chosen per position (T24).
-- v1's A/B is *architecture*-matched, not *parameter*-matched — always say so next to any v1 comparison. v2 adds `mlp_control` precisely so the sandbox is also compared at matched parameters.
+- v1's A/B is *architecture*-matched, not *parameter*-matched — always say so next to any v1 comparison. So is v2's (+19.59M for the sandbox arm); the same-size control was removed on 2026-10-23 at the user's request — do not re-add it without asking.

@@ -135,8 +135,8 @@ def test_fresh_run_guard(tiny, tmp_path):
 def test_task_dispatch(monkeypatch, capsys):
     seen = {}
     monkeypatch.setattr(G, "main", lambda argv: seen.setdefault("argv", argv))
-    T.main(["--task", "gen", "--variant", "mlp_control", "--out", "x"])
-    assert seen["argv"] == ["--variant", "mlp_control", "--out", "x"]
+    T.main(["--task", "gen", "--variant", "sandbox", "--out", "x"])
+    assert seen["argv"] == ["--variant", "sandbox", "--out", "x"]
     with pytest.raises(SystemExit) as e:
         T.main(["--task", "mcq", "--help"])
     assert e.value.code == 0
@@ -218,3 +218,14 @@ def test_pick_device_never_falls_back_to_cpu_silently(monkeypatch):
     with pytest.raises(SystemExit):
         G.pick_device("auto", 20)
     assert G.pick_device("cpu", 20) == torch.device("cpu")
+
+
+def test_v2_has_only_baseline_and_sandbox_arms():
+    # the same-size MLP control arm was removed at the user's request
+    # (2026-10-23): v2 is a two-arm A/B, baseline vs sandbox
+    from ekdant.model import V2Config
+    assert set(G.ADDON) == {"baseline", "sandbox"}
+    with pytest.raises(ValueError):
+        V2Config(addon="mlp").validate()
+    with pytest.raises(SystemExit):
+        G.build_parser().parse_args(["--variant", "mlp_control", "--out", "x"])

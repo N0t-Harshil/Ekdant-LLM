@@ -21,7 +21,7 @@ import torch.nn.functional as F
 
 from ekdant.output_head import OutputHead
 from ekdant.sandbox import Sandbox, SandboxOutput
-from ekdant.transformer_stack import RMSNorm, SwiGLU, TransformerStack
+from ekdant.transformer_stack import RMSNorm, TransformerStack
 
 RHO_MIN_DEFAULT = 0.05
 
@@ -213,44 +213,25 @@ def baseline_config(cfg: EkdantConfig) -> EkdantConfig:
 
 
 # ---------------------------------------------------------------------------
-# v2: add-on blocks on a pretrained backbone (spec 07-Management/30 §3).
+# v2: L2 on a pretrained backbone (spec 07-Management/30 §3).
 # ---------------------------------------------------------------------------
 
-def mlp_hidden_for(target_params: int, dim: int) -> int:
-    """SwiGLU hidden width whose parameter count (3*dim*hidden weights +
-    dim for the pre-norm) is closest to ``target_params``."""
-    return max(1, round((target_params - dim) / (3 * dim)))
-
-
 class GatedAddOn(nn.Module):
-    """``h + g * (f(h) - h)`` with ``g`` a per-channel gate initialised to 0.
+    """``h + g * (consensus(h) - h)`` with ``g`` a per-channel gate
+    initialised to 0, where ``consensus`` is the L2 sandbox.
 
-    At step 0 the output is exactly ``h``, so every arm starts as the
-    backbone; any later difference comes from training the add-on.
-    ``kind="sandbox"``: ``f`` = the L2 consensus.  ``kind="mlp"``: ``f`` =
-    a pre-norm SwiGLU block of matched size (the capacity control)."""
+    At step 0 the output is exactly ``h``, so the sandbox arm starts as the
+    backbone; any later difference comes from training L2."""
 
-    def __init__(self, dim: int, kind: str, sandbox_kwargs: Dict,
-                 mlp_hidden: int):
+    def __init__(self, dim: int, sandbox_kwargs: Dict):
         super().__init__()
-        if kind not in ("sandbox", "mlp"):
-            raise ValueError(f"kind must be sandbox|mlp, got {kind!r}")
-        self.kind = kind
         self.gate = nn.Parameter(torch.zeros(dim))
-        if kind == "sandbox":
-            self.sandbox = Sandbox(dim, **sandbox_kwargs)
-        else:
-            self.norm = RMSNorm(dim)
-            self.mlp = SwiGLU(dim, mlp_hidden)
+        self.sandbox = Sandbox(dim, **sandbox_kwargs)
 
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        if self.kind == "sandbox":
-            out = self.sandbox(h, mask=mask)
-            f, aux = out.consensus, out.aux
-        else:
-            f, aux = self.mlp(self.norm(h)), {}
-        return h + self.gate * (f - h), aux
+        out = self.sandbox(h, mask=mask)
+        return h + self.gate * (out.consensus - h), out.aux
 
     def gate_magnitude(self) -> float:
         return float(self.gate.detach().abs().mean())
@@ -258,8 +239,8 @@ class GatedAddOn(nn.Module):
 
 @dataclass
 class V2Config:
-    """v2: pretrained backbone + one add-on (``none|sandbox|mlp``).  The
-    sandbox defaults scale L2 to the v1 share of the model (spec §3)."""
+    """v2: pretrained backbone, with (``sandbox``) or without (``none``) L2.
+    The sandbox defaults scale L2 to the v1 share of the model (spec §3)."""
     backbone: str = "HuggingFaceTB/SmolLM2-135M"
     addon: str = "none"
     n_sandbox: int = 4
@@ -274,8 +255,8 @@ class V2Config:
     max_answer: int = 512
 
     def validate(self) -> "V2Config":
-        if self.addon not in ("none", "sandbox", "mlp"):
-            raise ValueError(f"addon must be none|sandbox|mlp, got {self.addon!r}")
+        if self.addon not in ("none", "sandbox"):
+            raise ValueError(f"addon must be none|sandbox, got {self.addon!r}")
         if self.readout not in ("mean", "lowest_energy"):
             raise ValueError(f"unknown readout {self.readout!r}")
         return self
@@ -307,10 +288,7 @@ class EkdantLM(nn.Module):
         dim = lm.config.hidden_size
         self.addon: Optional[GatedAddOn] = None
         if cfg.addon == "sandbox":
-            self.addon = GatedAddOn(dim, "sandbox", cfg.sandbox_kwargs(), 0)
-        elif cfg.addon == "mlp":
-            target = count_parameters(Sandbox(dim, **cfg.sandbox_kwargs()))
-            self.addon = GatedAddOn(dim, "mlp", {}, mlp_hidden_for(target, dim))
+            self.addon = GatedAddOn(dim, cfg.sandbox_kwargs())
 
     def forward(self, input_ids: torch.Tensor,
                 attention_mask: Optional[torch.Tensor] = None,

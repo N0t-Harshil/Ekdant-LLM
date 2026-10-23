@@ -8,7 +8,6 @@ from ekdant.model import (
     baseline_config,
     count_parameters,
     estimate_model_size,
-    mlp_hidden_for,
 )
 from ekdant.output_head import OutputHead
 from ekdant.sandbox import (
@@ -59,7 +58,6 @@ __all__ = [
     "baseline_config",
     "count_parameters",
     "estimate_model_size",
-    "mlp_hidden_for",
     "mutual_orthogonal",
     "repeat_kv",
     "rope_cache",

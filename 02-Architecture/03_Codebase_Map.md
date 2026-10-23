@@ -17,7 +17,7 @@ Runnable code lives at `09-Code/src/ekdant/` — a 7-module, pure-PyTorch packag
 | `__init__.py` | Re-exports |
 
 Plus:
-- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (131 tests, CPU)
+- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (133 tests, CPU)
 - `configs/` — `sandbox_50m.json`, `baseline_50m.json` (identical architecture, only `use_sandbox` differs)
 - `pyproject.toml`, `pytest.ini`, `README.md`
 
@@ -28,10 +28,11 @@ No `main.py`, no `scripts/`, no YAML size configs. Full shipped signatures: [API
 | File | Holds |
 |---|---|
 | `src/ekdant/backbone.py` | `load_backbone` (SmolLM2-135M, offline-first, cast to float32), `load_tokenizer` (pad falls back to EOS), `tiny_llama` (test stand-in) |
-| `src/ekdant/model.py` (v2 part) | `V2Config`, `mlp_hidden_for`, `GatedAddOn` (zero-init gated residual: sandbox or SwiGLU), `EkdantLM` (backbone → add-on → lm_head; answer-only loss + spread floor; KV cache; LR groups) |
+| `src/ekdant/model.py` (v2 part) | `V2Config`, `GatedAddOn` (zero-init gated residual around the L2 sandbox), `EkdantLM` (backbone → add-on → lm_head; answer-only loss + spread floor; KV cache; LR groups) |
 | `src/ekdant/gen_data.py` | `GenExample`, `load_pubmedqa`, `load_medquad`, `format_gen_prompt`, `GenDataset` (answer-only labels, 512/1,024 caps), `gen_collate`, `split_by_question`, `holdout` |
 | `src/ekdant/gen_eval.py` | `answer_nll`, `by_type`, `rouge_l`, `token_f1`, `score_generations`, `generate_greedy` (left-padded, KV cache), `paired_bootstrap`, `compare` CLI |
 | `src/ekdant/train_gen.py` | v2 protocol: GPU pre-flight, zero-shot → PubMedQA → MedQuAD fine-tune → benchmark; exact mid-epoch resume |
+| `requirements.txt` | the dependency pins, identical to `pyproject.toml` (`tests/test_requirements.py`); `transformers<5` for the pod's PyTorch 2.2.2 (T30) |
 | `configs/v2_smollm2_135m.json` | the one v2 config (all arms; `--variant` picks the add-on) |
 | `tests/test_addon.py`, `test_backbone.py`, `test_gen_data.py`, `test_gen_eval.py`, `test_train_gen.py` | 37 v2 tests (tiny random Llama, no downloads) |
 

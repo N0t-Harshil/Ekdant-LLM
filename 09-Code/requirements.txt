@@ -1,0 +1,27 @@
+# Ekdant requirements - keep identical to pyproject.toml [project.dependencies]
+# (+ the dev extra); tests/test_requirements.py fails if they drift apart.
+#
+#   pip install -e .[dev]          # preferred: installs the package + these
+#   pip install -r requirements.txt   # dependencies only (then PYTHONPATH=src)
+#
+# Tested combinations (all 131 tests pass, plus a real-SmolLM2 smoke run):
+#   training pod : Python 3.11, torch 2.2.2+cu121 (CUDA 12.2 driver), 4x A100
+#   pod mirror   : Python 3.12, torch 2.2.2+cpu, transformers 4.57.6,
+#                  datasets 4.0.0, pyarrow 20.0.0, tokenizers 0.22.2, numpy 1.26.4
+#   dev machine  : Python 3.12, torch 2.9.0+cpu, datasets 4.0.0, numpy 2.5.3
+
+torch>=2.2
+
+# datasets 5.x demands pyarrow>=24, which requires numpy>=2 and breaks
+# conda/Jupyter images pinned to numpy 1.x (the pod ships numpy 1.x).
+datasets>=2.19,<5
+pyarrow>=12,<21
+tokenizers>=0.19
+
+# v2 backbone (SmolLM2-135M). transformers 5.x needs PyTorch >= 2.6 and
+# silently disables its model classes on the pod's PyTorch 2.2.2 (T30):
+# "Disabling PyTorch because PyTorch >= 2.6 is required but found 2.2.2".
+transformers>=4.45,<5
+
+# tests
+pytest>=8

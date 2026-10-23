@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> [!note] **2026-10-23: the `mlp_control` arm was removed at the user's request.** v2 is a two-arm A/B (`baseline` vs `sandbox`). Consequence, stated in the thesis limitations: the comparison is architecture-matched, not parameter-matched (+19.59M for the sandbox arm). Same day: `transformers` pinned `<5`, because 5.x needs PyTorch ≥ 2.6 and the pod has 2.2.2 (T30).
+
 **Goal:** Put the L2 sandbox (and a same-size MLP control) on a pretrained SmolLM2-135M, train it on PubMedQA then half of MedQuAD, and benchmark the other half with perplexity, ROUGE-L, token F1 and a paired bootstrap.
 
 **Architecture:** A HF backbone produces the last hidden state; an arm-specific add-on joins as a zero-init gated residual `h + g ⊙ (f(h) − h)`; the backbone's tied `lm_head` produces logits. A new generative data/eval/training path sits beside the untouched v1 MCQ path and is selected with `--task gen`.

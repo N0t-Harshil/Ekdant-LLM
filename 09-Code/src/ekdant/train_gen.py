@@ -8,8 +8,8 @@
     final       better of best.pt / last.pt on the validation slice, then the
                 MedQuAD benchmark half (scored once) + PubMedQA held-out
 
-Arms: baseline (no add-on), sandbox (L2), mlp_control (same-size MLP).  All
-start identical (zero-init gate) and see identical data in identical order.
+Arms: baseline (the backbone alone) and sandbox (backbone + L2).  Both start
+identical (zero-init gate) and see identical data in identical order.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from ekdant.model import EkdantLM, V2Config, count_parameters
 from ekdant.train import fmt_duration, log, lr_at
 
 STAGES = ("pubmedqa", "medquad_ft")
-ADDON = {"baseline": "none", "sandbox": "sandbox", "mlp_control": "mlp"}
+ADDON = {"baseline": "none", "sandbox": "sandbox"}
 ROW_KEYS = ("row_nll", "row_tokens", "row_idx")
 
 
