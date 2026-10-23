@@ -212,7 +212,7 @@ After the sync, `grep` again for the old wording/number to make sure no copy is 
 
 End every task with a short report, in this order:
 1. **What changed** — files and the reason, one line each.
-2. **Verification** — the exact test result (`137 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
+2. **Verification** — the exact test result (`138 passed`), smoke runs, link check. If you could not verify something, say exactly what and why.
 3. **What you did not do** and **decisions for the user** — open questions, risks (e.g. "this changes the sandbox arm's training; the baseline is unaffected"), recommendations you chose not to implement.
 
 No filler, no praise of the work, no claims beyond what you verified.
@@ -225,7 +225,7 @@ No filler, no praise of the work, no claims beyond what you verified.
 - The answer letter is 1 token in ~34–173, so plain LM loss barely trains the decision → `--answer-weight` (T22).
 - Long fine-tunes on 6,106 MedQA rows memorise → `--ft-lr`, `--ft-epochs` (T21). Long phase-1 training memorises MedMCQA too → read the phase-1 validation curve (T25).
 - A trailing gradient-accumulation group used to leak into the next epoch (T23).
-- `load_dataset` used to stall on hub checks → loading is offline-first (T19). Do not re-enable online checks by default. The empty-cache fallback must flip `datasets.config.HF_HUB_OFFLINE` (not only the `HF_DATASETS_OFFLINE` alias) or a fresh machine cannot download (T26).
+- `load_dataset` used to stall on hub checks → loading is offline-first (T19). Do not re-enable online checks by default. The empty-cache fallback must flip `datasets.config.HF_HUB_OFFLINE` (not only the `HF_DATASETS_OFFLINE` alias) or a fresh machine cannot download (T26); with `transformers` 4.x it must also flip `transformers.utils.hub._is_offline_mode` (T31). Always test a download path with an **empty** `HF_HOME` — a warm cache hides these bugs.
 - v2: the shared pod has 4× A100 80 GB used by other people; GPU 0 is often nearly full. Pin each run with `CUDA_VISIBLE_DEVICES`; `train_gen.py` refuses to start below `--min-free-gb` (the v1 sandbox OOM).
 - v2: the pod has PyTorch 2.2.2; `transformers` 5.x needs ≥ 2.6 and silently disables its models, so it is pinned `<5` (T30). Do not raise the pin without upgrading PyTorch on the pod.
 - v2: `transformers` 5 loads SmolLM2 in bf16; `load_backbone` casts to float32 or the float32 add-on crashes (`test_load_backbone_returns_float32`).

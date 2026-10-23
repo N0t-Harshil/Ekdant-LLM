@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 from dataclasses import dataclass
 from numbers import Integral, Real
 from typing import Dict, List, Optional, Sequence
@@ -50,6 +51,12 @@ def _hub_offline(off: bool) -> None:
             setattr(__import__(mod_name, fromlist=[attr]), attr, off)
         except Exception:
             pass
+    # transformers 4.x caches the flag at import in its own module variable
+    # and never re-reads the hub constant, so the first SmolLM2 download on
+    # an empty cache stayed blocked (T31). 5.x has no such cache.
+    hub = sys.modules.get("transformers.utils.hub")
+    if hub is not None and hasattr(hub, "_is_offline_mode"):
+        hub._is_offline_mode = off
 
 
 def format_prompt(question: str, options: Sequence[str]) -> str:

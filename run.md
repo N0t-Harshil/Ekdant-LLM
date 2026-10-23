@@ -224,6 +224,7 @@ How to read it:
 | `expected m1 and m2 to have the same dtype … BFloat16` | old code: transformers 5 loads SmolLM2 in bf16; fixed (the backbone is cast to float32) — `git pull` |
 | `|g|` stays ≈ 0 for the whole run | the model chose not to use the add-on; that is a result — report it |
 | `ModuleNotFoundError: transformers` | `pip install -e .` again (v2 added the dependency) |
+| `OSError: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files` on the first v2 run | old code (T31, fixed): the one-time download for an empty cache was blocked inside `transformers` 4.x. `git pull`; on old code, put `HF_HUB_OFFLINE=0 HF_DATASETS_OFFLINE=0` in front of the first run |
 | tests fail with `LlamaForCausalLM requires the PyTorch library`; log says `PyTorch >= 2.6 is required but found 2.2.2` | `transformers` 5.x was installed; it needs PyTorch ≥ 2.6. `git pull && pip install -e .` installs the pinned `transformers<5` (T30) |
 
 ---
@@ -542,7 +543,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 137 tests
+python -m pytest            # 138 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

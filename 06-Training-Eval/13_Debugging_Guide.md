@@ -10,6 +10,7 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 
 - **`error: GPU n has only x GB free`** — other users' jobs fill that GPU; choose another with `CUDA_VISIBLE_DEVICES` (check `nvidia-smi`).
 - **`expected m1 and m2 to have the same dtype … BFloat16`** — old code: transformers 5 loads SmolLM2 in bf16; `load_backbone` now casts to float32 (T28).
+- **`OSError: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files` on the first v2 run** — the empty-cache download was blocked inside `transformers` 4.x (T31, fixed): `git pull`.
 - **`|g|` stays ≈ 0** — the model is not using the add-on. Not a bug; report it.
 - **Perplexity gap between arms** — real only if `python -m ekdant.gen_eval compare` shows a 95 % CI that excludes 0.
 - **Batched generation differs from one-at-a-time** — position ids must count real tokens (`cumsum(mask) − 1`); covered by `test_generate_batched_equals_single`.
@@ -60,7 +61,7 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 - Memory only becomes a concern with near-2048-token inputs; MedMCQA p99 is 118 tokens and MedQA p99 is 364.
 
 ### 8. Tests fail
-- `pytest -q` (137 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
+- `pytest -q` (138 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
 - A config change that makes `EkdantConfig` and `Sandbox` disagree (e.g. a new readout name) is caught by `test_every_config_valid_readout_builds_a_model`.
 
 ### How to reproduce an issue

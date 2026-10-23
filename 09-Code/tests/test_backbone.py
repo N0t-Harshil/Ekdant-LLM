@@ -137,3 +137,21 @@ def test_addon_mask_matches_loss_positions():
     want = torch.zeros_like(ids)
     want[:, 3:5] = 1
     assert torch.equal(seen["mask"], want)
+
+
+def test_hub_offline_toggle_reaches_transformers():
+    # T31: transformers 4.x caches the offline flag at import
+    # (transformers.utils.hub._is_offline_mode). Toggling only the hub /
+    # datasets flags left the first SmolLM2 download on an empty cache
+    # blocked: "couldn't connect to huggingface.co ... nor find cached files".
+    import transformers.utils.hub as th
+
+    from ekdant.data import _hub_offline
+
+    try:
+        _hub_offline(False)
+        assert th.is_offline_mode() is False
+        _hub_offline(True)
+        assert th.is_offline_mode() is True
+    finally:
+        _hub_offline(True)
