@@ -118,7 +118,7 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 ## Ch.3 — Method (cite [02](../02-Architecture/02_System_Architecture.md))
 
-**System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 138 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
+**System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 141 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
 
 **L1 — SSM Storage (design only, not built).** `input_ids [B,T]` → tied embed `[B,T,H]` + RoPE (base 100K, window 4096, YaRN-extendable) → N aSSM blocks (shared trunk + 3 L1 state stores: content/control/sandbox — the third *is an L1 store*, not the L2 layer; per-channel Δ/B/C, scan, gating+residual+norm) → `h [B,T,H]` + pooled triple `compressed [B,3·d_state]` handed to T; the L2 consensus write-back returns via M3. Design sizes — XS: H=256, d=96, N=2, V=32K · S: H=320, d=128, N=4, V=32K · M: H=512, d=256, N=4, V=32K; T=2048 all.
 
@@ -152,7 +152,7 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 **Evaluated configuration (v2)** ([run.md](../run.md) Part A): one recipe for both arms — AdamW, backbone LR 5e-5, add-on + gate LR 1e-3 (no decay on the gate), cosine per phase with 200 warm-up steps, clip 1.0, bf16, effective batch 32; 1 PubMedQA epoch (validation every 25 %), 3 MedQuAD epochs (validation each epoch → `best.pt`); better of best/last on the validation questions; one arm per A100; seed 17.
 
-**Pilot recipe:** ([run.md](../run.md) §3), identical for both arms: phase 1 = all MedMCQA, 100 epochs, lr 3e-4 cosine, warmup 200; phase 2 = 60% MedQA, 10 epochs, lr 5e-5 (own cosine + warmup); **381,480 optimizer steps**; effective batch 48 (6 × 8 accum on one 16 GB T4); AdamW wd 0.1, betas (0.9, 0.95), clip 1.0, dropout 0.1, bf16/fp16 autocast, `--answer-weight 10`, seed 17 (also locks the 60/40 split). Anti-overfit knobs (`--ft-lr`, `--ft-epochs`) exist because a 40-epoch pilot memorised the small MedQA set (T21). Checkpoint = better of `best.pt` vs `last.pt` on untouched MedMCQA validation. Gate: 138-test suite + smoke run per arm. Knobs: [12](../02-Architecture/12_Configuration_Guide.md).
+**Pilot recipe:** ([run.md](../run.md) §3), identical for both arms: phase 1 = all MedMCQA, 100 epochs, lr 3e-4 cosine, warmup 200; phase 2 = 60% MedQA, 10 epochs, lr 5e-5 (own cosine + warmup); **381,480 optimizer steps**; effective batch 48 (6 × 8 accum on one 16 GB T4); AdamW wd 0.1, betas (0.9, 0.95), clip 1.0, dropout 0.1, bf16/fp16 autocast, `--answer-weight 10`, seed 17 (also locks the 60/40 split). Anti-overfit knobs (`--ft-lr`, `--ft-epochs`) exist because a 40-epoch pilot memorised the small MedQA set (T21). Checkpoint = better of `best.pt` vs `last.pt` on untouched MedMCQA validation. Gate: 141-test suite + smoke run per arm. Knobs: [12](../02-Architecture/12_Configuration_Guide.md).
 
 ---
 
@@ -160,7 +160,9 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 **Protocol** ([09](../06-Training-Eval/09_Validation_System.md)): letter-accuracy on `medqa_bench` (decision gate, 4,072 rows, scored once), official `medqa_test` (1,273), MedMCQA validation phase-1 vs final (retention). The floor is the majority-letter rate, not 25 % (MedMCQA val 32.11 %, `medqa_bench` 25.69 %, `medqa_test` 27.73 %; T27).
 
-**Evaluated configuration (v2) — `[PENDING]`:** zero-shot / phase-1 / final reference-answer perplexity on the MedQuAD benchmark half (with per-question-type breakdown), paired-bootstrap 95 % CI of each arm vs the baseline (a difference counts only if the CI excludes 0), ROUGE-L / token F1 on 1,000 generated answers, PubMedQA held-out retention, `|g|`, cost. A CPU smoke run with the real backbone completed (pipeline check, not a result).
+**First baseline run (v2, one seed, ~1 h 15 min on one A100):** MedQuAD benchmark perplexity 7.578 → **3.782** (8,258 answers; validation 3.958); ROUGE-L 0.316 / token F1 0.380 on 1,000 generated answers; PubMedQA held-out 9.703 → 7.534 after phase 1 → 8.192 after the fine-tune (some forgetting). The first sandbox run diverged (T32); both arms are being re-run as a pair.
+
+**Evaluated configuration (v2) — sandbox `[PENDING]`:** zero-shot / phase-1 / final reference-answer perplexity on the MedQuAD benchmark half (with per-question-type breakdown), paired-bootstrap 95 % CI of each arm vs the baseline (a difference counts only if the CI excludes 0), ROUGE-L / token F1 on 1,000 generated answers, PubMedQA held-out retention, `|g|`, cost. A CPU smoke run with the real backbone completed (pipeline check, not a result).
 
 **Completed (pipeline-scale pilot, not a thesis result):** full 3-epoch A/B on a T4, one seed, jointly trained (predates the sequential protocol; MedQA stage ≈ 638 steps so it sits at chance).
 
@@ -187,4 +189,4 @@ Critical (defense): pick phase-1 epochs from the validation curve → run the ca
 No L1 (memory claim and RQ1 untested); 50M scale and one seed; architecture-matched, not parameter-matched; debate collapse/false consensus (watch ρ); cost > gain regimes (C8 — report); small MedQA fine-tune set; no custom kernels. Log: [10](../07-Management/10_Known_Issues.md).
 
 ## Reproducibility
-Pinned dependencies in `09-Code/requirements.txt` (tested on PyTorch 2.2.2 + transformers 4.57.6, the training pod's setup). Seed 17 (also locks the 60/40 MedQA partition); two configs differing only in `use_sandbox`; tokenizer saved per run; resume + `--eval-only`; 138 tests; commands in [run.md](../run.md) and [09-Code/README](../09-Code/README.md).
+Pinned dependencies in `09-Code/requirements.txt` (tested on PyTorch 2.2.2 + transformers 4.57.6, the training pod's setup). Seed 17 (also locks the 60/40 MedQA partition); two configs differing only in `use_sandbox`; tokenizer saved per run; resume + `--eval-only`; 141 tests; commands in [run.md](../run.md) and [09-Code/README](../09-Code/README.md).

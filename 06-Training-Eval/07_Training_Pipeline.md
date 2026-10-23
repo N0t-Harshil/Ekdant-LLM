@@ -11,7 +11,8 @@
 3. **Phase 1 — PubMedQA** (1 epoch): AdamW with two LR groups (backbone 5e-5, add-on + gate 1e-3; no weight decay on the gate or 1-D params), cosine per phase, 200 warm-up steps, clip 1.0 applied separately to the backbone and the add-on (`clip_grads` — the add-on's gradient must not shrink the backbone's update relative to the baseline), bf16 on A100, effective batch 32 (8 × 4). Validation on the 2,000 held-out rows every 25 % of the epoch; `last.pt` at each point.
 4. **Phase 2 — MedQuAD fine-tune half** (3 epochs): validation slice each epoch → `best.pt` on lowest NLL.
 5. **Final:** better of `best.pt` / `last.pt` on the validation slice (ties keep `best.pt`), then the benchmark half once: perplexity, per-type perplexity, ROUGE-L / token F1 on 1,000 greedy generations (≤ 256 new tokens), and PubMedQA held-out retention (+ 500 generations, ≤ 128 tokens). `cost`: params, tokens, wall-clock, peak memory.
-6. **Resume:** `last.pt` stores the optimiser state, the stage/epoch and the batch position; each epoch's order comes from a generator seeded by (seed, stage, epoch), so `--resume` continues exactly (`test_resume_mid_epoch_matches_uninterrupted`); a resume with changed flags or variant is refused, zero-shot is never measured on loaded weights, and wall-clock accumulates across resumes.
+6. **Divergence guard (T32):** an optimiser step whose loss or gradient is non-finite is skipped (whole accumulation group dropped) and counted in `cost.skipped_steps`; `--max-bad-steps` (20) consecutive skips stop the run with a clear message.
+7. **Resume:** `last.pt` stores the optimiser state, the stage/epoch and the batch position; each epoch's order comes from a generator seeded by (seed, stage, epoch), so `--resume` continues exactly (`test_resume_mid_epoch_matches_uninterrupted`); a resume with changed flags or variant is refused, zero-shot is never measured on loaded weights, and wall-clock accumulates across resumes.
 
 Sections 1–5 below describe the v1 runner.
 
@@ -103,7 +104,7 @@ Optional (`--answer-weight w`, default 0 = legacy): `+ w · CE(logits[answer_pos
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 138 tests, CPU, ~10s
+pytest -q    # 141 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 

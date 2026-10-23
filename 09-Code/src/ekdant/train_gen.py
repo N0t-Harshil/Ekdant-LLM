@@ -133,6 +133,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gpu", default="auto",
                     help="auto (most free memory), an index, or cpu")
     ap.add_argument("--min-free-gb", type=float, default=20.0)
+    ap.add_argument("--max-bad-steps", type=int, default=20,
+                    help="stop after this many consecutive optimiser steps "
+                         "skipped for a non-finite loss or gradient")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--eval-only", action="store_true")
     return ap
@@ -167,7 +170,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         if resume else None
     if ckpt is not None:
         saved = ckpt.get("run_args", {})
-        keys = ("variant", "limit", "seed", "pubmed_holdout") if args.eval_only             else RUN_KEYS
+        keys = (("variant", "limit", "seed", "pubmed_holdout")
+                if args.eval_only else RUN_KEYS)
         diff = [f"--{k.replace('_', '-')} {saved[k]} (now {getattr(args, k)})"
                 for k in keys if k in saved and saved[k] != getattr(args, k)]
         if diff:
@@ -266,6 +270,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     tokens_seen = int(st.get("tokens_seen", 0))
     opt_step = int(st.get("opt_step", 0))
     wall_prev = float(st.get("wall_clock_s", 0.0))
+    skipped_steps = int(st.get("skipped_steps", 0))
+    bad_streak = 0
     t_start = time.time()
 
     def checkpoint(stage: int, epoch: int, done: int) -> None:
@@ -274,6 +280,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                          "batches_done": done, "opt_step": opt_step,
                          "history": history, "best_val_nll": best_val,
                          "tokens_seen": tokens_seen,
+                         "skipped_steps": skipped_steps,
                          "wall_clock_s": wall_prev + time.time() - t_start,
                          "run_args": {k: getattr(args, k) for k in RUN_KEYS}},
                         last_path)
@@ -287,7 +294,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         ds = data[stage]
         nb = math.ceil(len(ds) / args.batch_size)
         total_opt = math.ceil(nb / args.grad_accum) * epochs
-        eval_at = phase1_eval_points(nb, args.eval_fraction, args.grad_accum)             if si == 0 else set()
+        eval_at = (phase1_eval_points(nb, args.eval_fraction, args.grad_accum)
+                   if si == 0 else set())
         log(f"\n=== stage {stage} n={len(ds)} | {nb} batches x {epochs} epochs, "
             f"{total_opt} opt steps ===")
         for epoch in range(st_epoch, epochs):
@@ -297,26 +305,47 @@ def main(argv: Optional[List[str]] = None) -> None:
             skip = st_done if (si, epoch) == (st_stage, st_epoch) else 0
             model.train()
             opt.zero_grad(set_to_none=True)
-            t0, loss_ema = time.time(), None
+            t0, loss_ema, group_bad = time.time(), None, False
             for bi in range(skip, nb):
                 b = collate([ds[i] for i in batches[bi]])
                 ids, mask = b["input_ids"].to(device), b["attention_mask"].to(device)
                 with autocast():
                     loss = model(ids, attention_mask=mask,
                                  labels=b["labels"].to(device)).loss
-                (loss / args.grad_accum).backward()
                 tokens_seen += int(mask.sum())
                 lv = loss.item()
-                loss_ema = lv if loss_ema is None else 0.98 * loss_ema + 0.02 * lv
+                # T32 guard: a non-finite loss or gradient never reaches the
+                # weights; the whole accumulation group is dropped.
+                if math.isfinite(lv):
+                    (loss / args.grad_accum).backward()
+                    loss_ema = lv if loss_ema is None else 0.98 * loss_ema + 0.02 * lv
+                else:
+                    group_bad = True
                 if (bi + 1) % args.grad_accum == 0 or bi + 1 == nb:
                     gn_backbone, gn_addon = clip_grads(model, 1.0)
-                    f = lr_at(opt_step, total_opt, 1.0, args.warmup)
-                    for grp in opt.param_groups:
-                        grp["lr"] = grp["base_lr"] * f
-                    opt.step()
+                    if group_bad or not (math.isfinite(gn_backbone)
+                                         and math.isfinite(gn_addon)):
+                        skipped_steps += 1
+                        bad_streak += 1
+                        log(f"[{stage}] warning: non-finite loss/gradient at "
+                            f"step {opt_step + 1} - update skipped "
+                            f"({bad_streak} in a row, {skipped_steps} total)")
+                        if bad_streak >= args.max_bad_steps:
+                            log(f"error: {bad_streak} consecutive non-finite "
+                                f"steps - training has diverged; stopping "
+                                f"(last.pt holds the last good checkpoint)")
+                            raise SystemExit(1)
+                    else:
+                        f = lr_at(opt_step, total_opt, 1.0, args.warmup)
+                        for grp in opt.param_groups:
+                            grp["lr"] = grp["base_lr"] * f
+                        opt.step()
+                        bad_streak = 0
                     opt.zero_grad(set_to_none=True)
+                    group_bad = False
                     opt_step += 1
-                    if args.log_every and opt_step % args.log_every == 0:
+                    if (args.log_every and opt_step % args.log_every == 0
+                            and loss_ema is not None):
                         el = time.time() - t0
                         rate = (bi + 1 - skip) / max(el, 1e-9)
                         log(f"[{stage}] ep{epoch} step {opt_step}/{total_opt} "
@@ -339,7 +368,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                      "gate_magnitude": model.addon.gate_magnitude()
                      if model.addon else 0.0}
             history.append(entry)
-            log(f"[{stage}] ep{epoch} done loss={loss_ema:.4f} val {val_name} "
+            log(f"[{stage}] ep{epoch} done loss={loss_ema or float('nan'):.4f} val {val_name} "
                 f"ppl={r['ppl']:.3f} time={fmt_duration(time.time()-t0)}")
             if si == 1 and r["nll"] < best_val:
                 best_val = r["nll"]
@@ -386,6 +415,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     results["cost"] = {"params_total": count_parameters(model),
                        "params_addon": model.addon_params(),
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,
+                       "skipped_steps": skipped_steps,
                        "peak_mem_gb": torch.cuda.max_memory_allocated(device) / 1e9
                        if device.type == "cuda" else 0.0}
     log(f"[test medquad_bench] ppl={b['ppl']:.3f} rouge_l={b['rouge_l']:.4f} "

@@ -1360,17 +1360,21 @@ could build on. The evaluated configuration therefore keeps stage L2 exactly as
 specified above and changes what it sits on. The backbone is SmolLM2-135M
 \cite{allal2025smollm2}: 30 layers, width $H=576$, 9 query and 3 key--value
 heads, a 49{,}152-entry vocabulary and a tied output head. Let $h_t$ be its
-final (normalised) hidden state. Each arm applies an add-on $f$ through a
-per-channel gate $g\in\mathbb{R}^{H}$,
+final (normalised) hidden state. The sandbox arm applies L2 (consensus
+$f$) through a per-channel gate $g\in\mathbb{R}^{H}$,
 \begin{equation}
-  h'_t = h_t + g \odot \bigl(f(h_t) - h_t\bigr),\qquad g = 0 \text{ at initialisation},
+  h'_t = h_t + g \odot \bigl(\mathrm{RMSNorm}(f(h_t)) - h_t\bigr),\qquad g = 0 \text{ at initialisation},
   \label{eq:gated-addon}
 \end{equation}
 and the backbone's own head maps $h'_t$ to logits. With $g=0$ every arm
 reproduces the pretrained model exactly, so any later difference is caused by
 training the add-on; the mean $|g|$ shows how much the model chooses to use it.
 The gated residual also removes the handicap of the pilot, where the consensus
-replaced the backbone state.
+replaced the backbone state. The consensus is normalised before the gate
+because $h_t$ has already passed the backbone's final normalisation and goes
+straight to the head: without it, the first sandbox run let the L2 output grow
+the logits without bound and diverged (loss in the thousands, gradient norm
+above $10^{11}$), a failure the pilot avoided by normalising after L2.
 
 \begin{center}
 \small
@@ -1379,7 +1383,7 @@ replaced the backbone state.
 \rowcolor{ekHeadBG}\color{white}\textbf{Arm} & \color{white}\textbf{$f(h)$} & \color{white}\textbf{Parameters (measured)} \\
 \midrule
 Baseline & none ($h'=h$) & 134{,}515{,}008 \\
-Sandbox & L2 consensus, $K{=}4$, $R{=}4$, MLP $4\times$, $S{=}8$ & 154{,}107{,}072 ($+19{,}592{,}064$) \\
+Sandbox & L2 consensus, $K{=}4$, $R{=}4$, MLP $4\times$, $S{=}8$ & 154{,}107{,}648 ($+19{,}592{,}640$) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1764,7 +1768,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 138-test unit suite must
+one epoch, with save, resume and evaluation) and the 141-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1795,7 +1799,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by a $138$-test CPU unit suite
+Correctness is gated by a $141$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises
@@ -1885,10 +1889,16 @@ target, which isolates the correction of Defect~1.
 \label{sec:results}
 
 \noindent
-\paragraph{Evaluated configuration (pending).}
-The two runs are prepared and tested but not yet performed. A CPU run on
-a few dozen rows with the real backbone completed end to end as a pipeline
-check; it is not a result.
+\paragraph{Evaluated configuration (baseline complete, sandbox pending).}
+The first baseline run (one seed, one A100, about 1\,h\,15\,min) is complete;
+both arms are being re-run as a pair, and the table is updated from those
+runs. Its reference-answer perplexity on the MedQuAD benchmark half fell from
+$7.578$ before training to $3.782$ (8{,}258 answers), against $3.958$ on the
+validation questions, so selection did not flatter the benchmark. On the
+PubMedQA held-out rows, perplexity fell from $9.703$ to $7.534$ during
+phase~1 and rose to $8.192$ after the MedQuAD fine-tune: some forgetting,
+still well below the untrained model. The first sandbox run diverged
+(Section~\ref{sec:v2}) and is being repeated with the normalised add-on.
 
 \begin{center}
 \small
@@ -1896,7 +1906,7 @@ check; it is not a result.
 \toprule
 \rowcolor{ekHeadBG}\color{white}\textbf{Arm} & \color{white}\textbf{Zero-shot ppl} & \color{white}\textbf{Benchmark ppl} & \color{white}\textbf{$\Delta$ vs.\ baseline (95\% CI)} & \color{white}\textbf{ROUGE-L / F1} & \color{white}\textbf{$|g|$} \\
 \midrule
-Baseline & \textit{[PENDING]} & \textit{[PENDING]} & --- & \textit{[PENDING]} & --- \\
+Baseline & 7.578 & 3.782 & --- & 0.316 / 0.380 & --- \\
 Sandbox & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} \\
 \bottomrule
 \end{tabular}

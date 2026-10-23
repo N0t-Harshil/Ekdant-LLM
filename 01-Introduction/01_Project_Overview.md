@@ -98,7 +98,7 @@ The thesis covers text-only training from scratch on MedMCQA and MedQA, letter-a
 | L2 (`09-Code/src/ekdant/sandbox.py` + `output_head.py`) | Implemented + tested |
 | Wiring + config (`model.py`; `configs/sandbox_50m.json` / `baseline_50m.json`) | Implemented (embed → T → L2 → head) |
 | Training + evaluation (`train.py`) | Implemented: sequential protocol, resume, eval-only |
-| Tests (`09-Code/tests/`) | **138 passing** (model, sandbox, transformer, data, LR schedule, benchmark split) |
+| Tests (`09-Code/tests/`) | **141 passing** (model, sandbox, transformer, data, LR schedule, benchmark split) |
 | Pipeline-scale A/B (3 epochs, T4) | Done — a tie (see `STATUS.md`) |
 | 100-epoch campaign | Prepared in `run.md` §3 — pending |
 | Background library (66 PDFs) | Ready (`papers/00_Papers_Index.md`) |

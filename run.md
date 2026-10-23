@@ -213,6 +213,29 @@ How to read it:
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
 
+## A7b. Reference numbers (first baseline run, 2026-10-23)
+
+One seed, one shared A100 (`CUDA_VISIBLE_DEVICES=1`), the flags in A3. Phase 1
+took 1 h 02 m 48 s; each MedQuAD epoch about 2 min 10 s; about 1 h 15 min end
+to end including generation.
+
+| measured on | before training | after PubMedQA | final |
+|---|---|---|---|
+| MedQuAD benchmark half (8,258 answers) — **ppl** | 7.578 | — | **3.782** |
+| MedQuAD validation questions — ppl | 7.508 | — | 3.958 |
+| PubMedQA held-out (2,000) — ppl | 9.703 | 7.534 | 8.192 |
+
+Phase-1 validation curve (PubMedQA held-out ppl at 25/50/75/100 %): 7.811,
+7.660, 7.567, 7.534. MedQuAD validation per epoch: 4.314, 3.986, 3.958 (all
+three new bests). Generated answers (1,000 benchmark questions): ROUGE-L
+0.316, token F1 0.380. Training loss stayed near 2.0 with backbone gradient
+norm 1.4–2.0 throughout; no skipped steps.
+
+The first sandbox run diverged at about step 400 (T32) and is being repeated
+with the fixed code. Re-run both arms into new folders (for example
+`runs/v2b_baseline`, `runs/v2b_sandbox`) so this run stays as a reference for
+run-to-run variation.
+
 ## A8. v2 troubleshooting
 
 | symptom | fix |
@@ -222,6 +245,8 @@ How to read it:
 | `error: this run was started with different settings` | resume with the original flags (the message lists them) |
 | `CUDA out of memory` mid-run | both arms to `--batch-size 4 --grad-accum 8`, then `--resume` |
 | `expected m1 and m2 to have the same dtype … BFloat16` | old code: transformers 5 loads SmolLM2 in bf16; fixed (the backbone is cast to float32) — `git pull` |
+| sandbox log: `gnorm` jumps to huge values or `inf`, loss in the thousands, then `OverflowError: math range error` | old code (T32, fixed): the L2 output reached the logits unnormalised. `git pull`, delete `runs/v2_sandbox`, re-run the sandbox arm only (the baseline is unaffected) |
+| `warning: non-finite loss/gradient at step … - update skipped` | the guard dropped one bad update (T32). A few are harmless; after `--max-bad-steps` (20) in a row the run stops — report it |
 | `|g|` stays ≈ 0 for the whole run | the model chose not to use the add-on; that is a result — report it |
 | `ModuleNotFoundError: transformers` | `pip install -e .` again (v2 added the dependency) |
 | `OSError: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files` on the first v2 run | old code (T31, fixed): the one-time download for an empty cache was blocked inside `transformers` 4.x. `git pull`; on old code, put `HF_HUB_OFFLINE=0 HF_DATASETS_OFFLINE=0` in front of the first run |
@@ -543,7 +568,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 138 tests
+python -m pytest            # 141 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

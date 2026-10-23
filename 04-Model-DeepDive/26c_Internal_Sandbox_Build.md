@@ -4,7 +4,7 @@
 
 > [!important] Debate + energy + consensus are ==plain tensor ops== in `sandbox.py`. No agent frameworks, no transcripts, no orchestrator — K explicit trajectories, cost-matched by construction.
 
-> [!important] **v2 build (current).** Same modules, two knobs and one wrapper: `Sandbox(576, K=4, rounds=4, steps=8, eta=0.0625, mlp_ratio=4.0)` = 19,591,488 params; wrapped by `GatedAddOn` (`model.py`), which adds the per-channel gate `g` (576 params, zeros) and returns `h + g ⊙ (consensus − h)`. Tests: `tests/test_addon.py`, `tests/test_backbone.py`. Spec: [30](../07-Management/30_Design_v2_Pretrained_Backbone.md).
+> [!important] **v2 build (current).** Same modules, two knobs and one wrapper: `Sandbox(576, K=4, rounds=4, steps=8, eta=0.0625, mlp_ratio=4.0)` = 19,591,488 params; wrapped by `GatedAddOn` (`model.py`), which adds the per-channel gate `g` (576 params, zeros) and an output RMSNorm (576 params) and returns `h + g ⊙ (RMSNorm(consensus) − h)` (T32). Tests: `tests/test_addon.py`, `tests/test_backbone.py`. Spec: [30](../07-Management/30_Design_v2_Pretrained_Backbone.md).
 
 ## 1. Diverse init (K=4 default)
 

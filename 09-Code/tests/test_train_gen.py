@@ -255,3 +255,38 @@ def test_hf_token_from_file_is_used_but_never_saved(tiny, tmp_path, monkeypatch)
     monkeypatch.delenv("HF_TOKEN")
     for f in out.iterdir():
         assert secret.encode() not in f.read_bytes(), f.name
+
+
+def _poison_training_losses(monkeypatch, every):
+    """Make every `every`-th training forward return an infinite loss."""
+    from ekdant.model import EkdantLM
+    real = EkdantLM.forward
+    seen = {"n": 0}
+
+    def forward(self, *a, **kw):
+        out = real(self, *a, **kw)
+        if self.training and out.loss is not None:
+            seen["n"] += 1
+            if seen["n"] % every == 0:
+                out.loss = out.loss * float("inf")
+        return out
+
+    monkeypatch.setattr(EkdantLM, "forward", forward)
+
+
+def test_non_finite_steps_are_skipped_and_counted(tiny, tmp_path, monkeypatch):
+    # T32 guard: a non-finite loss or gradient must never reach the weights
+    _poison_training_losses(monkeypatch, every=3)
+    out = tmp_path / "run"
+    G.main(_args(tiny, out))
+    r = json.loads((out / "results.json").read_text())
+    assert r["cost"]["skipped_steps"] > 0
+    w = torch.load(out / "last.pt", weights_only=False)["model"]
+    assert all(torch.isfinite(v).all() for v in w.values())
+
+
+def test_run_stops_after_too_many_bad_steps(tiny, tmp_path, monkeypatch):
+    _poison_training_losses(monkeypatch, every=1)
+    with pytest.raises(SystemExit) as e:
+        G.main(_args(tiny, tmp_path / "run", extra=["--max-bad-steps", "3"]))
+    assert e.value.code == 1          # the guard, not an argparse error (2)

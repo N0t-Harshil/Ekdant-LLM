@@ -217,21 +217,25 @@ def baseline_config(cfg: EkdantConfig) -> EkdantConfig:
 # ---------------------------------------------------------------------------
 
 class GatedAddOn(nn.Module):
-    """``h + g * (consensus(h) - h)`` with ``g`` a per-channel gate
+    """``h + g * (norm(consensus(h)) - h)`` with ``g`` a per-channel gate
     initialised to 0, where ``consensus`` is the L2 sandbox.
 
     At step 0 the output is exactly ``h``, so the sandbox arm starts as the
-    backbone; any later difference comes from training L2."""
+    backbone; any later difference comes from training L2.  ``h`` is already
+    past SmolLM2's final norm and goes straight to the head, so the
+    consensus is RMS-normalised first (v1 had ``ln_f`` after L2): an
+    unbounded L2 output otherwise grew the logits without limit (T32)."""
 
     def __init__(self, dim: int, sandbox_kwargs: Dict):
         super().__init__()
         self.gate = nn.Parameter(torch.zeros(dim))
         self.sandbox = Sandbox(dim, **sandbox_kwargs)
+        self.out_norm = RMSNorm(dim)
 
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         out = self.sandbox(h, mask=mask)
-        return h + self.gate * (out.consensus - h), out.aux
+        return h + self.gate * (self.out_norm(out.consensus) - h), out.aux
 
     def gate_magnitude(self) -> float:
         return float(self.gate.detach().abs().mean())
