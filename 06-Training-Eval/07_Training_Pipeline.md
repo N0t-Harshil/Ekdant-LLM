@@ -104,7 +104,7 @@ Optional (`--answer-weight w`, default 0 = legacy): `+ w · CE(logits[answer_pos
 
 ```bash
 cd 09-Code && pip install -e .[dev]
-pytest -q    # 162 tests, CPU, ~10s
+pytest -q    # 171 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4
 ```
 

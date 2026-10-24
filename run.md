@@ -116,6 +116,8 @@ sits:
 Parameters: baseline 134,515,008; run 2 +19,595,520; run 3 +19,598,976
 (one shared L2 — only 3,456 more than run 2); run 4 +19,594,944.
 
+**Gate control (v2.3, T37) — all sandbox runs:** (1) **boost** — the gate LR is 10× higher at the start of phase 1 (1e-2), fading smoothly to 1e-3 over the first 1,000 steps (`--gate-boost 10 --gate-boost-steps 1000`); (2) **soft cap** — the effective gate is `1.0 · tanh(θ / 1.0)`: 0 at init, the same slope there, never above 1 (`"gate_cap": 1.0` in the configs); (3) **brake** — if L2's gradient norm jumps above 3× its running average or L2's size `l2` exceeds 50 (`--brake-spike 3 --brake-l2-max 50`), every gate is multiplied by 0.9 and the L2 and gate LRs are halved; each healthy step they recover ×1.01 (floor 0.05). Brake events are logged (`brake: …`), counted in `cost.brake_events`, and the brake state is saved in `last.pt`. The baseline is unaffected.
+
 Why 1 epoch: with 2 PubMedQA epochs both models got worse on the benchmark
 (v2.1: 3.914 vs 3.782 with 1 epoch), so the 1-epoch recipe is kept.
 
@@ -176,7 +178,7 @@ the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens.
 variant=sandbox addon=sandbox backbone=HuggingFaceTB/SmolLM2-135M params total=… addon=19.59M device=cuda:0
 rows pubmedqa=…(-dropped) pubmedqa_held=2000(-0) medquad_ft=… medquad_val=… medquad_bench=…
 zero-shot ppl pubmedqa_held=… medquad_val=… medquad_bench=…
-[pubmedqa] ep0 step 50/… loss=… lr=… gnorm=<backbone>/<add-on> |g|=… l2=… eta=…
+[pubmedqa] ep0 step 50/… loss=… lr=… gnorm=<backbone>/<add-on> |g|=… l2=… brake=1.00 eta=…
 [pubmedqa] ep0 25% val pubmedqa_held ppl=…
 [medquad_ft] ep0 done … val medquad_val ppl=…
 [medquad_ft] ep0 new best medquad_val -> best.pt
@@ -191,6 +193,10 @@ wrote runs/v2_sandbox/results.json
 - **l2** (sandbox arm only) — typical size (RMS) of L2's output before its
   normalisation. It should stay roughly flat (order 1–10). A steady climb by
   ×2 every few hundred steps is the drift behind T32–T34 — report it.
+- **brake** (sandbox arm) — the L2 learning-rate factor of the brake (1.00 =
+  no braking). A `brake: L2 burst at step …` line means the brake fired (gates
+  ×0.9, L2 LRs halved). A few are fine; many in a row means L2 is unstable —
+  report it.
 - **|g|** — mean size of the add-on's gate. 0 means the model is not using the
   add-on at all; watch whether it grows.
 - `(-dropped)` — rows that could not fit 1,024 tokens even with the abstract
@@ -321,6 +327,7 @@ run-to-run variation.
 | `expected m1 and m2 to have the same dtype … BFloat16` | old code: transformers 5 loads SmolLM2 in bf16; fixed (the backbone is cast to float32) — `git pull` |
 | sandbox log: `gnorm` jumps to huge values or `inf`, loss in the thousands, then `OverflowError: math range error` | old code (T32, fixed): the L2 output reached the logits unnormalised. `git pull`, delete `runs/v2_sandbox`, re-run the sandbox arm only (the baseline is unaffected) |
 | sandbox stops with `20 consecutive non-finite steps` around step 200 (gnorm 10¹¹+) | old code (T33, fixed): the debate rounds compounded their size; `git pull` (debate pre-norm), delete that run folder, re-run the sandbox arm |
+| many `brake: L2 burst` lines and `brake=` falling towards 0.05 | L2 keeps spiking; the brake holds it, but the gate cannot open. Report the log; a gentler `--brake-spike 4` or a lower `--gate-boost` are the knobs (T37) |
 | `warning: non-finite loss/gradient at step … - update skipped` | the guard dropped one bad update (T32). A few are harmless; after `--max-bad-steps` (20) in a row the run stops — report it |
 | `|g|` stays ≈ 0 for the whole run | the model chose not to use the add-on; that is a result — report it |
 | `ModuleNotFoundError: transformers` | `pip install -e .` again (v2 added the dependency) |
@@ -643,7 +650,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 162 tests
+python -m pytest            # 171 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

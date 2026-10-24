@@ -166,4 +166,14 @@ v2.0 (the tie):  ids ─► SmolLM2 layers 1–30 ─► final norm ─► h ─
 - **The experiment (`run.md` A3):** four runs with identical flags at 1 PubMedQA epoch — baseline, L2 after layer 20, the multi-site L2, L2 at the end — run one after another.
 - **Tests (`tests/test_multisite.py`, 8, + 1 end-to-end):** identity at init; one Sandbox shared; the separate-copies switch; every site's gate gets gradient; KV-cache equality; all gates in one LR group; per-site gate magnitudes; the shipped config; a tiny training run keeps the weights shared after checkpointing.
 
+## 15. v2.3 — gate control: open fast, never burst (2026-10-25)
+
+**Why (user):** in v2.0/v2.1 the gate opened slowly (0.005 / 0.029); the user asked for a gate that opens quickly at the start and closes when it starts bursting.
+
+- **Boost:** gate LR × `gate_boost(step)` — 10 at step 0, cosine-faded to 1 at step 1,000 of phase 1 (`--gate-boost`, `--gate-boost-steps`).
+- **Soft cap:** effective gate `cap · tanh(θ / cap)` with `cap = 1.0` (`V2Config.gate_cap`; 0 = uncapped, as in v2.0–v2.2). Identity and slope at θ = 0 unchanged (tested).
+- **Brake (`GateBrake`):** a step bursts when L2's pre-clip gradient norm > 3 × its running average (after 20 steps) or L2's size > 50; then gates × 0.9, L2 + gate LR factor × 0.5 (floor 0.05), recovering × 1.01 per healthy step. State saved in `last.pt`; events in `cost.brake_events`. Non-finite steps stay with the skip guard.
+- **Scope:** all sandbox runs of the four-run experiment use it (mid, multi, end); the baseline has no gate.
+- **Tests:** `tests/test_gate_control.py` (8) and `test_brake_fires_on_forced_spike_and_is_recorded`.
+
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

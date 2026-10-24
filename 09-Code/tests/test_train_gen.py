@@ -320,3 +320,21 @@ def test_multisite_run_end_to_end(tiny, tmp_path):
     w = torch.load(out / "last.pt", weights_only=False)["model"]
     k0 = [k for k in w if k.startswith("addon.sites.0.sandbox.")][0]
     assert torch.equal(w[k0], w[k0.replace("sites.0", "sites.1")])   # still shared
+
+
+def test_brake_fires_on_forced_spike_and_is_recorded(tiny, tmp_path, monkeypatch):
+    # T37: a spike in L2's gradient must shrink the gates and be logged
+    real = G.clip_grads
+    calls = {"n": 0}
+
+    def spiky(model, max_norm):
+        bn, an = real(model, max_norm)
+        calls["n"] += 1
+        return (bn, an * 1e3) if calls["n"] == 4 else (bn, an)
+
+    monkeypatch.setattr(G, "clip_grads", spiky)
+    out = tmp_path / "run"
+    G.main(_args(tiny, out, extra=["--brake-warmup", "2"]))
+    r = json.loads((out / "results.json").read_text())
+    assert r["cost"]["brake_events"] >= 1
+    assert "brake" in torch.load(out / "last.pt", weights_only=False)

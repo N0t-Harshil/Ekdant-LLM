@@ -1784,7 +1784,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 162-test unit suite must
+one epoch, with save, resume and evaluation) and the 171-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1815,7 +1815,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by a $162$-test CPU unit suite
+Correctness is gated by a $171$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises
@@ -2006,6 +2006,18 @@ residual stream's scale differs strongly between these depths (RMS about 6,
 single site), so a gain could not be attributed to extra capacity. It is
 compared, at one PubMedQA epoch, with a baseline, a single L2 after layer 20
 and a single L2 after the final normalisation, all trained identically.
+
+\noindent
+Because the gate opened only slowly in the first two configurations, every
+sandbox run of this comparison also uses a gate controller. The gate's
+learning rate starts ten times higher and fades to its normal value over the
+first 1{,}000 steps; the effective gate is $g = \tanh(\theta)$, which equals
+zero at initialisation, has the same slope there, and can never exceed one;
+and a brake watches for the signs that preceded the earlier divergences: if
+L2's gradient norm jumps above three times its running average, or the size
+of L2's internal state exceeds 50, all gates are multiplied by $0.9$ and the
+learning rates of L2 and of the gates are halved, recovering by one percent
+per healthy step. Each brake event is logged and counted.
 
 \noindent
 Before the paired runs succeeded, two sandbox runs diverged and are kept as

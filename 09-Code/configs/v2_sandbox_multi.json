@@ -19,5 +19,6 @@
     20,
     30
   ],
-  "addon_shared": true
+  "addon_shared": true,
+  "gate_cap": 1.0
 }

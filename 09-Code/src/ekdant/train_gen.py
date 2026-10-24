@@ -74,6 +74,7 @@ def pick_device(gpu: str, min_free_gb: float) -> torch.device:
 # Flags that fix the data order, the schedule or the arm: a resume with any
 # of them changed would skip the wrong batches or mislabel the run.
 RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
+            "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
@@ -96,6 +97,54 @@ def clip_grads(model: EkdantLM, max_norm: float):
     bn = float(torch.nn.utils.clip_grad_norm_(backbone, max_norm))
     an = float(torch.nn.utils.clip_grad_norm_(addon, max_norm)) if addon else 0.0
     return bn, an
+
+
+def gate_boost(step: int, boost: float, steps: int) -> float:
+    """Gate-LR multiplier: ``boost`` at step 0, fading smoothly (cosine) to
+    1 at ``steps`` - the gate opens fast while L2 is new (T37)."""
+    if boost <= 1.0 or steps <= 0 or step >= steps:
+        return 1.0
+    return 1.0 + (boost - 1.0) * 0.5 * (1.0 + math.cos(math.pi * step / steps))
+
+
+class GateBrake:
+    """Brake for L2 (T37).  A step 'bursts' when L2's gradient norm exceeds
+    ``spike`` x its running average, or L2's internal size exceeds
+    ``l2_max`` - the signs that preceded the T32/T33 explosions.  On a burst
+    the L2/gate LR factor is multiplied by ``cut`` (never below
+    ``min_factor``); every healthy step it recovers by ``recover`` up to 1.
+    The caller also shrinks the gates on a burst.  Non-finite steps are the
+    skip guard's job and are ignored here."""
+
+    def __init__(self, spike: float = 3.0, l2_max: float = 50.0,
+                 cut: float = 0.5, recover: float = 1.01,
+                 min_factor: float = 0.05, warmup: int = 20):
+        self.spike, self.l2_max, self.cut = spike, l2_max, cut
+        self.recover, self.min_factor, self.warmup = recover, min_factor, warmup
+        self.factor, self.ema, self.seen, self.events = 1.0, None, 0, 0
+
+    def update(self, gn_addon: float, l2_rms: Optional[float]) -> bool:
+        if not math.isfinite(gn_addon):
+            return False
+        big_l2 = l2_rms is not None and l2_rms > self.l2_max
+        spiked = (self.ema is not None and self.seen >= self.warmup
+                  and gn_addon > self.spike * self.ema)
+        self.seen += 1
+        if big_l2 or spiked:
+            self.factor = max(self.min_factor, self.factor * self.cut)
+            self.events += 1
+            return True
+        self.ema = gn_addon if self.ema is None else 0.95 * self.ema + 0.05 * gn_addon
+        self.factor = min(1.0, self.factor * self.recover)
+        return False
+
+    def state_dict(self) -> Dict:
+        return {"factor": self.factor, "ema": self.ema, "seen": self.seen,
+                "events": self.events}
+
+    def load_state_dict(self, d: Dict) -> None:
+        self.factor, self.ema = d["factor"], d["ema"]
+        self.seen, self.events = d["seen"], d["events"]
 
 
 def save_checkpoint(state: Dict, path: str) -> None:
@@ -138,6 +187,17 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gpu", default="auto",
                     help="auto (most free memory), an index, or cpu")
     ap.add_argument("--min-free-gb", type=float, default=20.0)
+    ap.add_argument("--gate-boost", type=float, default=10.0,
+                    help="gate LR multiplier at the start of phase 1, fading "
+                         "to 1 over --gate-boost-steps (T37; 1 = off)")
+    ap.add_argument("--gate-boost-steps", type=int, default=1000)
+    ap.add_argument("--brake-spike", type=float, default=3.0,
+                    help="brake when L2's gradient norm exceeds this x its "
+                         "running average (T37)")
+    ap.add_argument("--brake-l2-max", type=float, default=50.0,
+                    help="brake when L2's internal size exceeds this (T37)")
+    ap.add_argument("--brake-warmup", type=int, default=20,
+                    help="steps before gradient spikes are judged")
     ap.add_argument("--max-bad-steps", type=int, default=20,
                     help="stop after this many consecutive optimiser steps "
                          "skipped for a non-finite loss or gradient")
@@ -277,6 +337,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     opt_step = int(st.get("opt_step", 0))
     wall_prev = float(st.get("wall_clock_s", 0.0))
     skipped_steps = int(st.get("skipped_steps", 0))
+    brake = GateBrake(spike=args.brake_spike, l2_max=args.brake_l2_max,
+                      warmup=args.brake_warmup)
+    if "brake" in st:
+        brake.load_state_dict(st["brake"])
     bad_streak = 0
     t_start = time.time()
 
@@ -287,6 +351,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                          "history": history, "best_val_nll": best_val,
                          "tokens_seen": tokens_seen,
                          "skipped_steps": skipped_steps,
+                         "brake": brake.state_dict(),
                          "wall_clock_s": wall_prev + time.time() - t_start,
                          "run_args": {k: getattr(args, k) for k in RUN_KEYS}},
                         last_path)
@@ -346,8 +411,22 @@ def main(argv: Optional[List[str]] = None) -> None:
                             raise SystemExit(1)
                     else:
                         f = lr_at(opt_step, total_opt, 1.0, args.warmup)
+                        if model.addon is not None and brake.update(gn_addon, l2_rms):
+                            # burst: close the gates a little; L2 LRs cut
+                            with torch.no_grad():
+                                for gt in model.addon.gates():
+                                    gt.mul_(0.9)
+                            log(f"[{stage}] brake: L2 burst at step {opt_step + 1} "
+                                f"(gnorm {gn_addon:.3g}, l2 {l2_rms}) - gates x0.9, "
+                                f"L2 LR factor {brake.factor:.3g} "
+                                f"({brake.events} events)")
+                        boost = gate_boost(opt_step, args.gate_boost,
+                                           args.gate_boost_steps) if si == 0 else 1.0
                         for grp in opt.param_groups:
-                            grp["lr"] = grp["base_lr"] * f
+                            kind = grp.get("kind", "backbone")
+                            mult = (brake.factor * (boost if kind == "gate" else 1.0)
+                                    if kind in ("addon", "gate") else 1.0)
+                            grp["lr"] = grp["base_lr"] * f * mult
                         opt.step()
                         bad_streak = 0
                     opt.zero_grad(set_to_none=True)
@@ -361,7 +440,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                             f"loss={loss_ema:.4f} lr={opt.param_groups[0]['lr']:.2e} "
                             f"gnorm={gn_backbone:.2f}/{gn_addon:.2f} "
                             f"|g|={model.addon.gate_magnitude() if model.addon else 0:.4f} "
-                            + (f"l2={l2_rms:.3g} " if l2_rms is not None else "") +
+                            + (f"l2={l2_rms:.3g} brake={brake.factor:.2f} "
+                               if l2_rms is not None else "") +
                             f"eta={fmt_duration((nb - bi - 1) / max(rate, 1e-9))}")
                 if si == 0 and bi + 1 in eval_at:
                     r = score("pubmedqa_held")
@@ -431,6 +511,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                        "params_addon": model.addon_params(),
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,
                        "skipped_steps": skipped_steps,
+                       "brake_events": brake.events,
                        "peak_mem_gb": torch.cuda.max_memory_allocated(device) / 1e9
                        if device.type == "cuda" else 0.0}
     log(f"[test medquad_bench] ppl={b['ppl']:.3f} rouge_l={b['rouge_l']:.4f} "

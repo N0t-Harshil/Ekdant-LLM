@@ -231,11 +231,15 @@ class GatedAddOn(nn.Module):
     normalised input, and later layers see its output (spec §13)."""
 
     def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final",
-                 sandbox: Optional[Sandbox] = None):
+                 sandbox: Optional[Sandbox] = None, gate_cap: float = 0.0):
         super().__init__()
         if mode not in ("final", "mid"):
             raise ValueError(f"mode must be final|mid, got {mode!r}")
         self.mode = mode
+        # ``gate`` is the raw parameter; with ``gate_cap`` > 0 the effective
+        # gate is cap * tanh(gate / cap): 0 at init, slope 1 there, and never
+        # beyond the cap however hard training pushes (T37).
+        self.gate_cap = gate_cap
         self.gate = nn.Parameter(torch.zeros(dim))
         # ``sandbox`` given = one L2 shared by several sites (v2.2, spec §14)
         self.sandbox = sandbox if sandbox is not None else Sandbox(dim, **sandbox_kwargs)
@@ -246,6 +250,7 @@ class GatedAddOn(nn.Module):
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         x = self.in_norm(h) if self.mode == "mid" else h
+        g = self.effective_gate()
         out = self.sandbox(x, mask=mask)
         aux = dict(out.aux)
         # L2's internal size, which the output norm hides from the loss;
@@ -253,11 +258,16 @@ class GatedAddOn(nn.Module):
         aux["consensus_rms"] = masked_mean_bt(
             out.consensus.detach().float().pow(2).mean(-1), mask).sqrt()
         if self.mode == "mid":
-            return h + self.gate * self.out_norm(out.consensus), aux
-        return h + self.gate * (self.out_norm(out.consensus) - h), aux
+            return h + g * self.out_norm(out.consensus), aux
+        return h + g * (self.out_norm(out.consensus) - h), aux
+
+    def effective_gate(self) -> torch.Tensor:
+        if self.gate_cap > 0:
+            return self.gate_cap * torch.tanh(self.gate / self.gate_cap)
+        return self.gate
 
     def gate_magnitude(self) -> float:
-        return float(self.gate.detach().abs().mean())
+        return float(self.effective_gate().detach().abs().mean())
 
     def gates(self) -> list:
         return [self.gate]
@@ -276,11 +286,12 @@ class MultiAddOn(nn.Module):
     mode = "mid"
 
     def __init__(self, dim: int, sandbox_kwargs: Dict, n_sites: int,
-                 shared: bool = True):
+                 shared: bool = True, gate_cap: float = 0.0):
         super().__init__()
         one = Sandbox(dim, **sandbox_kwargs) if shared else None
         self.sites = nn.ModuleList(
-            [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one)
+            [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one,
+                        gate_cap=gate_cap)
              for _ in range(n_sites)])
 
     def gates(self) -> list:
@@ -325,6 +336,9 @@ class V2Config:
     # set of L2 weights for all sites (else one copy per site).
     addon_layers: list = field(default_factory=list)
     addon_shared: bool = True
+    # Soft cap on the effective gate, cap * tanh(gate / cap) (T37);
+    # 0 = uncapped (v2.0-v2.2 runs).
+    gate_cap: float = 0.0
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
@@ -380,11 +394,13 @@ class EkdantLM(nn.Module):
         if cfg.addon == "sandbox":
             if cfg.addon_layers:
                 self.addon = MultiAddOn(dim, cfg.sandbox_kwargs(), len(sites),
-                                        shared=cfg.addon_shared)
+                                        shared=cfg.addon_shared,
+                                        gate_cap=cfg.gate_cap)
                 self._sites = list(self.addon.sites)
             else:
                 self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
-                                        mode="mid" if sites else "final")
+                                        mode="mid" if sites else "final",
+                                        gate_cap=cfg.gate_cap)
                 self._sites = [self.addon] if sites else []
             for i, k in enumerate(sites):
                 lm.model.layers[k - 1].register_forward_hook(
@@ -463,9 +479,10 @@ class EkdantLM(nn.Module):
             buckets.setdefault(key, []).append(p)
         groups = [{"params": ps, "lr": addon_lr if is_addon else backbone_lr,
                    "base_lr": addon_lr if is_addon else backbone_lr,
-                   "weight_decay": wd if decay else 0.0}
+                   "weight_decay": wd if decay else 0.0,
+                   "kind": "addon" if is_addon else "backbone"}
                   for (is_addon, decay), ps in buckets.items()]
         if gates:
             groups.append({"params": gates, "lr": gate_lr, "base_lr": gate_lr,
-                           "weight_decay": 0.0})
+                           "weight_decay": 0.0, "kind": "gate"})
         return groups
