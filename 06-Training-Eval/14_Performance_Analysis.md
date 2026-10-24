@@ -9,9 +9,10 @@ All numbers below are from `estimate_model_size` / direct param counts on the sh
 | arm | backbone | add-on | total |
 |---|---|---|---|
 | `baseline` | 134,515,008 | 0 | 134,515,008 |
-| `sandbox` | 134,515,008 | 19,594,944 (L2 19,593,792 incl. 4 × 576 debate pre-norm + gate 576 + output norm 576) | 154,109,952 |
+| `sandbox` v2.1 (L2 after layer 20) | 134,515,008 | 19,595,520 (+ input norm 576) | 154,110,528 |
+| `sandbox` v2.0 | 134,515,008 | 19,594,944 (L2 19,593,792 incl. 4 × 576 debate pre-norm + gate 576 + output norm 576) | 154,109,952 |
 
-Time and memory on the A100s: **not yet measured** (`results.cost` records params, tokens, wall-clock and peak memory per arm). A CPU smoke run (`--limit 64`) took 10 m 31 s end to end; that is a pipeline check, not a speed figure.
+**Measured on the A100s (paired runs, 2026-10-24):** baseline 4,612 s end to end, peak 16.6 GB; sandbox 5,807 s (+26 %), peak 22.8 GB; both 91,009,259 training tokens at batch 8 × 4 (`results.cost`). A CPU smoke run (`--limit 64`) took 10 m 31 s end to end; that is a pipeline check, not a speed figure.
 
 ## 1. Parameter table (measured)
 

@@ -109,7 +109,7 @@ sandbox run crashed because PyTorch defaults to GPU 0, which was nearly full.
 nvidia-smi                                  # pick GPUs with >= 20 GB free
 # optional, once: echo "hf_..." > 09-Code/configs/hf_token.txt   (see below)
 cd 09-Code
-FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3"
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 2 --ft-epochs 3"   # v2.1
 
 CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS --variant baseline    --out runs/v2_baseline > v2_baseline.log 2>&1 &
 CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS --variant sandbox     --out runs/v2_sandbox  > v2_sandbox.log  2>&1 &
@@ -127,7 +127,7 @@ never falls back to CPU unless you pass `--gpu cpu` (smoke runs only). Without
 `CUDA_VISIBLE_DEVICES`, `--gpu auto` (the default) picks the visible GPU with
 the most free memory.
 
-**Settings (both arms):** backbone LR 5e-5, add-on LR 1e-4 (`--addon-lr`; was 1e-3, T34),
+**Settings (both arms):** v2.1 puts L2 after decoder layer 20 (`addon_layer` in the configs, T35); backbone LR 5e-5, L2 matrices 1e-4 (`--addon-lr`; was 1e-3, T34), the gate alone 1e-3 (`--gate-lr`), 2 PubMedQA epochs. The v2.0 tie used `--epochs 1` and L2 after the final norm: reproduce it with `--config configs/v2_sandbox_final.json --epochs 1 --gate-lr 1e-4`.
 cosine per phase with 200 warm-up steps, effective batch 32 sequences, bf16 on
 A100, gradient clip 1.0 applied **separately** to the backbone and the add-on
 (so the add-on can never shrink the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens. If
@@ -215,6 +215,28 @@ How to read it:
 
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
+
+## A7a. Paired results (2026-10-24, the thesis numbers)
+
+Both arms with the A3 flags, seed 17, one A100 each (`v2_baseline-part3.log`,
+`v2_sandbox-part3.log`; results in `09-Code/Runs/`, git-ignored).
+
+| | baseline | sandbox |
+|---|---|---|
+| params | 134,515,008 | 154,109,952 (+19,594,944) |
+| MedQuAD benchmark ppl (8,258 answers) | 3.7817 | **3.7795** |
+| MedQuAD validation ppl | 3.958 | 3.956 |
+| PubMedQA held-out ppl, after phase 1 → final | 7.536 → 8.191 | 7.534 → 8.188 |
+| ROUGE-L / token F1 (1,000 generated) | 0.3127 / 0.3770 | 0.3137 / 0.3789 |
+| gate `|g|` / L2 size `l2` | — | 0.0054 / 0.7–5.2 |
+| wall-clock, peak GPU memory | 4,612 s, 16.6 GB | 5,807 s (+26 %), 22.8 GB |
+| skipped steps | 0 | 0 |
+
+`python -m ekdant.gen_eval compare`: per-token NLL **−0.0006, 95 % CI
+[−0.0007, −0.0005]** — the interval excludes 0, but the effect is 0.06 % of
+perplexity. Three same-seed baseline runs gave benchmark ppl 3.782 each and
+ROUGE-L 0.3127–0.3155 / F1 0.3770–0.3797, so the generation scores tie.
+**Verdict: a practical tie;** the network kept L2's gate almost closed.
 
 ## A7b. Reference numbers (first baseline run, 2026-10-23)
 
@@ -572,7 +594,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 145 tests
+python -m pytest            # 153 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

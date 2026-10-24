@@ -14,7 +14,7 @@ Document: [thesis.pdf](08-Thesis/thesis.pdf) · Source: [thesis.tex](08-Thesis/t
 
 ---
 
-> [!important] **Status 2026-10-22 — v2.** The thesis now tests L2 on a pretrained SmolLM2-135M: two arms (`baseline` 134.52M, `sandbox` +19.59M L2), both starting identical (zero-init gate), trained on PubMedQA then half of MedQuAD, benchmarked on the other half by reference-answer perplexity with a 95 % confidence interval. Built and tested (145 tests); GPU runs pending. Why: the v1 from-scratch 50M model learned only the answer-letter prior (T27, T28). Sections below describe the design and the v1 pilot. Spec: [30](07-Management/30_Design_v2_Pretrained_Backbone.md).
+> [!important] **Status 2026-10-22 — v2.** The thesis now tests L2 on a pretrained SmolLM2-135M: two arms (`baseline` 134.52M, `sandbox` +19.59M L2), both starting identical (zero-init gate), trained on PubMedQA then half of MedQuAD, benchmarked on the other half by reference-answer perplexity with a 95 % confidence interval. Result (2026-10-24): a practical tie — benchmark perplexity 3.7817 vs 3.7795 (−0.06 %, 95 % CI excludes 0), generated answers tie, and the gate stayed almost closed (|g| = 0.005). Built and tested (153 tests); GPU runs pending. Why: the v1 from-scratch 50M model learned only the answer-letter prior (T27, T28). Sections below describe the design and the v1 pilot. Spec: [30](07-Management/30_Design_v2_Pretrained_Backbone.md).
 
 ## 1. The pitch
 
@@ -346,7 +346,7 @@ are new parameters, and that increase is the honest cost of the correction.
 | Done | Not done |
 |---|---|
 | ✅ Full thesis source (`thesis.tex`): 7 figures, 70 references, 4 propositions with proofs, no undefined references; `thesis.pdf` must be rebuilt after the scope alignment | ❌ Model source code: T + L2 (no L1) (`09-Code/src/ekdant/`, embed → T → L2 → head); L1 SSM storage still design-only |
-| ✅ Model code + **145 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on all of MedMCQA → seed-locked 60% MedQA fine-tune → untouched 40% benchmark, better-of checkpoint selection, anti-overfit knobs T21/T22) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
+| ✅ Model code + **153 unit tests passing** (`09-Code/tests/`); architecture-matched A/B configs ready; **full 3-epoch A/B executed** (MedMCQA val 33.31% vs 32.01% — a tie within noise; MedQA ≈ chance at this scale); **100-epoch sequential protocol prepared** (train+test on all of MedMCQA → seed-locked 60% MedQA fine-tune → untouched 40% benchmark, better-of checkpoint selection, anti-overfit knobs T21/T22) | ❌ No thesis-final numbers yet (1 seed, ~50M class; depth-matched control + K ablations + multi-seed open) |
 | ✅ Prior-art audit: 66 local papers, claim-to-evidence index | ❌ `[PENDING]` rows in every results table (Ch. 6) |
 | ✅ Design audit: 4 defects found + proven + fixed | ❌ Parameter table needs measured numbers (L2 measured 6.56M vs 2.8M estimate) |
 | ✅ Cost-matched protocol fixed *before* any run | ❌ Phase-1 epochs to re-pick: the legacy 100-epoch baseline memorised MedMCQA (33.33 % val, same as 3 epochs) — sandbox diagnostics now logged, LR bug fixed |
@@ -390,7 +390,7 @@ them. L2 spends them on hypothesis diversity instead — the sandbox *is* the mi
 
 **Q: Where is the code?**
 Implemented in `09-Code/src/ekdant/` — pure PyTorch: `model.py`, `transformer_stack.py`,
-`sandbox.py`, `output_head.py`, `train.py`, `data.py`, with **145 passing unit tests**
+`sandbox.py`, `output_head.py`, `train.py`, `data.py`, with **153 passing unit tests**
 (`09-Code/tests/`: `test_model.py`, `test_sandbox.py`, `test_transformer.py`,
 `test_data.py`, `test_schedule.py`, `test_eval_split.py`) and
 architecture-matched A/B configs (`configs/sandbox_50m.json` vs `baseline_50m.json`,

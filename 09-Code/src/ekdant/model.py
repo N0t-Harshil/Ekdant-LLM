@@ -217,29 +217,40 @@ def baseline_config(cfg: EkdantConfig) -> EkdantConfig:
 # ---------------------------------------------------------------------------
 
 class GatedAddOn(nn.Module):
-    """``h + g * (norm(consensus(h)) - h)`` with ``g`` a per-channel gate
-    initialised to 0, where ``consensus`` is the L2 sandbox.
+    """L2 joined to the backbone through a per-channel gate ``g`` that is
+    initialised to 0, so at step 0 the output is exactly ``h`` and the
+    sandbox arm starts as the backbone.
 
-    At step 0 the output is exactly ``h``, so the sandbox arm starts as the
-    backbone; any later difference comes from training L2.  ``h`` is already
-    past SmolLM2's final norm and goes straight to the head, so the
-    consensus is RMS-normalised first (v1 had ``ln_f`` after L2): an
-    unbounded L2 output otherwise grew the logits without limit (T32)."""
+    ``mode="final"`` (v2.0): after the final norm, ``h + g*(norm(c(h)) - h)``.
+    ``h`` goes straight to the head, so the consensus is RMS-normalised
+    first (T32).
+    ``mode="mid"`` (v2.1): inside the residual stream after a decoder layer,
+    ``h + g*norm(c(norm(h)))`` - the standard pre-norm residual form. The
+    mid-network stream has rms ~100 with outliers ~2e4, so L2 reads a
+    normalised input, and later layers see its output (spec §13)."""
 
-    def __init__(self, dim: int, sandbox_kwargs: Dict):
+    def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final"):
         super().__init__()
+        if mode not in ("final", "mid"):
+            raise ValueError(f"mode must be final|mid, got {mode!r}")
+        self.mode = mode
         self.gate = nn.Parameter(torch.zeros(dim))
         self.sandbox = Sandbox(dim, **sandbox_kwargs)
         self.out_norm = RMSNorm(dim)
+        if mode == "mid":
+            self.in_norm = RMSNorm(dim)
 
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        out = self.sandbox(h, mask=mask)
+        x = self.in_norm(h) if self.mode == "mid" else h
+        out = self.sandbox(x, mask=mask)
         aux = dict(out.aux)
         # L2's internal size, which the output norm hides from the loss;
         # logged so drift is visible during training (T34)
         aux["consensus_rms"] = masked_mean_bt(
             out.consensus.detach().float().pow(2).mean(-1), mask).sqrt()
+        if self.mode == "mid":
+            return h + self.gate * self.out_norm(out.consensus), aux
         return h + self.gate * (self.out_norm(out.consensus) - h), aux
 
     def gate_magnitude(self) -> float:
@@ -268,6 +279,10 @@ class V2Config:
     # the backbone and datasets are public).  Never the token itself -
     # this config is saved into last.pt and results.json.
     hf_token_file: str = ""
+    # Where L2 joins the backbone: -1 = after the final norm (v2.0, a dead
+    # end: nothing reads it), k >= 1 = after decoder layer k, so layers
+    # k+1.. and, through attention, later tokens use its output (v2.1).
+    addon_layer: int = -1
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
@@ -303,28 +318,47 @@ class EkdantLM(nn.Module):
         self.lm = lm
         dim = lm.config.hidden_size
         self.addon: Optional[GatedAddOn] = None
+        n_layers = len(lm.model.layers)
+        if cfg.addon_layer != -1 and not 1 <= cfg.addon_layer <= n_layers:
+            raise ValueError(f"addon_layer must be -1 or 1..{n_layers}, "
+                             f"got {cfg.addon_layer}")
         if cfg.addon == "sandbox":
-            self.addon = GatedAddOn(dim, cfg.sandbox_kwargs())
+            mid = cfg.addon_layer > 0
+            self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
+                                    mode="mid" if mid else "final")
+            if mid:
+                lm.model.layers[cfg.addon_layer - 1].register_forward_hook(
+                    self._mid_hook)
+        self._ctx: Dict = {"mask": None, "aux": {}}
+
+    def _mid_hook(self, module, args, output):
+        """Replace decoder layer k's output by the gated L2 refinement."""
+        h = output[0] if isinstance(output, tuple) else output
+        new, self._ctx["aux"] = self.addon(h, self._ctx["mask"])
+        return (new,) + tuple(output[1:]) if isinstance(output, tuple) else new
 
     def forward(self, input_ids: torch.Tensor,
                 attention_mask: Optional[torch.Tensor] = None,
                 labels: Optional[torch.Tensor] = None,
                 past_key_values=None, use_cache: bool = False,
                 position_ids: Optional[torch.Tensor] = None) -> ModelOutput:
+        # logits[t] predicts labels[t+1]: diagnostics / spread floor cover
+        # exactly the positions the loss trains.  Incremental decoding
+        # steps carry no mask (diagnostics are unused there).
+        if labels is not None:
+            dmask = F.pad((labels[:, 1:] != -100).long(), (0, 1))
+        else:
+            dmask = attention_mask if past_key_values is None else None
+        self._ctx = {"mask": dmask, "aux": {}}
         out = self.lm.model(input_ids=input_ids, attention_mask=attention_mask,
                             past_key_values=past_key_values,
                             use_cache=use_cache, position_ids=position_ids)
         h = out.last_hidden_state
         aux: Dict = {}
-        if self.addon is not None:
-            # logits[t] predicts labels[t+1]: diagnostics / spread floor
-            # cover exactly the positions the loss trains.  Incremental
-            # decoding steps carry no mask (diagnostics are unused there).
-            if labels is not None:
-                dmask = F.pad((labels[:, 1:] != -100).long(), (0, 1))
-            else:
-                dmask = attention_mask if past_key_values is None else None
+        if self.addon is not None and self.addon.mode == "final":
             h, aux = self.addon(h, dmask)
+        elif self.addon is not None:
+            aux = dict(self._ctx["aux"])
         logits = self.lm.lm_head(h)
         loss = None
         if labels is not None:
@@ -343,18 +377,26 @@ class EkdantLM(nn.Module):
         return count_parameters(self.addon) if self.addon is not None else 0
 
     def param_groups(self, backbone_lr: float, addon_lr: float,
-                     wd: float = 0.1) -> list:
-        """Four AdamW groups: {backbone, add-on} x {decay, no decay}.
-        Decay only on >=2-D weights; the gate and norms/biases get none."""
+                     wd: float = 0.1, gate_lr: Optional[float] = None) -> list:
+        """AdamW groups: {backbone, add-on} x {decay, no decay}, plus the
+        gate alone at ``gate_lr`` when given (T35: the 576-entry gate does
+        not drift like L2's matrices, so it may move faster). Decay only on
+        >=2-D weights; the gate and norms/biases get none."""
         addon_ids = ({id(p) for p in self.addon.parameters()}
                      if self.addon is not None else set())
+        gate = self.addon.gate if (self.addon is not None
+                                   and gate_lr is not None) else None
         buckets: Dict[Tuple[bool, bool], list] = {}
         for p in self.parameters():
-            if not p.requires_grad:
+            if not p.requires_grad or p is gate:
                 continue
             key = (id(p) in addon_ids, p.dim() >= 2)
             buckets.setdefault(key, []).append(p)
-        return [{"params": ps, "lr": addon_lr if is_addon else backbone_lr,
-                 "base_lr": addon_lr if is_addon else backbone_lr,
-                 "weight_decay": wd if decay else 0.0}
-                for (is_addon, decay), ps in buckets.items()]
+        groups = [{"params": ps, "lr": addon_lr if is_addon else backbone_lr,
+                   "base_lr": addon_lr if is_addon else backbone_lr,
+                   "weight_decay": wd if decay else 0.0}
+                  for (is_addon, decay), ps in buckets.items()]
+        if gate is not None:
+            groups.append({"params": [gate], "lr": gate_lr, "base_lr": gate_lr,
+                           "weight_decay": 0.0})
+        return groups

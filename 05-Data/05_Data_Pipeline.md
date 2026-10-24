@@ -100,7 +100,7 @@ Measured with the real tokenizer on all four splits:
 
 ```bash
 cd 09-Code
-pip install -e .[dev] && pytest -q                         # 145 tests, includes the data and split tests
+pip install -e .[dev] && pytest -q                         # 153 tests, includes the data and split tests
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke
 python -m ekdant.train --variant sandbox|baseline --out runs/<variant> ...                        # real run (see run.md §3)
 ```

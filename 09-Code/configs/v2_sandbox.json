@@ -12,5 +12,6 @@
   "readout": "mean",
   "max_seq_len": 1024,
   "max_answer": 512,
-  "hf_token_file": "configs/hf_token.txt"
+  "hf_token_file": "configs/hf_token.txt",
+  "addon_layer": 20
 }

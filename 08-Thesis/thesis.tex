@@ -207,7 +207,12 @@ parameters), and compares two arms that start identical: the backbone alone
 and the backbone with L2. Both are trained on PubMedQA (question and abstract to conclusion), fine-tuned
 on half of MedQuAD and benchmarked once on the other half, split by question,
 using reference-answer perplexity with a paired-bootstrap confidence interval
-as the primary measure. Every falsifiable claim in the supporting vault
+as the primary measure. The result is a practical tie: the sandbox arm lowers
+the per-token negative log-likelihood of the 8{,}258 benchmark answers by
+$0.0006$ nats (95\% interval $[0.0005, 0.0007]$; perplexity $3.782 \to 3.780$,
+$-0.06\%$), while its gate stays almost closed ($|g| = 0.005$), its generated
+answers match the baseline's within run-to-run variation, and it costs 26\%
+more training time. Every falsifiable claim in the supporting vault
 is backed by one of 66 locally stored papers or by an explicit hand
 derivation, and an explicit prior-art audit states which claims are \emph{not}
 novel---including a compute-matched study in our own library that reports no
@@ -1779,7 +1784,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 145-test unit suite must
+one epoch, with save, resume and evaluation) and the 153-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1810,7 +1815,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by a $145$-test CPU unit suite
+Correctness is gated by a $153$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises
@@ -1900,28 +1905,86 @@ target, which isolates the correction of Defect~1.
 \label{sec:results}
 
 \noindent
-\paragraph{Evaluated configuration (baseline complete, sandbox pending).}
-The first baseline run (one seed, one A100, about 1\,h\,15\,min) is complete;
-both arms are being re-run as a pair, and the table is updated from those
-runs. Its reference-answer perplexity on the MedQuAD benchmark half fell from
-$7.578$ before training to $3.782$ (8{,}258 answers), against $3.958$ on the
-validation questions, so selection did not flatter the benchmark. On the
-PubMedQA held-out rows, perplexity fell from $9.703$ to $7.534$ during
-phase~1 and rose to $8.192$ after the MedQuAD fine-tune: some forgetting,
-still well below the untrained model. The first sandbox run diverged
-(Section~\ref{sec:v2}) and is being repeated with the normalised add-on.
+\paragraph{Evaluated configuration (completed, one seed).}
+Both arms were trained as a pair on two A100 GPUs with identical flags, data
+order and starting weights (seed 17). Training was stable in both: no update
+was skipped, and the size of L2's internal state stayed between $0.7$ and
+$5.2$ throughout. Reference-answer perplexity on the MedQuAD benchmark half
+fell from $7.578$ before training to $3.782$ for the baseline and $3.780$ for
+the sandbox arm (8{,}258 answers from 7{,}172 questions, $1.87$M answer tokens);
+on the validation questions the two reached $3.958$ and $3.956$, so checkpoint
+selection did not flatter the benchmark. PubMedQA held-out perplexity fell
+from $9.703$ to $7.536$ (baseline) and $7.534$ (sandbox) in phase~1 and rose
+to $8.191$ and $8.188$ after the MedQuAD fine-tune: the same mild forgetting in
+both arms.
 
 \begin{center}
 \small
 \begin{tabular}{@{}lccccc@{}}
 \toprule
-\rowcolor{ekHeadBG}\color{white}\textbf{Arm} & \color{white}\textbf{Zero-shot ppl} & \color{white}\textbf{Benchmark ppl} & \color{white}\textbf{$\Delta$ vs.\ baseline (95\% CI)} & \color{white}\textbf{ROUGE-L / F1} & \color{white}\textbf{$|g|$} \\
+\rowcolor{ekHeadBG}\color{white}\textbf{Arm} & \color{white}\textbf{Zero-shot ppl} & \color{white}\textbf{Benchmark ppl} & \color{white}\textbf{$\Delta$ NLL/token vs.\ baseline (95\% CI)} & \color{white}\textbf{ROUGE-L / F1} & \color{white}\textbf{$|g|$} \\
 \midrule
-Baseline & 7.578 & 3.782 & --- & 0.316 / 0.380 & --- \\
-Sandbox & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} & \textit{[PENDING]} \\
+Baseline & 7.578 & 3.7817 & --- & 0.313 / 0.377 & --- \\
+Sandbox & 7.578 & 3.7795 & $-0.0006$ $[-0.0007, -0.0005]$ & 0.314 / 0.379 & 0.005 \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\noindent
+The paired bootstrap resamples whole questions (1{,}000 resamples) and weights
+answers by their length, as the headline perplexity does. Its interval
+excludes zero, so the sandbox arm does predict the reference answers slightly
+better, and it does so consistently: the per-question-type perplexities are
+lower in twelve of fifteen types, each by less than $0.02$. The size of the
+effect, however, is $0.06\%$ in perplexity, far below any practical relevance,
+and the written answers tie: across three baseline runs with the same seed,
+ROUGE-L ranged over $0.3127$--$0.3155$ and token F1 over $0.3770$--$0.3797$,
+which contains the sandbox arm's $0.3137$ and $0.3789$. The benchmark
+perplexity of those three baseline runs agreed to within $0.001$, smaller
+than the $0.0022$ gap, but they share the data order and seed, so the
+variation across seeds is still unmeasured.
+
+\noindent
+The gate explains the size of the effect. After 7{,}227 optimiser steps the
+mean gate magnitude was $|g| = 0.0054$: L2 contributes about half a percent
+of its consensus to the final state. With the add-on learning rate at
+$10^{-4}$, each gate entry could move by up to about $10^{-4}$ per step, so a
+gradient that consistently favoured opening the gate would have opened it far
+wider; the training signal did not. This suggests that, in this setting,
+the backbone alone already supplies most of what the loss rewards, and the
+network chose to use L2 very little. The cost was real: $+19.59$M parameters ($+14.6\%$), $26\%$ more
+wall-clock time ($5{,}807$ versus $4{,}612$\,s) and a higher memory peak
+($22.8$ versus $16.6$\,GB). As pre-registered (Section~\ref{sec:counter-evidence}),
+this is reported as a tie.
+
+\noindent
+\paragraph{L2 inside the backbone (second configuration, pending).}
+The tie has a structural explanation. Placed after the final normalisation,
+L2 refines every token's state in isolation, and nothing else reads its
+output: it cannot influence any other token. In the full design that
+influence comes from the M3 write-back, which returns L2's consensus to the
+L1 sandbox store for the next step (Section~\ref{sec:m3}). Without L1, the
+second configuration approximates this coupling by placing L2 after decoder
+layer 20 of 30, as a pre-norm residual block,
+\begin{equation}
+  h'_t = h_t + g \odot \mathrm{RMSNorm}\bigl(f(\mathrm{RMSNorm}(h_t))\bigr),
+  \qquad g = 0 \text{ at initialisation},
+  \label{eq:mid-addon}
+\end{equation}
+so that the remaining ten layers, and through their attention all later
+tokens, read L2's output. The input is normalised because the residual
+stream there has an RMS of about $100$ with outliers near $2\times10^{4}$.
+The approximation differs from the write-back in kind (attention within one
+pass instead of recurrent memory to the next step) and is described as such.
+Two further changes apply to both arms: the gate has its own learning rate
+($10^{-3}$; L2's matrices stay at $10^{-4}$), and phase~1 runs two epochs of
+PubMedQA. Its results are reported against a baseline trained identically.
+
+\noindent
+Before the paired runs succeeded, two sandbox runs diverged and are kept as
+part of the record (Section~\ref{sec:v2}): the first because L2's output
+reached the logits unnormalised, the second because L2's internal state
+compounded across the debate rounds.
 
 \noindent
 The from-scratch pilot below is the reason for this configuration.
@@ -2079,9 +2142,17 @@ tie.
     sandbox arm is estimated at roughly $1.5\times$ the baseline's wall-clock
     on a T4 (not yet timed on a full run). Gains must be reported alongside parameters, tokens$\times K$ and
     FLOPs, and the arms are architecture-matched, not parameter-matched.
-  \item[Single configuration.] One recipe, one seed ($17$) in the reported
-    protocol. Run-to-run variance is not characterized; differences smaller
-    than seed variance should not be interpreted.
+  \item[Single configuration.] One recipe and one seed ($17$). Three
+    baseline runs with that seed bound the run-to-run variation from GPU
+    non-determinism (benchmark perplexity within $0.001$, ROUGE-L within
+    $0.003$), but the variation across seeds, which also changes the data
+    order, is not measured; the sandbox arm's $0.06\%$ perplexity gain should
+    not be read as more than a tie until it is.
+  \item[A nearly closed gate.] The sandbox arm ended with $|g| = 0.005$, so the
+    experiment tests L2 as the network chose to use it, which was very
+    little. The add-on learning rate was lowered to $10^{-4}$ for stability,
+    which also slows the gate; a separate, larger gate learning rate and a
+    forced contribution of L2 are untested variants.
   \item[No kernels.] Plain PyTorch (no \texttt{flash-attn}, \texttt{mamba-ssm}
     or Triton) leaves throughput on the table. This is a deliberate
     auditability trade, not an oversight.
@@ -2140,9 +2211,13 @@ restores exact local retrieval; stage L2, as built, makes reasoning
 inspectable by materializing several live hypotheses and lets them confront
 one another. In the from-scratch pilot, both arms learned only the
 answer-letter prior, so the head-to-head ended in an uninformative tie; the
-evaluated configuration therefore tests L2 on a pretrained backbone against
-the backbone alone, and its results will be reported as they stand, including
-a tie.
+evaluated configuration therefore tested L2 on a pretrained backbone against
+the backbone alone. The result is a tie in every practical sense: a
+statistically detectable but negligible gain in reference-answer perplexity
+($-0.06\%$), identical generated-answer quality within run-to-run variation,
+and a gate the network kept almost closed, at a cost of 26\% more training
+time. This agrees with the strongest prior evidence against the idea
+(Section~\ref{sec:counter-evidence}) and is reported as it stands.
 
 \noindent
 The substantive result of this thesis is as much about the corrections as

@@ -73,7 +73,8 @@ def pick_device(gpu: str, min_free_gb: float) -> torch.device:
 
 # Flags that fix the data order, the schedule or the arm: a resume with any
 # of them changed would skip the wrong batches or mislabel the run.
-RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "warmup",
+RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
+            "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
 
@@ -115,6 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--addon-lr", type=float, default=1e-4,
                     help="add-on + gate LR (1e-3 kept inflating L2's weights, "
                          "T34)")
+    ap.add_argument("--gate-lr", type=float, default=1e-3,
+                    help="LR of L2's 576-entry gate alone (T35); its "
+                         "matrices keep --addon-lr")
     ap.add_argument("--warmup", type=int, default=200)
     ap.add_argument("--epochs", type=int, default=1, help="phase-1 epochs")
     ap.add_argument("--ft-epochs", type=int, default=3, help="phase-2 epochs")
@@ -196,7 +200,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     torch.manual_seed(args.seed)
     tok = load_tokenizer(cfg.backbone)
     model = EkdantLM(cfg, load_backbone(cfg.backbone)).to(device)
-    opt = torch.optim.AdamW(model.param_groups(args.lr, args.addon_lr),
+    opt = torch.optim.AdamW(model.param_groups(args.lr, args.addon_lr,
+                                               gate_lr=args.gate_lr),
                             betas=(0.9, 0.95))
     if ckpt is not None:
         model.load_state_dict(ckpt["model"])

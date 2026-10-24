@@ -1,6 +1,8 @@
 # 30 — Design v2: pretrained backbone + generative medical QA
 
-> Status: **built and tested** (2026-10-22; plan [31_Plan_v2_Implementation.md](31_Plan_v2_Implementation.md)); GPU runs pending. Measured: backbone 134,515,008 params; sandbox add-on 19,594,944 (total 154,109,952); MLP control 19,591,488. This note is the record of why v2 exists ([T28](10_Known_Issues.md)).
+> **Result (2026-10-24):** a practical tie — benchmark ppl 3.7817 vs 3.7795, per-token NLL −0.0006 [−0.0007, −0.0005], gate |g| = 0.005 (`run.md` A7a).
+>
+> Status: **built and tested** (2026-10-22; plan [31_Plan_v2_Implementation.md](31_Plan_v2_Implementation.md)); GPU runs pending. Measured: backbone 134,515,008 params; sandbox add-on 19,594,944 (total 154,109,952). This note is the record of why v2 exists ([T28](10_Known_Issues.md)).
 
 > [!note] **2026-10-23: the `mlp_control` arm was removed at the user's request.** v2 is a two-arm A/B (`baseline` vs `sandbox`). Consequence, stated in the thesis limitations: the comparison is architecture-matched, not parameter-matched (+19.59M for the sandbox arm). Same day: one config file per arm (`configs/v2_baseline.json`, `configs/v2_sandbox.json`, identical except `addon`) replaced the shared `v2_smollm2_135m.json`, and an optional Hugging Face token is read from the git-ignored `configs/hf_token.txt` (never stored in a config). Also: `transformers` pinned `<5`, because 5.x needs PyTorch ≥ 2.6 and the pod has 2.2.2 (T30).
 
@@ -136,5 +138,21 @@ README, STATUS, `run.md` (all sections), RULES (facts, hard rules: two arms, per
 ## 12. Out of scope for v2
 
 L1 (still design-only), backbones larger than 135M, instruction/chat tuning, LLM-as-judge scoring, multi-seed (until a difference appears), MCQ benchmarks (kept only as the v1 path).
+
+## 13. v2.1 — L2 inside the backbone (2026-10-24)
+
+**Why.** v2.0 put L2 after SmolLM2's final norm, where nothing reads its output: each token's state is refined in isolation and L2 cannot influence any other token. The paired v2.0 runs tied (benchmark ppl 3.7817 vs 3.7795; gate |g| = 0.005). In the thesis design L2 is not a dead end: the **M3 write-back** feeds L2's consensus into L1's sandbox store, which conditions the processing of the next token. v2 has no L1, so v2.1 approximates that coupling by placing L2 **after decoder layer 20 of 30**: layers 21–30 read L2's output and, through attention, carry it to later tokens. (The coupling differs in kind: attention in the same pass instead of recurrent memory to the next step; the thesis says so.)
+
+```
+v2.1 (current):  ids ─► SmolLM2 layers 1–20 ─► h ─► h + g ⊙ RMSNorm(L2(RMSNorm(h))) ─► layers 21–30 ─► final norm ─► lm_head
+v2.0 (the tie):  ids ─► SmolLM2 layers 1–30 ─► final norm ─► h ─► h + g ⊙ (RMSNorm(L2(h)) − h) ─► lm_head
+```
+
+- **Formula (mid placement):** `h + g ⊙ RMSNorm_out(L2(RMSNorm_in(h)))`, the standard pre-norm residual form. The residual stream at layers 15–25 has rms ≈ 103 with outliers ≈ 2×10⁴ (measured), so L2 reads a normalised input; g = 0 at init keeps both arms identical (tested on the real SmolLM2).
+- **Gate learning rate:** the 576-entry gate gets its own LR 1e-3 (`--gate-lr`); L2's matrices stay at 1e-4 (T34). In v2.0 the gate shared 1e-4 and opened only to 0.005.
+- **Longer phase 1:** 2 PubMedQA epochs for both arms (the baseline's curve was still falling at 1 epoch); MedQuAD stays at 3.
+- **Params:** add-on 19,595,520 (+576 input norm); total 154,110,528.
+- **Configs:** `configs/v2_baseline.json` / `v2_sandbox.json` carry `"addon_layer": 20`; `configs/v2_sandbox_final.json` reproduces v2.0 (`-1`).
+- **Tests (`tests/test_midlayer.py`):** identity at init; L2's change at token t reaches the predictions of later tokens and never earlier ones, while the v2.0 placement reaches none; KV-cache decoding equals the full forward; bounded against massive activations; layer validation; separate gate LR group; shipped configs.
 
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

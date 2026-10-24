@@ -26,6 +26,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 | Degree | MSc thesis, Hochschule Heilbronn | `08-Thesis/thesis.tex` title page |
 | Built model, v2 (current) | `SmolLM2-135M → last hidden state h → h + g ⊙ (RMSNorm(f(h)) − h) → SmolLM2 tied lm_head`; `g ∈ R^576` starts at 0, so every arm equals the backbone at step 0 | `09-Code/src/ekdant/model.py` (`EkdantLM`, `GatedAddOn`), `backbone.py` |
 | v2 arms | `baseline` (no add-on) **134,515,008** params; `sandbox` (+L2 **19,594,944**, total 154,109,952, 12.7 %) | measured with `count_parameters` on the real backbone |
+| v2.1 placement (current) | L2 after decoder layer **20** of 30: `h + g ⊙ RMSNorm(L2(RMSNorm(h)))`; add-on **19,595,520**, total 154,110,528; gate LR **1e-3** (`--gate-lr`), L2 matrices 1e-4; 2 PubMedQA epochs. v2.0 (after the final norm) is `configs/v2_sandbox_final.json` | `model.py`, spec 30 §13, T35 |
 | v2 L2 | K=4, **R=4 debate rounds, debate MLP 4×**, S=8, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` (scaled to v1's 13.1 % share of the model) | `configs/v2_baseline.json`, `configs/v2_sandbox.json` (identical except `addon`) |
 | v2 data | PubMedQA `pqa_artificial` 211,269 (2,000 held out); MedQuAD 16,407 rows / 14,345 unique questions, split 50/50 by question, 10 % of the fine-tune half's questions = validation | `gen_data.py`, `train_gen.py` |
 | v2 metrics | reference-answer perplexity (primary) + per-question-type; ROUGE-L / token F1 on 1,000 generated answers; paired bootstrap 95 % CI between arms | `gen_eval.py` |
@@ -39,7 +40,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 | Tokenizer | BPE, 32,768 configured (26,766 actually learned), lower-cased | `data.py::Tokenizer` |
 | Dependencies | `torch>=2.2`, `datasets>=2.19,<5`, `pyarrow>=12,<21`, `tokenizers>=0.19`, `transformers>=4.45,<5`, `pytest>=8`; tested on PyTorch 2.2.2 + transformers 4.57.6 (pod mirror) and PyTorch 2.9.0 | `09-Code/requirements.txt` = `pyproject.toml` (`tests/test_requirements.py`) |
 | Tests | run `pytest -q` and count — do not trust a number written in a doc | `09-Code/tests/` |
-| Completed results | v2: none yet (`[PENDING]`). v1: 3-epoch A/B tie (MedMCQA val 33.31 % vs 32.01 %); legacy 100-epoch baseline (33.33 % / `medqa_bench` 26.89 %); 2-epoch baseline 33.91 % / 25.44 % / 29.62 % — all at the majority-letter rate (T27) | `run.md` §6, `07-Management/10_Known_Issues.md` |
+| Completed results | v2 paired runs (seed 17): benchmark ppl 3.7817 baseline vs 3.7795 sandbox, per-token NLL −0.0006 [−0.0007, −0.0005], ROUGE-L 0.3127/0.3137, F1 0.3770/0.3789, gate 0.0054 — a practical tie (`run.md` A7a). v1: 3-epoch A/B tie (MedMCQA val 33.31 % vs 32.01 %); legacy 100-epoch baseline (33.33 % / `medqa_bench` 26.89 %); 2-epoch baseline 33.91 % / 25.44 % / 29.62 % — all at the majority-letter rate (T27) | `run.md` §6, `07-Management/10_Known_Issues.md` |
 
 If any of these disagree with the code, **the code is right** and the doc is stale — fix the doc (and tell the user).
 
