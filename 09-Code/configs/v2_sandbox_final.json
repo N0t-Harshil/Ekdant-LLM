@@ -13,5 +13,7 @@
   "max_seq_len": 1024,
   "max_answer": 512,
   "hf_token_file": "configs/hf_token.txt",
-  "addon_layer": -1
+  "addon_layer": -1,
+  "addon_layers": [],
+  "addon_shared": true
 }

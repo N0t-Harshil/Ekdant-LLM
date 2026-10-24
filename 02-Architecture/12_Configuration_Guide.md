@@ -18,6 +18,7 @@ One file per arm, identical except `addon` (`test_shipped_v2_configs_differ_only
 | `rho_min`, `lambda_sbx` | 0.05, 1.0 | spread floor |
 | `readout` | `mean` | consensus |
 | `max_seq_len`, `max_answer` | 1024, 512 | sequence cap (context trimmed), answer cap |
+| `addon_layers`, `addon_shared` | `[]`, `true`; `[10, 20, 30]` in `configs/v2_sandbox_multi.json` | v2.2: apply L2 after each listed decoder layer (overrides `addon_layer`); `addon_shared` = one set of L2 weights for all sites (else one copy each). Each site has its own gate and norms (T36) |
 | `addon_layer` | `20` (both v2 configs); `-1` in `configs/v2_sandbox_final.json` | where L2 joins: after decoder layer k (v2.1, its output feeds layers k+1.. and later tokens) or `-1` after the final norm (v2.0, the tie). Must be −1 or 1..30 |
 | `hf_token_file` | `configs/hf_token.txt` | path of a **git-ignored** file holding a Hugging Face token (optional; models and datasets are public). The file's first line is exported as `HF_TOKEN` unless that variable is already set. Never put the token itself in the JSON: the config is saved into `last.pt` and `results.json` |
 

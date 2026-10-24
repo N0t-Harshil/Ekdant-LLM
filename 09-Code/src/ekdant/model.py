@@ -12,6 +12,7 @@ Spec: 02-Architecture/03_Codebase_Map.md, 04-Model-DeepDive/26c
 
 from __future__ import annotations
 
+import functools
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Optional, Tuple
 
@@ -229,13 +230,15 @@ class GatedAddOn(nn.Module):
     mid-network stream has rms ~100 with outliers ~2e4, so L2 reads a
     normalised input, and later layers see its output (spec §13)."""
 
-    def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final"):
+    def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final",
+                 sandbox: Optional[Sandbox] = None):
         super().__init__()
         if mode not in ("final", "mid"):
             raise ValueError(f"mode must be final|mid, got {mode!r}")
         self.mode = mode
         self.gate = nn.Parameter(torch.zeros(dim))
-        self.sandbox = Sandbox(dim, **sandbox_kwargs)
+        # ``sandbox`` given = one L2 shared by several sites (v2.2, spec §14)
+        self.sandbox = sandbox if sandbox is not None else Sandbox(dim, **sandbox_kwargs)
         self.out_norm = RMSNorm(dim)
         if mode == "mid":
             self.in_norm = RMSNorm(dim)
@@ -255,6 +258,40 @@ class GatedAddOn(nn.Module):
 
     def gate_magnitude(self) -> float:
         return float(self.gate.detach().abs().mean())
+
+    def gates(self) -> list:
+        return [self.gate]
+
+    def site_gate_magnitudes(self) -> list:
+        return [self.gate_magnitude()]
+
+
+class MultiAddOn(nn.Module):
+    """The same L2 at several depths (v2.2, spec §14).  With ``shared`` one
+    Sandbox serves every site; each site keeps its own zero-init gate and
+    its own input/output norms, because the residual stream's scale differs
+    a lot between depths (rms ~6 at layer 10, ~100 at 20, ~2 at the end).
+    ``shared=False`` gives every site its own Sandbox (the fallback)."""
+
+    mode = "mid"
+
+    def __init__(self, dim: int, sandbox_kwargs: Dict, n_sites: int,
+                 shared: bool = True):
+        super().__init__()
+        one = Sandbox(dim, **sandbox_kwargs) if shared else None
+        self.sites = nn.ModuleList(
+            [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one)
+             for _ in range(n_sites)])
+
+    def gates(self) -> list:
+        return [s.gate for s in self.sites]
+
+    def site_gate_magnitudes(self) -> list:
+        return [s.gate_magnitude() for s in self.sites]
+
+    def gate_magnitude(self) -> float:
+        g = self.site_gate_magnitudes()
+        return sum(g) / len(g)
 
 
 @dataclass
@@ -283,13 +320,27 @@ class V2Config:
     # end: nothing reads it), k >= 1 = after decoder layer k, so layers
     # k+1.. and, through attention, later tokens use its output (v2.1).
     addon_layer: int = -1
+    # Several depths (v2.2): if non-empty, L2 is applied after each of these
+    # decoder layers and ``addon_layer`` is ignored.  ``addon_shared`` = one
+    # set of L2 weights for all sites (else one copy per site).
+    addon_layers: list = field(default_factory=list)
+    addon_shared: bool = True
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
             raise ValueError(f"addon must be none|sandbox, got {self.addon!r}")
         if self.readout not in ("mean", "lowest_energy"):
             raise ValueError(f"unknown readout {self.readout!r}")
+        if list(self.addon_layers) != sorted(set(self.addon_layers)):
+            raise ValueError(f"addon_layers must be increasing and unique, "
+                             f"got {self.addon_layers}")
         return self
+
+    def sites(self) -> list:
+        """Decoder layers after which L2 runs; [] = after the final norm."""
+        if self.addon_layers:
+            return list(self.addon_layers)
+        return [self.addon_layer] if self.addon_layer > 0 else []
 
     def sandbox_kwargs(self) -> Dict:
         return dict(K=self.n_sandbox, rounds=self.debate_rounds,
@@ -322,19 +373,29 @@ class EkdantLM(nn.Module):
         if cfg.addon_layer != -1 and not 1 <= cfg.addon_layer <= n_layers:
             raise ValueError(f"addon_layer must be -1 or 1..{n_layers}, "
                              f"got {cfg.addon_layer}")
+        sites = cfg.sites()
+        if any(not 1 <= k <= n_layers for k in sites):
+            raise ValueError(f"addon_layers must lie in 1..{n_layers}, got {sites}")
+        self._sites: list = []
         if cfg.addon == "sandbox":
-            mid = cfg.addon_layer > 0
-            self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
-                                    mode="mid" if mid else "final")
-            if mid:
-                lm.model.layers[cfg.addon_layer - 1].register_forward_hook(
-                    self._mid_hook)
-        self._ctx: Dict = {"mask": None, "aux": {}}
+            if cfg.addon_layers:
+                self.addon = MultiAddOn(dim, cfg.sandbox_kwargs(), len(sites),
+                                        shared=cfg.addon_shared)
+                self._sites = list(self.addon.sites)
+            else:
+                self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
+                                        mode="mid" if sites else "final")
+                self._sites = [self.addon] if sites else []
+            for i, k in enumerate(sites):
+                lm.model.layers[k - 1].register_forward_hook(
+                    functools.partial(self._site_hook, i))
+        self._ctx: Dict = {"mask": None, "aux": []}
 
-    def _mid_hook(self, module, args, output):
-        """Replace decoder layer k's output by the gated L2 refinement."""
+    def _site_hook(self, i, module, args, output):
+        """Replace decoder layer k's output by site i's gated L2 refinement."""
         h = output[0] if isinstance(output, tuple) else output
-        new, self._ctx["aux"] = self.addon(h, self._ctx["mask"])
+        new, aux = self._sites[i](h, self._ctx["mask"])
+        self._ctx["aux"].append(aux)
         return (new,) + tuple(output[1:]) if isinstance(output, tuple) else new
 
     def forward(self, input_ids: torch.Tensor,
@@ -349,26 +410,33 @@ class EkdantLM(nn.Module):
             dmask = F.pad((labels[:, 1:] != -100).long(), (0, 1))
         else:
             dmask = attention_mask if past_key_values is None else None
-        self._ctx = {"mask": dmask, "aux": {}}
+        self._ctx = {"mask": dmask, "aux": []}
         out = self.lm.model(input_ids=input_ids, attention_mask=attention_mask,
                             past_key_values=past_key_values,
                             use_cache=use_cache, position_ids=position_ids)
         h = out.last_hidden_state
         aux: Dict = {}
+        per_site: list = []
         if self.addon is not None and self.addon.mode == "final":
             h, aux = self.addon(h, dmask)
+            per_site = [aux]
         elif self.addon is not None:
-            aux = dict(self._ctx["aux"])
+            per_site = list(self._ctx["aux"])
+            # one entry per site: diagnostics averaged over the sites
+            keys = set.intersection(*(set(a) for a in per_site)) if per_site else set()
+            aux = {k: torch.stack([a[k].float() for a in per_site]).mean(0)
+                   for k in keys if torch.is_tensor(per_site[0][k])}
         logits = self.lm.lm_head(h)
         loss = None
         if labels is not None:
             loss = F.cross_entropy(
                 logits[:, :-1].reshape(-1, logits.size(-1)).float(),
                 labels[:, 1:].reshape(-1), ignore_index=-100)
-            rho = aux.get("spread_ratio")
-            if rho is not None:
-                loss = loss + self.cfg.lambda_sbx * F.relu(
-                    self.cfg.rho_min - rho).pow(2).mean()
+            rhos = [a["spread_ratio"] for a in per_site if "spread_ratio" in a]
+            if rhos:
+                # the spread floor applies at every site
+                loss = loss + self.cfg.lambda_sbx * torch.stack(
+                    [F.relu(self.cfg.rho_min - r).pow(2).mean() for r in rhos]).mean()
         if use_cache:
             aux["past_key_values"] = out.past_key_values
         return ModelOutput(logits=logits, loss=loss, aux=aux)
@@ -384,11 +452,12 @@ class EkdantLM(nn.Module):
         >=2-D weights; the gate and norms/biases get none."""
         addon_ids = ({id(p) for p in self.addon.parameters()}
                      if self.addon is not None else set())
-        gate = self.addon.gate if (self.addon is not None
-                                   and gate_lr is not None) else None
+        gates = (self.addon.gates() if (self.addon is not None
+                                        and gate_lr is not None) else [])
+        gate_ids = {id(g) for g in gates}
         buckets: Dict[Tuple[bool, bool], list] = {}
         for p in self.parameters():
-            if not p.requires_grad or p is gate:
+            if not p.requires_grad or id(p) in gate_ids:
                 continue
             key = (id(p) in addon_ids, p.dim() >= 2)
             buckets.setdefault(key, []).append(p)
@@ -396,7 +465,7 @@ class EkdantLM(nn.Module):
                    "base_lr": addon_lr if is_addon else backbone_lr,
                    "weight_decay": wd if decay else 0.0}
                   for (is_addon, decay), ps in buckets.items()]
-        if gate is not None:
-            groups.append({"params": [gate], "lr": gate_lr, "base_lr": gate_lr,
+        if gates:
+            groups.append({"params": gates, "lr": gate_lr, "base_lr": gate_lr,
                            "weight_decay": 0.0})
         return groups

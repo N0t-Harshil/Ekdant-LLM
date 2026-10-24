@@ -1784,7 +1784,7 @@ score, fine-tune on the 60\% MedQA partition, then benchmark. The checkpoint
 that runs the final benchmark is the better of the best phase-2 checkpoint and
 the last checkpoint, judged on the untouched MedMCQA validation split, so the
 benchmark rows are never used for selection. A smoke test (a few hundred rows,
-one epoch, with save, resume and evaluation) and the 153-test unit suite must
+one epoch, with save, resume and evaluation) and the 162-test unit suite must
 pass before any full run.
 
 % =====================================================================
@@ -1815,7 +1815,7 @@ parameter-matched control is open work.
 \subsection{Validation and test harness}
 
 \noindent
-Correctness is gated by a $153$-test CPU unit suite
+Correctness is gated by a $162$-test CPU unit suite
 (\texttt{09-Code/tests}) covering the model, the sandbox, the Transformer
 stack, the data pipeline, the learning-rate schedule and the seed-locked
 evaluation split, and by a one-epoch smoke run of each arm that exercises
@@ -1958,7 +1958,7 @@ wall-clock time ($5{,}807$ versus $4{,}612$\,s) and a higher memory peak
 this is reported as a tie.
 
 \noindent
-\paragraph{L2 inside the backbone (second configuration, pending).}
+\paragraph{L2 inside the backbone (second configuration).}
 The tie has a structural explanation. Placed after the final normalisation,
 L2 refines every token's state in isolation, and nothing else reads its
 output: it cannot influence any other token. In the full design that
@@ -1978,7 +1978,34 @@ The approximation differs from the write-back in kind (attention within one
 pass instead of recurrent memory to the next step) and is described as such.
 Two further changes apply to both arms: the gate has its own learning rate
 ($10^{-3}$; L2's matrices stay at $10^{-4}$), and phase~1 runs two epochs of
-PubMedQA. Its results are reported against a baseline trained identically.
+PubMedQA, for both arms.
+
+\noindent
+Both arms trained stably (no skipped update; L2's internal size stayed
+between $0.3$ and $16$) and the separate gate learning rate let the gate open
+five times wider ($|g| = 0.029$ at the end, still rising slowly). The result
+is again a tie: benchmark perplexity $3.914$ (baseline) and $3.913$ (L2 after
+layer 20), a per-token difference of $-0.0002$ nats (95\% interval
+$[-0.0003, -0.0001]$), lower in twelve of fifteen question types by at most
+$0.011$; ROUGE-L and token F1 were slightly lower with L2 ($0.3065$ / $0.3682$
+against $0.3111$ / $0.3726$), a gap a little larger than the same-seed spread
+observed earlier. The second PubMedQA epoch made both arms worse: benchmark
+perplexity $3.914$ against $3.782$ with one epoch, MedQuAD validation $4.106$
+against $3.958$, PubMedQA held-out after phase~1 $7.593$ against $7.534$; the
+model fitted PubMedQA's style more closely and transferred less. Training
+cost: $10{,}491$ against $8{,}053$\,s ($+30\%$), $22.9$ against $16.6$\,GB.
+
+\paragraph{L2 at several depths (third configuration, pending).}
+The thesis iterates L2 within itself (debate rounds and descent steps) and,
+through the write-back, once per token; it does not place L2 at several
+depths. As an extension, the third configuration applies \emph{one} L2, with
+shared weights, after layers 10, 20 and 30. Each site has its own
+zero-initialised gate and its own input and output normalisation, because the
+residual stream's scale differs strongly between these depths (RMS about 6,
+100 and 2); sharing keeps the parameter count at $19.60$M ($+3{,}456$ over a
+single site), so a gain could not be attributed to extra capacity. It is
+compared, at one PubMedQA epoch, with a baseline, a single L2 after layer 20
+and a single L2 after the final normalisation, all trained identically.
 
 \noindent
 Before the paired runs succeeded, two sandbox runs diverged and are kept as

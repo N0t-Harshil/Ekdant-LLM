@@ -303,3 +303,20 @@ def test_history_records_l2_size_for_sandbox(tiny, tmp_path):
     r = json.loads((out / "results.json").read_text())
     ends = [h for h in r["history"] if h.get("at") == 1.0]
     assert ends and all(h["l2_rms"] > 0 for h in ends)
+
+
+def test_multisite_run_end_to_end(tiny, tmp_path):
+    # v2.2: two L2 sites sharing one Sandbox train, checkpoint and report
+    # one gate per site
+    cfg = json.loads(open(tiny).read())
+    cfg.update(addon_layers=[1, 2], addon_shared=True)
+    path = tmp_path / "multi.json"
+    path.write_text(json.dumps(cfg))
+    out = tmp_path / "run"
+    G.main(_args(str(path), out))
+    r = json.loads((out / "results.json").read_text())
+    assert len(r["test"]["gate_per_site"]) == 2
+    assert all(len(h["gate_per_site"]) == 2 for h in r["history"] if h.get("at") == 1.0)
+    w = torch.load(out / "last.pt", weights_only=False)["model"]
+    k0 = [k for k in w if k.startswith("addon.sites.0.sandbox.")][0]
+    assert torch.equal(w[k0], w[k0.replace("sites.0", "sites.1")])   # still shared

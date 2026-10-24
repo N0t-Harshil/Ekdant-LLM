@@ -155,4 +155,15 @@ v2.0 (the tie):  ids ─► SmolLM2 layers 1–30 ─► final norm ─► h ─
 - **Configs:** `configs/v2_baseline.json` / `v2_sandbox.json` carry `"addon_layer": 20`; `configs/v2_sandbox_final.json` reproduces v2.0 (`-1`).
 - **Tests (`tests/test_midlayer.py`):** identity at init; L2's change at token t reaches the predictions of later tokens and never earlier ones, while the v2.0 placement reaches none; KV-cache decoding equals the full forward; bounded against massive activations; layer validation; separate gate LR group; shipped configs.
 
+**v2.1 result (2026-10-24):** a tie — benchmark ppl 3.914 vs 3.913, per-token NLL −0.0002 [−0.0003, −0.0001], gate 0.029 (5× v2.0); generation slightly lower with L2; the 2nd PubMedQA epoch hurt both arms (3.914 vs 3.782).
+
+## 14. v2.2 — the same L2 at several depths (2026-10-24)
+
+**Idea (user):** run L2 more than once inside the model, spaced through its depth. The thesis iterates L2 internally (debate rounds, descent steps) and once per token via M3, but never at several depths — so this is an extension, not the original design.
+
+- **One shared L2** after layers 10, 20 and 30 (`configs/v2_sandbox_multi.json`: `"addon_layers": [10, 20, 30]`, `"addon_shared": true`). Parameters 19,598,976 — only 3,456 more than one site — so a gain cannot be credited to extra size. `"addon_shared": false` gives three copies (58,786,560) as a fallback if sharing proves unstable.
+- **Per site:** its own zero-init gate and its own input/output RMSNorm, because the stream's scale differs strongly by depth (rms ≈ 6 at layer 10, ≈ 100 at 20, ≈ 2 at 30). All gates in the gate LR group (1e-3). The spread floor applies at every site; diagnostics are averaged; `gate_per_site` is logged.
+- **The experiment (`run.md` A3):** four runs with identical flags at 1 PubMedQA epoch — baseline, L2 after layer 20, the multi-site L2, L2 at the end — run one after another.
+- **Tests (`tests/test_multisite.py`, 8, + 1 end-to-end):** identity at init; one Sandbox shared; the separate-copies switch; every site's gate gets gradient; KV-cache equality; all gates in one LR group; per-site gate magnitudes; the shipped config; a tiny training run keeps the weights shared after checkpointing.
+
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

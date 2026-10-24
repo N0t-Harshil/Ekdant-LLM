@@ -100,43 +100,75 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3. Train both arms (shared 4×A100 pod)
+## A3. The v2.2 experiment: four runs, one after another
 
-The GPUs are shared with other users. **Check free memory first** — the v1
-sandbox run crashed because PyTorch defaults to GPU 0, which was nearly full.
+Four models with **identical flags** (seed 17, 1 PubMedQA epoch, 3 MedQuAD
+epochs, gate LR 1e-3, L2 matrices LR 1e-4), differing **only** in where L2
+sits:
+
+| # | run (`--out`) | config | L2 |
+|---|---|---|---|
+| 1 | `runs/v22_baseline` | `configs/v2_baseline.json` | none — SmolLM2 alone |
+| 2 | `runs/v22_mid` | `configs/v2_sandbox.json` | once, after layer 20 of 30 (T35) |
+| 3 | `runs/v22_multi` | `configs/v2_sandbox_multi.json` | **the same L2** after layers 10, 20 and 30, each site with its own gate and norms (T36) |
+| 4 | `runs/v22_end` | `configs/v2_sandbox_final.json` | once, after the final norm (the v2.0 placement) |
+
+Parameters: baseline 134,515,008; run 2 +19,595,520; run 3 +19,598,976
+(one shared L2 — only 3,456 more than run 2); run 4 +19,594,944.
+
+Why 1 epoch: with 2 PubMedQA epochs both models got worse on the benchmark
+(v2.1: 3.914 vs 3.782 with 1 epoch), so the 1-epoch recipe is kept.
 
 ```bash
-nvidia-smi                                  # pick GPUs with >= 20 GB free
-# optional, once: echo "hf_..." > 09-Code/configs/hf_token.txt   (see below)
-cd 09-Code
-FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 2 --ft-epochs 3"   # v2.1
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # pick ONE GPU with >= 40 GB free (run 3 needs the most)
+export CUDA_VISIBLE_DEVICES=2                # <- the GPU you picked
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
 
-CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS --variant baseline    --out runs/v2_baseline > v2_baseline.log 2>&1 &
-CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS --variant sandbox     --out runs/v2_sandbox  > v2_sandbox.log  2>&1 &
+nohup bash -c "
+python -m ekdant.train $FLAGS --variant baseline --config configs/v2_baseline.json       --out runs/v22_baseline > v22_baseline.log 2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox.json        --out runs/v22_mid      > v22_mid.log      2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_multi.json  --out runs/v22_multi    > v22_multi.log    2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_final.json  --out runs/v22_end      > v22_end.log      2>&1
+" > v22_all.log 2>&1 &
 
-tail -f v2_sandbox.log                      # Ctrl-C stops watching, not training
+tail -f v22_baseline.log                     # then v22_mid.log, v22_multi.log, v22_end.log
 ```
 
-Replace `1/2` with whichever GPUs `nvidia-smi` shows as free. One arm per GPU
-means both finish in about the time of one. Keep `$FLAGS` identical for both;
-only `--variant` and `--out` change.
+The four runs start one after another; if one fails, the next one still
+starts (`;`). Each refuses to start with less than 40 GB free on its GPU. If
+you have two free GPUs, you can instead split the four commands over them —
+the results are the same, only the wall-clock changes.
 
-Each run checks its GPU before loading anything and refuses to start with less
-than 20 GB free (`--min-free-gb`), or when CUDA is not available at all — it
-never falls back to CPU unless you pass `--gpu cpu` (smoke runs only). Without
-`CUDA_VISIBLE_DEVICES`, `--gpu auto` (the default) picks the visible GPU with
-the most free memory.
+**Expected time** (from the measured runs; run 3 is an estimate): baseline
+~1 h 20 min, run 2 ~1 h 45 min, run 3 ~2 h 30 min (L2 runs three times per
+token), run 4 ~1 h 40 min — about **7 hours** in total. Peak memory: 16.6 GB
+(baseline), 22.9 GB (one L2), run 3 estimated ~35 GB.
 
-**Settings (both arms):** v2.1 puts L2 after decoder layer 20 (`addon_layer` in the configs, T35); backbone LR 5e-5, L2 matrices 1e-4 (`--addon-lr`; was 1e-3, T34), the gate alone 1e-3 (`--gate-lr`), 2 PubMedQA epochs. The v2.0 tie used `--epochs 1` and L2 after the final norm: reproduce it with `--config configs/v2_sandbox_final.json --epochs 1 --gate-lr 1e-4`.
-cosine per phase with 200 warm-up steps, effective batch 32 sequences, bf16 on
-A100, gradient clip 1.0 applied **separately** to the backbone and the add-on
-(so the add-on can never shrink the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens. If
-the sandbox arm runs out of memory, move **both** to
-`--batch-size 4 --grad-accum 8` (still 32).
+**If run 3 runs out of memory:** all four must use the same batch, so re-run
+all four with `--batch-size 4 --grad-accum 8` (still 32 sequences). If run 3
+is unstable (many `warning: non-finite` lines), set `"addon_shared": false` in
+`configs/v2_sandbox_multi.json` (three separate L2 copies, +58.8M parameters)
+and re-run only run 3 — say so next to its result.
 
-**Time:** not yet measured on the A100s. One PubMedQA epoch is ~85M tokens;
-the first `eta=` lines of each log give the real figure. The sandbox arm is
-slower than the other two (4 debate rounds × 4 trajectories per token).
+When all four have finished:
+
+```bash
+python -m ekdant.gen_eval compare runs/v22_baseline runs/v22_mid runs/v22_multi runs/v22_end
+```
+
+It compares every L2 run with the baseline (A6). Copy the four
+`runs/v22_*/results.json` files and the four logs back for the thesis.
+
+**Settings (all runs):** backbone LR 5e-5, L2 matrices 1e-4 (`--addon-lr`,
+T34), every gate 1e-3 (`--gate-lr`, T35), cosine per phase with 200 warm-up
+steps, effective batch 32 sequences, bf16 on A100, gradient clip 1.0 applied
+**separately** to the backbone and the add-on (so the add-on can never shrink
+the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens.
+
+**Earlier experiments, for reference:** the v2.0 tie (L2 at the end, gate LR
+1e-4, 1 epoch) is A7a; v2.1 (L2 after layer 20, 2 epochs) is A7c.
 
 ## A4. Watching a run
 
@@ -178,7 +210,7 @@ already has `last.pt`. Wall-clock in `cost` adds up across resumes.
 `--eval-only` (with an existing `--out`) skips training and re-runs the final
 protocol.
 
-## A6. Compare the two arms
+## A6. Compare runs
 
 ```bash
 python -m ekdant.gen_eval compare runs/v2_baseline runs/v2_sandbox
@@ -237,6 +269,23 @@ Both arms with the A3 flags, seed 17, one A100 each (`v2_baseline-part3.log`,
 perplexity. Three same-seed baseline runs gave benchmark ppl 3.782 each and
 ROUGE-L 0.3127–0.3155 / F1 0.3770–0.3797, so the generation scores tie.
 **Verdict: a practical tie;** the network kept L2's gate almost closed.
+
+## A7c. v2.1 results (L2 after layer 20, 2 PubMedQA epochs, 2026-10-24)
+
+`v21_baseline.log`, `v21_sandbox.log`; seed 17, gate LR 1e-3.
+
+| | baseline | L2 after layer 20 |
+|---|---|---|
+| MedQuAD benchmark ppl | 3.914 | **3.913** |
+| per-token NLL vs baseline (95 % CI) | — | −0.0002 [−0.0003, −0.0001] |
+| ROUGE-L / token F1 | 0.3111 / 0.3726 | 0.3065 / 0.3682 |
+| PubMedQA held-out ppl, after phase 1 → final | 7.593 → 8.340 | 7.592 → 8.333 |
+| gate `|g|` / L2 size `l2` | — | 0.029 (still rising) / 0.3–16 |
+| wall-clock, peak memory | 8,053 s, 16.6 GB | 10,491 s (+30 %), 22.9 GB |
+
+A tie again, and the **second PubMedQA epoch hurt both** (benchmark 3.914 vs
+3.782 with 1 epoch; MedQuAD validation 4.106 vs 3.958) — hence the 1-epoch
+recipe of A3.
 
 ## A7b. Reference numbers (first baseline run, 2026-10-23)
 
@@ -594,7 +643,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 153 tests
+python -m pytest            # 162 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

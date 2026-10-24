@@ -377,7 +377,9 @@ def main(argv: Optional[List[str]] = None) -> None:
                      "train_loss": loss_ema, "val": _strip_rows(r),
                      "l2_rms": l2_rms,
                      "gate_magnitude": model.addon.gate_magnitude()
-                     if model.addon else 0.0}
+                     if model.addon else 0.0,
+                     "gate_per_site": model.addon.site_gate_magnitudes()
+                     if model.addon else []}
             history.append(entry)
             log(f"[{stage}] ep{epoch} done loss={loss_ema or float('nan'):.4f} val {val_name} "
                 f"ppl={r['ppl']:.3f} time={fmt_duration(time.time()-t0)}")
@@ -422,7 +424,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     results["history"] = history
     results["test"] = {"medquad_bench": b, "pubmedqa_held": p,
                        "gate_magnitude": model.addon.gate_magnitude()
-                       if model.addon else 0.0}
+                       if model.addon else 0.0,
+                       "gate_per_site": model.addon.site_gate_magnitudes()
+                       if model.addon else []}
     results["cost"] = {"params_total": count_parameters(model),
                        "params_addon": model.addon_params(),
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,
