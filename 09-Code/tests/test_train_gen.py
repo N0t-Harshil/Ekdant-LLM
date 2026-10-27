@@ -348,3 +348,15 @@ def test_gate_floor_run_opens_the_gate(tiny, tmp_path):
     r = json.loads((out / "results.json").read_text())
     assert r["test"]["gate_magnitude"] > 0.5
     assert "gate_ramp" in torch.load(out / "last.pt", weights_only=False)
+
+
+def test_mix_run_end_to_end(tiny, tmp_path):
+    # T40: shared L2 at two inner layers and at the end, with checkpointing
+    cfg = json.loads(open(tiny).read())
+    cfg.update(addon_layers=[1, 2], addon_final=True, sandbox_checkpoint=True)
+    path = tmp_path / "mix.json"
+    path.write_text(json.dumps(cfg))
+    out = tmp_path / "run"
+    G.main(_args(str(path), out))
+    r = json.loads((out / "results.json").read_text())
+    assert len(r["test"]["gate_per_site"]) == 3

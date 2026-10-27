@@ -16,5 +16,7 @@
   "addon_layer": 20,
   "addon_layers": [],
   "addon_shared": true,
-  "gate_cap": 1.0
+  "gate_cap": 1.0,
+  "addon_final": false,
+  "sandbox_checkpoint": false
 }

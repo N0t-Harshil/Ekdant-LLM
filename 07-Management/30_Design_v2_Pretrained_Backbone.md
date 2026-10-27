@@ -181,4 +181,12 @@ v2.0 (the tie):  ids ─► SmolLM2 layers 1–30 ─► final norm ─► h ─
 
 Optional (`--gate-floor`, default 0 = off). After `--gate-floor-start` (200) healthy steps a floor `f` ramps by a cosine from 0 to the target (0.7) over `--gate-floor-steps` (2,000) and is held; the effective gate is `f + (1 − f) · tanh(θ)`, so the network can still move it within [2f − 1, 1]. Every brake event moves the ramp back by 10 % of its length (`GateRamp`), so an unstable L2 is never pushed open. The ramp position is saved in `last.pt`. Experiment run 4 of `run.md` A3b, together with a seed-23 repeat of the end placement and three single-lever runs (L2 LR 3e-4, K = 8, `lowest_energy`).
 
+## 17. The mix — L2 inside and at the end (2026-10-27, T40)
+
+One shared L2 at 9 sites: after layers 10, 15, 20, 22, 24, 26, 28, 30 (pre-norm residual, as §13) **plus** after the final norm (the end placement, as v2.0). `V2Config.addon_final = True` adds the end site to `MultiAddOn` (`final_site`); every site has its own zero-init gate and norms; gate control (boost, cap, brake) acts on all 9 gates. 19,608,768 parameters. `sandbox_checkpoint = True` recomputes L2 in the backward pass (non-reentrant `torch.utils.checkpoint`) — tested to give identical loss and gradients — because storing 9 sites' activations would need ~70 GB. Compared against `v22_baseline` and `v22_end` (`run.md` A3c).
+
+## 18. LoRA on the backbone, more epochs (2026-10-27, T41)
+
+`--lora-r 16 --lora-alpha 32`: SmolLM2 is frozen (embeddings, norms, tied head included); every attention and MLP projection becomes `W x + (α/r) · B A x` with `A` Kaiming-initialised and `B` zero, so step 0 is exactly SmolLM2 (tested). 4,884,480 trainable backbone parameters (3.6 % of 134.5 M). L2, its gates and norms remain fully trainable; gate control is unchanged. The adapters form the `backbone` LR group at `--lr 2e-4`. LoRA is a run flag written into the saved config, so all arms get identical backbone training and `--eval-only` rebuilds the same model. Implemented in `ekdant/lora.py` rather than `peft`, to stay on the pod's torch 2.2. The next comparison (`run.md` A3d) reruns baseline, end and mix with LoRA, 3 PubMedQA epochs and 5 MedQuAD epochs; the earlier full-fine-tuning runs are not comparable with these.
+
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

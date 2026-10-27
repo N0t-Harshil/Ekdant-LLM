@@ -20,5 +20,7 @@
     30
   ],
   "addon_shared": true,
-  "gate_cap": 1.0
+  "gate_cap": 1.0,
+  "addon_final": false,
+  "sandbox_checkpoint": false
 }

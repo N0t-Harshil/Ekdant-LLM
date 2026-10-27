@@ -100,6 +100,67 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3d. LoRA + more epochs: the three models again (T41) — **run this next**
+
+Two changes, applied **identically to all three models**:
+
+- **LoRA** (`--lora-r 16 --lora-alpha 32`): SmolLM2 itself is frozen; small
+  rank-16 adapters on every attention and MLP projection learn instead
+  (4,884,480 trainable backbone parameters instead of 134.5 M). L2 is still
+  trained in full. LoRA learns with a larger LR, so `--lr 2e-4` (it now only
+  moves the adapters). Why: the backbone can no longer absorb all the
+  learning by itself, so whatever L2 adds is easier to see.
+- **More epochs:** 3 PubMedQA epochs (was 1) and 5 MedQuAD epochs (was 3).
+
+Because the backbone is trained differently, the old `v22_*` / `v24_*` runs
+are **not** comparable — run all three fresh:
+
+| # | run | config | trainable params |
+|---|---|---|---|
+| 1 | `v25_baseline` | `configs/v2_baseline.json` | 4,884,480 (LoRA) |
+| 2 | `v25_end` | `configs/v2_sandbox_final.json` | 24,479,424 (LoRA + L2) |
+| 3 | `v25_mix` | `configs/v2_sandbox_mix.json` | 24,493,248 (LoRA + shared L2 at 9 sites) |
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # pick GPUs with >= 30 GB free (not GPU 0)
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 3 --ft-epochs 5 --lora-r 16 --lora-alpha 32 --lr 2e-4 --min-free-gb 30"
+```
+
+**Fastest — three GPUs at once** (wall-clock = the mix, the slowest run):
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS --variant baseline --config configs/v2_baseline.json     --out runs/v25_baseline > v25_baseline.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_final.json --out runs/v25_end      > v25_end.log      2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_mix.json   --out runs/v25_mix      > v25_mix.log      2>&1 &
+```
+
+**Or one GPU, one after another:**
+
+```bash
+export CUDA_VISIBLE_DEVICES=2
+nohup bash -c "
+python -m ekdant.train $FLAGS --variant baseline --config configs/v2_baseline.json     --out runs/v25_baseline > v25_baseline.log 2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_final.json --out runs/v25_end      > v25_end.log      2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_mix.json   --out runs/v25_mix      > v25_mix.log      2>&1
+" > v25_all.log 2>&1 &
+```
+
+Time: three times the PubMedQA data, so roughly **3× the A3 times** (A3 baseline
+took 1 h 20 min) — a rough guess, not measured: baseline ~3.5–4 h, end ~4.5–5 h,
+mix ~9–10 h. LoRA saves the backbone's optimiser work, so it may be a little
+faster. The first log line shows `trainable=…M lora_r=16`; check it. A run
+can be resumed with the **same** flags plus `--resume`.
+
+Afterwards:
+
+```bash
+python -m ekdant.gen_eval compare runs/v25_baseline runs/v25_end runs/v25_mix
+```
+
+Copy the three `results.json` files and logs back for the thesis.
+
 ## A3. The v2.2 experiment: four runs, one after another
 
 Four models with **identical flags** (seed 17, 1 PubMedQA epoch, 3 MedQuAD
@@ -227,6 +288,53 @@ python -m ekdant.gen_eval compare runs/v22_baseline runs/v22_end runs/v23_end_lr
 ```
 
 Copy the six `results.json` files and logs back for the thesis.
+
+## A3c. The "mix": L2 inside and at the end (T40)
+
+*Superseded by A3d (the same three models with LoRA and more epochs); kept for full fine-tuning.*
+
+Three models, identical flags (seed 17, 1 PubMedQA epoch, gate control on):
+
+| # | run | config | L2 |
+|---|---|---|---|
+| 1 | baseline | `configs/v2_baseline.json` | none |
+| 2 | end | `configs/v2_sandbox_final.json` | once, after the final norm |
+| 3 | **mix** | `configs/v2_sandbox_mix.json` | **the same L2** after layers 10, 15, 20, 22, 24, 26, 28, 30 **and** at the end — 9 sites, each with its own gate and norms |
+
+The mix shares one set of L2 weights: 19,608,768 parameters (+14,976 over a
+single L2). It recomputes L2 in the backward pass instead of storing it
+(`"sandbox_checkpoint": true`) — identical numbers (tested), far less memory —
+because 9 stored sites would need ~70 GB. Expect it to take **~3–3.5 h** (L2
+runs 9 times per token).
+
+**Runs 1 and 2 already exist** with exactly these settings (`runs/v22_baseline`,
+`runs/v22_end`, A3/A7d) — the quickest path is to run only the mix:
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # ONE GPU with >= 30 GB free
+export CUDA_VISIBLE_DEVICES=2
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
+nohup python -m ekdant.train $FLAGS --variant sandbox --config configs/v2_sandbox_mix.json --out runs/v24_mix > v24_mix.log 2>&1 &
+
+# afterwards:
+python -m ekdant.gen_eval compare runs/v22_baseline runs/v22_end runs/v24_mix
+```
+
+**Or all three fresh** (~6 h, one after another):
+
+```bash
+nohup bash -c "
+python -m ekdant.train $FLAGS --variant baseline --config configs/v2_baseline.json     --out runs/v24_baseline > v24_baseline.log 2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_final.json --out runs/v24_end      > v24_end.log      2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_mix.json   --out runs/v24_mix      > v24_mix.log      2>&1
+" > v24_all.log 2>&1 &
+python -m ekdant.gen_eval compare runs/v24_baseline runs/v24_end runs/v24_mix
+```
+
+Watch `|g|=` (the mean of the 9 gates) and `brake=`; `results.json`
+`test.gate_per_site` lists the 9 gates in order (layers 10 … 30, then the end).
 
 ## A4. Watching a run
 
@@ -449,7 +557,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,178) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,193) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -724,7 +832,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 178 tests
+python -m pytest            # 193 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

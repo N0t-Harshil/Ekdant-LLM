@@ -18,6 +18,7 @@ from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 import torch.nn.functional as F
 
 from ekdant.output_head import OutputHead
@@ -231,7 +232,8 @@ class GatedAddOn(nn.Module):
     normalised input, and later layers see its output (spec §13)."""
 
     def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final",
-                 sandbox: Optional[Sandbox] = None, gate_cap: float = 0.0):
+                 sandbox: Optional[Sandbox] = None, gate_cap: float = 0.0,
+                 checkpoint: bool = False):
         super().__init__()
         if mode not in ("final", "mid"):
             raise ValueError(f"mode must be final|mid, got {mode!r}")
@@ -240,6 +242,7 @@ class GatedAddOn(nn.Module):
         # gate is cap * tanh(gate / cap): 0 at init, slope 1 there, and never
         # beyond the cap however hard training pushes (T37).
         self.gate_cap = gate_cap
+        self.checkpoint = checkpoint
         # Scheduled minimum opening (T39), set by the trainer each step:
         # g = floor + (1 - floor) * capped_gate, so floor 0 = the plain gate.
         self.gate_floor = 0.0
@@ -254,7 +257,13 @@ class GatedAddOn(nn.Module):
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         x = self.in_norm(h) if self.mode == "mid" else h
         g = self.effective_gate()
-        out = self.sandbox(x, mask=mask)
+        if self.checkpoint and torch.is_grad_enabled():
+            # recompute L2 in the backward pass instead of storing its
+            # activations: identical numbers, far less memory (T40)
+            out = torch.utils.checkpoint.checkpoint(
+                self.sandbox, x, mask, use_reentrant=False)
+        else:
+            out = self.sandbox(x, mask=mask)
         aux = dict(out.aux)
         # L2's internal size, which the output norm hides from the loss;
         # logged so drift is visible during training (T34)
@@ -294,23 +303,33 @@ class MultiAddOn(nn.Module):
     mode = "mid"
 
     def __init__(self, dim: int, sandbox_kwargs: Dict, n_sites: int,
-                 shared: bool = True, gate_cap: float = 0.0):
+                 shared: bool = True, gate_cap: float = 0.0,
+                 final: bool = False, checkpoint: bool = False):
         super().__init__()
         one = Sandbox(dim, **sandbox_kwargs) if shared else None
         self.sites = nn.ModuleList(
             [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one,
-                        gate_cap=gate_cap)
+                        gate_cap=gate_cap, checkpoint=checkpoint)
              for _ in range(n_sites)])
+        # ``final`` (the "mix", T40): the same L2 once more after the final
+        # norm, i.e. the inner sites plus the end placement
+        self.final_site = (GatedAddOn(dim, sandbox_kwargs, mode="final",
+                                      sandbox=one, gate_cap=gate_cap,
+                                      checkpoint=checkpoint)
+                           if final else None)
+
+    def _all(self) -> list:
+        return list(self.sites) + ([self.final_site] if self.final_site else [])
 
     def gates(self) -> list:
-        return [s.gate for s in self.sites]
+        return [s.gate for s in self._all()]
 
     def set_gate_floor(self, floor: float) -> None:
-        for s in self.sites:
+        for s in self._all():
             s.set_gate_floor(floor)
 
     def site_gate_magnitudes(self) -> list:
-        return [s.gate_magnitude() for s in self.sites]
+        return [s.gate_magnitude() for s in self._all()]
 
     def gate_magnitude(self) -> float:
         g = self.site_gate_magnitudes()
@@ -348,15 +367,28 @@ class V2Config:
     # set of L2 weights for all sites (else one copy per site).
     addon_layers: list = field(default_factory=list)
     addon_shared: bool = True
+    # The "mix" (T40): with addon_layers, also apply the same L2 after the
+    # final norm.  sandbox_checkpoint recomputes L2 in the backward pass.
+    addon_final: bool = False
+    sandbox_checkpoint: bool = False
     # Soft cap on the effective gate, cap * tanh(gate / cap) (T37);
     # 0 = uncapped (v2.0-v2.2 runs).
     gate_cap: float = 0.0
+    # LoRA on the backbone (T41): 0 = full fine-tuning (v2.0-v2.4 runs);
+    # r > 0 = SmolLM2 frozen, rank-r adapters on every projection learn.
+    lora_r: int = 0
+    lora_alpha: float = 32.0
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
             raise ValueError(f"addon must be none|sandbox, got {self.addon!r}")
         if self.readout not in ("mean", "lowest_energy"):
             raise ValueError(f"unknown readout {self.readout!r}")
+        if self.lora_r < 0:
+            raise ValueError(f"lora_r must be >= 0, got {self.lora_r}")
+        if self.addon_final and not self.addon_layers:
+            raise ValueError("addon_final needs addon_layers (use addon_layer=-1 "
+                             "for the end placement alone)")
         if list(self.addon_layers) != sorted(set(self.addon_layers)):
             raise ValueError(f"addon_layers must be increasing and unique, "
                              f"got {self.addon_layers}")
@@ -392,6 +424,9 @@ class EkdantLM(nn.Module):
     def __init__(self, cfg: V2Config, lm: nn.Module):
         super().__init__()
         self.cfg = cfg.validate()
+        if cfg.lora_r > 0:
+            from ekdant.lora import apply_lora
+            apply_lora(lm, cfg.lora_r, cfg.lora_alpha)
         self.lm = lm
         dim = lm.config.hidden_size
         self.addon: Optional[GatedAddOn] = None
@@ -407,7 +442,9 @@ class EkdantLM(nn.Module):
             if cfg.addon_layers:
                 self.addon = MultiAddOn(dim, cfg.sandbox_kwargs(), len(sites),
                                         shared=cfg.addon_shared,
-                                        gate_cap=cfg.gate_cap)
+                                        gate_cap=cfg.gate_cap,
+                                        final=cfg.addon_final,
+                                        checkpoint=cfg.sandbox_checkpoint)
                 self._sites = list(self.addon.sites)
             else:
                 self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
@@ -450,6 +487,9 @@ class EkdantLM(nn.Module):
             per_site = [aux]
         elif self.addon is not None:
             per_site = list(self._ctx["aux"])
+            if getattr(self.addon, "final_site", None) is not None:
+                h, aux_end = self.addon.final_site(h, dmask)
+                per_site.append(aux_end)
             # one entry per site: diagnostics averaged over the sites
             keys = set.intersection(*(set(a) for a in per_site)) if per_site else set()
             aux = {k: torch.stack([a[k].float() for a in per_site]).mean(0)

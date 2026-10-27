@@ -1,0 +1,31 @@
+{
+  "backbone": "HuggingFaceTB/SmolLM2-135M",
+  "addon": "sandbox",
+  "n_sandbox": 4,
+  "debate_rounds": 4,
+  "sandbox_mlp_ratio": 4.0,
+  "sandbox_prenorm": true,
+  "descent_steps": 8,
+  "eta": 0.0625,
+  "rho_min": 0.05,
+  "lambda_sbx": 1.0,
+  "readout": "mean",
+  "max_seq_len": 1024,
+  "max_answer": 512,
+  "hf_token_file": "configs/hf_token.txt",
+  "addon_layer": 20,
+  "addon_layers": [
+    10,
+    15,
+    20,
+    22,
+    24,
+    26,
+    28,
+    30
+  ],
+  "addon_shared": true,
+  "gate_cap": 1.0,
+  "addon_final": true,
+  "sandbox_checkpoint": true
+}
