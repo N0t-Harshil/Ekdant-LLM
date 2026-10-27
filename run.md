@@ -100,32 +100,25 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3d. LoRA + more epochs: the three models again (T41) — **run this next**
+## A3d. More epochs: the three models again (T41) — **run this next**
 
-Two changes, applied **identically to all three models**:
+The whole model is trained, as before (no LoRA): every SmolLM2 weight and
+all of L2. The only change, applied **identically to all three models**, is
+more training: **3 PubMedQA epochs** (was 1) and **5 MedQuAD epochs** (was 3).
+Because of the longer training, the old `v22_*` runs are **not** comparable —
+run all three fresh:
 
-- **LoRA** (`--lora-r 16 --lora-alpha 32`): SmolLM2 itself is frozen; small
-  rank-16 adapters on every attention and MLP projection learn instead
-  (4,884,480 trainable backbone parameters instead of 134.5 M). L2 is still
-  trained in full. LoRA learns with a larger LR, so `--lr 2e-4` (it now only
-  moves the adapters). Why: the backbone can no longer absorb all the
-  learning by itself, so whatever L2 adds is easier to see.
-- **More epochs:** 3 PubMedQA epochs (was 1) and 5 MedQuAD epochs (was 3).
-
-Because the backbone is trained differently, the old `v22_*` / `v24_*` runs
-are **not** comparable — run all three fresh:
-
-| # | run | config | trainable params |
+| # | run | config | trained params |
 |---|---|---|---|
-| 1 | `v25_baseline` | `configs/v2_baseline.json` | 4,884,480 (LoRA) |
-| 2 | `v25_end` | `configs/v2_sandbox_final.json` | 24,479,424 (LoRA + L2) |
-| 3 | `v25_mix` | `configs/v2_sandbox_mix.json` | 24,493,248 (LoRA + shared L2 at 9 sites) |
+| 1 | `v25_baseline` | `configs/v2_baseline.json` | 134,515,008 (SmolLM2) |
+| 2 | `v25_end` | `configs/v2_sandbox_final.json` | 154,109,952 (SmolLM2 + L2) |
+| 3 | `v25_mix` | `configs/v2_sandbox_mix.json` | 154,123,776 (SmolLM2 + shared L2 at 9 sites) |
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
 python -m pytest -q                          # all tests must pass
 nvidia-smi                                   # pick GPUs with >= 30 GB free (not GPU 0)
-FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 3 --ft-epochs 5 --lora-r 16 --lora-alpha 32 --lr 2e-4 --min-free-gb 30"
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 3 --ft-epochs 5 --min-free-gb 30"
 ```
 
 **Fastest — three GPUs at once** (wall-clock = the mix, the slowest run):
@@ -148,10 +141,8 @@ python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_mix
 ```
 
 Time: three times the PubMedQA data, so roughly **3× the A3 times** (A3 baseline
-took 1 h 20 min) — a rough guess, not measured: baseline ~3.5–4 h, end ~4.5–5 h,
-mix ~9–10 h. LoRA saves the backbone's optimiser work, so it may be a little
-faster. The first log line shows `trainable=…M lora_r=16`; check it. A run
-can be resumed with the **same** flags plus `--resume`.
+took 1 h 20 min) — a rough guess, not measured: baseline ~4 h, end ~5 h,
+mix ~9–10 h. A run can be resumed with the **same** flags plus `--resume`.
 
 Afterwards:
 
@@ -291,7 +282,7 @@ Copy the six `results.json` files and logs back for the thesis.
 
 ## A3c. The "mix": L2 inside and at the end (T40)
 
-*Superseded by A3d (the same three models with LoRA and more epochs); kept for full fine-tuning.*
+*Superseded by A3d (the same three models with more epochs).*
 
 Three models, identical flags (seed 17, 1 PubMedQA epoch, gate control on):
 
@@ -557,7 +548,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,193) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,186) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -832,7 +823,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 193 tests
+python -m pytest            # 186 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

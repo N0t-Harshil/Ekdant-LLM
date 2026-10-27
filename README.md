@@ -23,7 +23,7 @@ Does a parallel debate sandbox (L2) help a language model reason? **v2 (current)
 | [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, validation + held-out protocol, debugging, performance | Ch. 5/6 |
 | [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T27), defense-ordered future work, [v2 design spec](07-Management/30_Design_v2_Pretrained_Backbone.md) (pretrained backbone + generative QA) and its [implementation plan](07-Management/31_Plan_v2_Implementation.md) | Ch. 7 |
 | [08-Thesis](08-Thesis/thesis.md) | thesis.md + thesis.tex/pdf + [glossary](08-Thesis/GLOSSARY.md) | Draft |
-| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 193 tests, A/B configs | Build |
+| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 186 tests, A/B configs | Build |
 | [papers/](papers/00_Papers_Index.md) | 66 PDFs (all thesis-cited) + indexes | Sources |
 
 ## Day-1 (new collaborator)
@@ -34,7 +34,7 @@ Does a parallel debate sandbox (L2) help a language model reason? **v2 (current)
 cd 09-Code
 pip install -e .[dev]     # note: trailing dot is required (pins: 09-Code/requirements.txt)
 python -c "import ekdant; print('ok')"
-pytest -q                    # 193 tests, CPU, ~10s
+pytest -q                    # 186 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```
 
@@ -55,8 +55,8 @@ Debugging: see [13_Debugging_Guide](06-Training-Eval/13_Debugging_Guide.md). Iss
 | ✅ v2.2 four runs with gate control: L2 as the final stage wins on every measure (ppl 3.783 → 3.776, ROUGE-L/F1 +0.006); inner placements less ([run.md](run.md) A7d) | ❌ second seed to confirm |
 | ✅ v2.1 run: L2 after layer 20 — a tie (3.914 vs 3.913), 2nd epoch hurt both (T35/T36) | ❌ v2.2 four-run comparison incl. one shared L2 at layers 10/20/30 (`run.md` A3) |
 | ✅ v2 paired runs done: a practical tie — benchmark ppl 3.7817 vs 3.7795 (−0.06 %, CI excludes 0), generation tie, gate \|g\| = 0.005 ([run.md](run.md) A7a) | ❌ seed-to-seed variation (a second seed for both arms) |
-| ✅ v2 built: SmolLM2-135M + gated L2, generative data + metrics, 193 green tests, CPU smoke with the real backbone | ❌ v2 GPU runs for both arms (`run.md` Part A) |
-| ✅ T + L2 code, 193 green tests, A/B configs; both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration (RQ1 untested) |
+| ✅ v2 built: SmolLM2-135M + gated L2, generative data + metrics, 186 green tests, CPU smoke with the real backbone | ❌ v2 GPU runs for both arms (`run.md` Part A) |
+| ✅ T + L2 code, 186 green tests, A/B configs; both arms smoke-verified end-to-end (train/resume/eval) | ❌ L1 integration (RQ1 untested) |
 | ✅ Full 3-epoch A/B on a T4: MedMCQA val 33.31 % vs 32.01 %, MedQA 25.69 % vs 26.08 % — a tie; legacy 100-epoch baseline: 33.33 % / `medqa_bench` 26.89 % | ❌ 100-epoch sequential campaign for both arms (prepared in `run.md` §3) |
 | ✅ Thesis aligned to the built model (T + L2, MedMCQA/MedQA); 4 proofs, 70 refs | ❌ Ch. 6 result tables `[PENDING]`; `thesis.pdf` needs a rebuild |
 | ✅ 66-paper library, all cited | ❌ Depth-/parameter-matched control, K/R/S ablations, multi-seed |

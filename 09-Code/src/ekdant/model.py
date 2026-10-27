@@ -374,18 +374,12 @@ class V2Config:
     # Soft cap on the effective gate, cap * tanh(gate / cap) (T37);
     # 0 = uncapped (v2.0-v2.2 runs).
     gate_cap: float = 0.0
-    # LoRA on the backbone (T41): 0 = full fine-tuning (v2.0-v2.4 runs);
-    # r > 0 = SmolLM2 frozen, rank-r adapters on every projection learn.
-    lora_r: int = 0
-    lora_alpha: float = 32.0
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
             raise ValueError(f"addon must be none|sandbox, got {self.addon!r}")
         if self.readout not in ("mean", "lowest_energy"):
             raise ValueError(f"unknown readout {self.readout!r}")
-        if self.lora_r < 0:
-            raise ValueError(f"lora_r must be >= 0, got {self.lora_r}")
         if self.addon_final and not self.addon_layers:
             raise ValueError("addon_final needs addon_layers (use addon_layer=-1 "
                              "for the end placement alone)")
@@ -424,9 +418,6 @@ class EkdantLM(nn.Module):
     def __init__(self, cfg: V2Config, lm: nn.Module):
         super().__init__()
         self.cfg = cfg.validate()
-        if cfg.lora_r > 0:
-            from ekdant.lora import apply_lora
-            apply_lora(lm, cfg.lora_r, cfg.lora_alpha)
         self.lm = lm
         dim = lm.config.hidden_size
         self.addon: Optional[GatedAddOn] = None

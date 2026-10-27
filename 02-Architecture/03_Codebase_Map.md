@@ -17,7 +17,7 @@ Runnable code lives at `09-Code/src/ekdant/` — a 7-module, pure-PyTorch packag
 | `__init__.py` | Re-exports |
 
 Plus:
-- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (193 tests, CPU)
+- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (186 tests, CPU)
 - `configs/` — `sandbox_50m.json`, `baseline_50m.json` (identical architecture, only `use_sandbox` differs)
 - `pyproject.toml`, `pytest.ini`, `README.md`
 
@@ -27,7 +27,6 @@ No `main.py`, no `scripts/`, no YAML size configs. Full shipped signatures: [API
 
 | File | Holds |
 |---|---|
-| `src/ekdant/lora.py` | `LoRALinear`, `apply_lora` — LoRA on the backbone (T41, `--lora-r`) |
 | `src/ekdant/backbone.py` | `load_backbone` (SmolLM2-135M, offline-first, cast to float32), `load_tokenizer` (pad falls back to EOS), `tiny_llama` (test stand-in) |
 | `src/ekdant/model.py` (v2 part) | `V2Config`, `GatedAddOn` (zero-init gated residual around the L2 sandbox), `EkdantLM` (backbone → add-on → lm_head; answer-only loss + spread floor; KV cache; LR groups) |
 | `src/ekdant/gen_data.py` | `GenExample`, `load_pubmedqa`, `load_medquad`, `format_gen_prompt`, `GenDataset` (answer-only labels, 512/1,024 caps), `gen_collate`, `split_by_question`, `holdout` |

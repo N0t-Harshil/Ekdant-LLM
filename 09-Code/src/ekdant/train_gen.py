@@ -76,7 +76,7 @@ def pick_device(gpu: str, min_free_gb: float) -> torch.device:
 RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
-            "lora_r", "lora_alpha", "warmup",
+            "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
 
@@ -240,10 +240,6 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-bad-steps", type=int, default=20,
                     help="stop after this many consecutive optimiser steps "
                          "skipped for a non-finite loss or gradient")
-    ap.add_argument("--lora-r", type=int, default=0,
-                    help="LoRA rank on the backbone (T41); 0 = full fine-tuning")
-    ap.add_argument("--lora-alpha", type=float, default=32.0,
-                    help="LoRA scale alpha (update = alpha / r * B A x)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--eval-only", action="store_true")
     return ap
@@ -298,8 +294,6 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1)
         cfg = V2Config.from_dict({**V2Config().to_dict(), **raw})
         cfg.addon = ADDON[args.variant]
-        # a run flag, so every arm gets the same backbone training (T41)
-        cfg.lora_r, cfg.lora_alpha = args.lora_r, args.lora_alpha
 
     log(f"hugging face token: {apply_hf_token(cfg.hf_token_file)}")
     torch.manual_seed(args.seed)
@@ -316,8 +310,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         if use_bf16 else (lambda: torch.autocast(device.type, enabled=False))
     pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     log(f"variant={args.variant} addon={cfg.addon} backbone={cfg.backbone} "
-        f"params total={count_parameters(model, False)/1e6:.2f}M "
-        f"trainable={count_parameters(model)/1e6:.2f}M lora_r={cfg.lora_r} "
+        f"params total={count_parameters(model)/1e6:.2f}M "
         f"addon={model.addon_params()/1e6:.2f}M device={device}")
 
     # ---- data (identical for every arm: same seed, same splits) ----
@@ -357,9 +350,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         with open(res_path, encoding="utf-8") as f:
             results = json.load(f)
     results.update({"variant": args.variant, "addon": cfg.addon,
-                    "config": cfg.to_dict(),
-                    "params_total": count_parameters(model, False),
-                    "params_trainable": count_parameters(model),
+                    "config": cfg.to_dict(), "params_total": count_parameters(model),
                     "params_addon": model.addon_params()})
 
     def write() -> None:
@@ -566,8 +557,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                        if model.addon else 0.0,
                        "gate_per_site": model.addon.site_gate_magnitudes()
                        if model.addon else []}
-    results["cost"] = {"params_total": count_parameters(model, False),
-                       "params_trainable": count_parameters(model),
+    results["cost"] = {"params_total": count_parameters(model),
                        "params_addon": model.addon_params(),
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,
                        "skipped_steps": skipped_steps,
