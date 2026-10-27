@@ -240,6 +240,9 @@ class GatedAddOn(nn.Module):
         # gate is cap * tanh(gate / cap): 0 at init, slope 1 there, and never
         # beyond the cap however hard training pushes (T37).
         self.gate_cap = gate_cap
+        # Scheduled minimum opening (T39), set by the trainer each step:
+        # g = floor + (1 - floor) * capped_gate, so floor 0 = the plain gate.
+        self.gate_floor = 0.0
         self.gate = nn.Parameter(torch.zeros(dim))
         # ``sandbox`` given = one L2 shared by several sites (v2.2, spec §14)
         self.sandbox = sandbox if sandbox is not None else Sandbox(dim, **sandbox_kwargs)
@@ -262,9 +265,14 @@ class GatedAddOn(nn.Module):
         return h + g * (self.out_norm(out.consensus) - h), aux
 
     def effective_gate(self) -> torch.Tensor:
-        if self.gate_cap > 0:
-            return self.gate_cap * torch.tanh(self.gate / self.gate_cap)
-        return self.gate
+        g = (self.gate_cap * torch.tanh(self.gate / self.gate_cap)
+             if self.gate_cap > 0 else self.gate)
+        if self.gate_floor > 0:
+            g = self.gate_floor + (1.0 - self.gate_floor) * g
+        return g
+
+    def set_gate_floor(self, floor: float) -> None:
+        self.gate_floor = float(floor)
 
     def gate_magnitude(self) -> float:
         return float(self.effective_gate().detach().abs().mean())
@@ -296,6 +304,10 @@ class MultiAddOn(nn.Module):
 
     def gates(self) -> list:
         return [s.gate for s in self.sites]
+
+    def set_gate_floor(self, floor: float) -> None:
+        for s in self.sites:
+            s.set_gate_floor(floor)
 
     def site_gate_magnitudes(self) -> list:
         return [s.gate_magnitude() for s in self.sites]

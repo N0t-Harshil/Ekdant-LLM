@@ -172,6 +172,62 @@ the backbone's update), sequences ≤ 1,024 tokens, answers ≤ 512 tokens.
 **Earlier experiments, for reference:** the v2.0 tie (L2 at the end, gate LR
 1e-4, 1 epoch) is A7a; v2.1 (L2 after layer 20, 2 epochs) is A7c.
 
+## A3b. Next experiments (after A3): confirm the win, then one lever at a time
+
+All runs use the same flags as A3 (1 PubMedQA epoch). Runs 1–2 repeat the
+winning comparison with a **new seed**; runs 3–6 each change **one thing**
+against the end placement and are compared with the existing seed-17 baseline
+`runs/v22_baseline` (so no new baseline is needed for them). One GPU,
+one after another — about 9–10 hours for all six; run 2 and run 4 are the most
+important if you must choose.
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # ONE GPU with >= 30 GB free
+export CUDA_VISIBLE_DEVICES=2                # <- the GPU you picked
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
+END="--variant sandbox --config configs/v2_sandbox_final.json"
+
+nohup bash -c "
+python -m ekdant.train $FLAGS --variant baseline --config configs/v2_baseline.json --seed 23 --out runs/v23_baseline_s23 > v23_baseline_s23.log 2>&1;
+python -m ekdant.train $FLAGS $END --seed 23                                         --out runs/v23_end_s23      > v23_end_s23.log      2>&1;
+python -m ekdant.train $FLAGS $END --addon-lr 3e-4                                    --out runs/v23_end_lr3e4    > v23_end_lr3e4.log    2>&1;
+python -m ekdant.train $FLAGS $END --gate-floor 0.7                                   --out runs/v23_end_floor07  > v23_end_floor07.log  2>&1;
+python -m ekdant.train $FLAGS --variant sandbox --config configs/v2_sandbox_final_k8.json     --out runs/v23_end_k8     > v23_end_k8.log     2>&1;
+python -m ekdant.train $FLAGS --variant sandbox --config configs/v2_sandbox_final_lowest.json --out runs/v23_end_lowest > v23_end_lowest.log 2>&1
+" > v23_all.log 2>&1 &
+```
+
+| # | run | what changes | question |
+|---|---|---|---|
+| 1 | `v23_baseline_s23` | seed 23 | baseline for run 2 |
+| 2 | `v23_end_s23` | seed 23 | does the end-placement win repeat with new data order and split? |
+| 3 | `v23_end_lr3e4` | L2 learning rate 1e-4 → 3e-4 | does L2 gain more if it learns faster? |
+| 4 | `v23_end_floor07` | gate forced open to 0.7 (T39) | does L2 help when it must contribute a lot? |
+| 5 | `v23_end_k8` | 8 hypotheses instead of 4 | do more hypotheses help? |
+| 6 | `v23_end_lowest` | pick the hypothesis closest to the anchor instead of averaging | is picking better than averaging? |
+
+**Run 4 — the forced-open gate (`--gate-floor 0.7`).** For the first 200
+steps the gate behaves as before, so L2 learns first; then a minimum opening
+rises smoothly from 0 to 0.7 over 2,000 steps (`--gate-floor-start`,
+`--gate-floor-steps`) and is held. The network can still move the gate
+between 0.4 and 1.0 around that floor. If L2 starts bursting, the brake fires
+and **moves the ramp back** by 200 steps, so an unstable L2 is never pushed
+open — the gate opens fast, then slows down instead of exploding. Watch
+`|g|=` climb towards 0.7 and `brake=` stay near 1.00. Caution: at the end,
+`g = 0.7` replaces 70 % of SmolLM2's final state with L2's, so the loss may
+rise at first — that is the experiment.
+
+Compare after all six:
+
+```bash
+python -m ekdant.gen_eval compare runs/v23_baseline_s23 runs/v23_end_s23
+python -m ekdant.gen_eval compare runs/v22_baseline runs/v22_end runs/v23_end_lr3e4 runs/v23_end_floor07 runs/v23_end_k8 runs/v23_end_lowest
+```
+
+Copy the six `results.json` files and logs back for the thesis.
+
 ## A4. Watching a run
 
 ```
@@ -668,7 +724,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 171 tests
+python -m pytest            # 178 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

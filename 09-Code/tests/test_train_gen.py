@@ -338,3 +338,13 @@ def test_brake_fires_on_forced_spike_and_is_recorded(tiny, tmp_path, monkeypatch
     r = json.loads((out / "results.json").read_text())
     assert r["cost"]["brake_events"] >= 1
     assert "brake" in torch.load(out / "last.pt", weights_only=False)
+
+
+def test_gate_floor_run_opens_the_gate(tiny, tmp_path):
+    # T39: with a floor ramp the gate is held open near the target
+    out = tmp_path / "run"
+    G.main(_args(tiny, out, extra=["--gate-floor", "0.7", "--gate-floor-start", "0",
+                                   "--gate-floor-steps", "2"]))
+    r = json.loads((out / "results.json").read_text())
+    assert r["test"]["gate_magnitude"] > 0.5
+    assert "gate_ramp" in torch.load(out / "last.pt", weights_only=False)

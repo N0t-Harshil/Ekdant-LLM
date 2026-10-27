@@ -62,7 +62,7 @@ All commands run from `09-Code/` after `pip install -e .[dev]`. Logs go to stdou
 - Memory only becomes a concern with near-2048-token inputs; MedMCQA p99 is 118 tokens and MedQA p99 is 364.
 
 ### 8. Tests fail
-- `pytest -q` (171 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
+- `pytest -q` (178 tests, CPU, ~10 s). Run one file with `pytest tests/test_model.py -v` (or `test_sandbox.py` / `test_transformer.py` / `test_data.py` / `test_schedule.py` / `test_eval_split.py`).
 - A config change that makes `EkdantConfig` and `Sandbox` disagree (e.g. a new readout name) is caught by `test_every_config_valid_readout_builds_a_model`.
 
 ### How to reproduce an issue

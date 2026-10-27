@@ -177,4 +177,8 @@ v2.0 (the tie):  ids ─► SmolLM2 layers 1–30 ─► final norm ─► h ─
 - **Tests:** `tests/test_gate_control.py` (8) and `test_brake_fires_on_forced_spike_and_is_recorded`.
 - **Result (2026-10-27):** no brake events; L2 at the end −0.0017 [−0.0019, −0.0016] per token (3.783 → 3.776), ROUGE-L/F1 +0.006 — about 3× the uncontrolled end placement (−0.0006). Inner placements less (`run.md` A7d).
 
+## 16. Gate floor — force L2 to contribute (2026-10-27, T39)
+
+Optional (`--gate-floor`, default 0 = off). After `--gate-floor-start` (200) healthy steps a floor `f` ramps by a cosine from 0 to the target (0.7) over `--gate-floor-steps` (2,000) and is held; the effective gate is `f + (1 − f) · tanh(θ)`, so the network can still move it within [2f − 1, 1]. Every brake event moves the ramp back by 10 % of its length (`GateRamp`), so an unstable L2 is never pushed open. The ramp position is saved in `last.pt`. Experiment run 4 of `run.md` A3b, together with a seed-23 repeat of the end placement and three single-lever runs (L2 LR 3e-4, K = 8, `lowest_energy`).
+
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

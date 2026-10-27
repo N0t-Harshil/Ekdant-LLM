@@ -96,3 +96,68 @@ def test_shipped_sandbox_configs_cap_the_gate():
     for name in ("v2_sandbox", "v2_sandbox_multi", "v2_sandbox_final", "v2_baseline"):
         with open(f"configs/{name}.json", encoding="utf-8") as f:
             assert json.load(f)["gate_cap"] == 1.0
+
+
+# ---- T39: gate floor ramp - open the gate to a target, then hold it ----
+
+def test_floor_zero_keeps_identity_and_old_gate():
+    torch.manual_seed(0)
+    h = torch.randn(2, 5, 32)
+    a = GatedAddOn(32, KW, mode="final", gate_cap=1.0)
+    a.gate_floor = 0.0
+    assert torch.equal(a(h, None)[0], h)
+
+
+def test_floor_sets_the_gate_and_bounds_it():
+    a = GatedAddOn(32, KW, mode="final", gate_cap=1.0)
+    a.gate_floor = 0.7
+    assert a.gate_magnitude() == pytest.approx(0.7, abs=1e-6)     # theta = 0
+    with torch.no_grad():
+        a.gate.fill_(-100.0)
+    assert a.gate_magnitude() == pytest.approx(0.4, abs=1e-4)     # 2f - 1
+    with torch.no_grad():
+        a.gate.fill_(100.0)
+    assert a.gate_magnitude() <= 1.0 + 1e-6
+
+
+def test_ramp_opens_smoothly_then_holds():
+    r = G.GateRamp(target=0.7, start=100, steps=1000)
+    assert r.floor() == 0.0
+    for _ in range(100):
+        r.step(False)
+    assert r.floor() == pytest.approx(0.0)
+    for _ in range(500):
+        r.step(False)
+    assert 0.2 < r.floor() < 0.5                                  # half-way
+    for _ in range(2000):
+        r.step(False)
+    assert r.floor() == pytest.approx(0.7)                        # then held
+
+
+def test_ramp_backs_off_on_a_burst():
+    r = G.GateRamp(target=0.7, start=0, steps=1000, backoff=0.1)
+    for _ in range(800):
+        r.step(False)
+    before = r.floor()
+    r.step(True)                                                  # brake fired
+    assert r.floor() < before and r.pos == 800 - 100
+    s = G.GateRamp(target=0.7, start=0, steps=1000)
+    s.load_state_dict(r.state_dict())
+    assert s.state_dict() == r.state_dict()
+
+
+def test_ramp_off_by_default():
+    args = G.build_parser().parse_args(["--variant", "sandbox", "--out", "x"])
+    assert args.gate_floor == 0.0
+
+
+def test_lever_configs_change_exactly_one_setting():
+    # each lever experiment changes one thing against the end placement
+    with open("configs/v2_sandbox_final.json", encoding="utf-8") as f:
+        base = json.load(f)
+    for name, key, value in (("v2_sandbox_final_k8", "n_sandbox", 8),
+                             ("v2_sandbox_final_lowest", "readout", "lowest_energy")):
+        with open(f"configs/{name}.json", encoding="utf-8") as f:
+            c = json.load(f)
+        assert c[key] == value
+        assert {k for k in c if c[k] != base.get(k)} == {key}

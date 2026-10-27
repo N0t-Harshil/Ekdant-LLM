@@ -75,6 +75,7 @@ def pick_device(gpu: str, min_free_gb: float) -> torch.device:
 # of them changed would skip the wrong batches or mislabel the run.
 RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
+            "gate_floor", "gate_floor_start", "gate_floor_steps",
             "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
@@ -147,6 +148,37 @@ class GateBrake:
         self.seen, self.events = d["seen"], d["events"]
 
 
+class GateRamp:
+    """Scheduled minimum gate opening (T39).  After ``start`` healthy steps
+    the floor rises smoothly (cosine) to ``target`` over ``steps`` steps,
+    then holds.  Starting late gives L2 time to learn before it is forced to
+    contribute; a brake event moves the ramp back by ``backoff`` x ``steps``
+    (the gate closes a little), so an unstable L2 is never pushed open."""
+
+    def __init__(self, target: float = 0.0, start: int = 200,
+                 steps: int = 2000, backoff: float = 0.1):
+        self.target, self.start, self.steps = target, start, max(1, steps)
+        self.backoff, self.pos = backoff, 0
+
+    def floor(self) -> float:
+        if self.target <= 0:
+            return 0.0
+        p = min(1.0, max(0.0, (self.pos - self.start) / self.steps))
+        return self.target * 0.5 * (1.0 - math.cos(math.pi * p))
+
+    def step(self, burst: bool) -> None:
+        if burst:
+            self.pos = max(0, self.pos - int(self.backoff * self.steps))
+        else:
+            self.pos += 1
+
+    def state_dict(self) -> Dict:
+        return {"pos": self.pos}
+
+    def load_state_dict(self, d: Dict) -> None:
+        self.pos = int(d["pos"])
+
+
 def save_checkpoint(state: Dict, path: str) -> None:
     tmp = path + ".tmp"
     torch.save(state, tmp)
@@ -196,6 +228,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "running average (T37)")
     ap.add_argument("--brake-l2-max", type=float, default=50.0,
                     help="brake when L2's internal size exceeds this (T37)")
+    ap.add_argument("--gate-floor", type=float, default=0.0,
+                    help="force the gates open to this minimum (e.g. 0.7) by "
+                         "a smooth ramp, then hold it (T39; 0 = off)")
+    ap.add_argument("--gate-floor-start", type=int, default=200,
+                    help="healthy steps before the ramp starts (L2 learns first)")
+    ap.add_argument("--gate-floor-steps", type=int, default=2000,
+                    help="steps over which the floor ramps up")
     ap.add_argument("--brake-warmup", type=int, default=20,
                     help="steps before gradient spikes are judged")
     ap.add_argument("--max-bad-steps", type=int, default=20,
@@ -341,6 +380,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                       warmup=args.brake_warmup)
     if "brake" in st:
         brake.load_state_dict(st["brake"])
+    ramp = GateRamp(args.gate_floor, args.gate_floor_start, args.gate_floor_steps)
+    if "gate_ramp" in st:
+        ramp.load_state_dict(st["gate_ramp"])
+    if model.addon is not None:
+        model.addon.set_gate_floor(ramp.floor())
     bad_streak = 0
     t_start = time.time()
 
@@ -352,6 +396,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                          "tokens_seen": tokens_seen,
                          "skipped_steps": skipped_steps,
                          "brake": brake.state_dict(),
+                         "gate_ramp": ramp.state_dict(),
                          "wall_clock_s": wall_prev + time.time() - t_start,
                          "run_args": {k: getattr(args, k) for k in RUN_KEYS}},
                         last_path)
@@ -411,7 +456,12 @@ def main(argv: Optional[List[str]] = None) -> None:
                             raise SystemExit(1)
                     else:
                         f = lr_at(opt_step, total_opt, 1.0, args.warmup)
-                        if model.addon is not None and brake.update(gn_addon, l2_rms):
+                        burst = (model.addon is not None
+                                 and brake.update(gn_addon, l2_rms))
+                        if model.addon is not None:
+                            ramp.step(burst)
+                            model.addon.set_gate_floor(ramp.floor())
+                        if burst:
                             # burst: close the gates a little; L2 LRs cut
                             with torch.no_grad():
                                 for gt in model.addon.gates():
