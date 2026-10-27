@@ -183,8 +183,9 @@ positions and SwiGLU feed-forward blocks---whose only job is to bound the KV
 cache and provide local exact retrieval. Stage L2 is a sandbox: $K$ parallel
 trajectories that cross-read for $R$ debate rounds and then perform $S$ steps
 of \emph{anchored gated descent} on an explicit energy before a single dense
-head produces logits. The sandbox is the debate layer; the L1 store is SSM
-memory, and the write-back that would couple them awaits L1.
+head produces logits. L1 and L2 are independent stages: L1 is SSM memory in
+front of the backbone, L2 is a reasoning stage after it, and neither feeds the
+other.
 
 \noindent
 Two training signals are used, and the second one is the subject of a
@@ -207,12 +208,14 @@ parameters), and compares two arms that start identical: the backbone alone
 and the backbone with L2. Both are trained on PubMedQA (question and abstract to conclusion), fine-tuned
 on half of MedQuAD and benchmarked once on the other half, split by question,
 using reference-answer perplexity with a paired-bootstrap confidence interval
-as the primary measure. The result is a practical tie: the sandbox arm lowers
-the per-token negative log-likelihood of the 8{,}258 benchmark answers by
-$0.0006$ nats (95\% interval $[0.0005, 0.0007]$; perplexity $3.782 \to 3.780$,
-$-0.06\%$), while its gate stays almost closed ($|g| = 0.005$), its generated
-answers match the baseline's within run-to-run variation, and it costs 26\%
-more training time. Every falsifiable claim in the supporting vault
+as the primary measure. With a gate controller that opens the gate quickly
+and brakes it when L2 becomes unstable, L2 as an independent final stage gives
+a small but consistent improvement: perplexity $3.783 \to 3.776$ (per-token
+negative log-likelihood $-0.0017$ nats, 95\% interval $[-0.0019, -0.0016]$),
+ROUGE-L and token F1 of generated answers $+0.006$, above the spread of three
+identical baseline runs, and less forgetting of the first dataset, for 14\%
+more training time. Placing L2 inside the backbone, once or at three depths,
+helped less, and the effect remains small and measured on one seed. Every falsifiable claim in the supporting vault
 is backed by one of 66 locally stored papers or by an explicit hand
 derivation, and an explicit prior-art audit states which claims are \emph{not}
 novel---including a compute-matched study in our own library that reports no
@@ -285,8 +288,9 @@ collapse.
         behavior (Section~\ref{sec:audit}).
   \item \textbf{A self-limiting novelty claim.} A prior-art audit over 30
         sandbox papers and 36 background papers concludes that \emph{every
-        ingredient} of stage L2 has precedent, that only the combination plus
-        the memory write-back is unclaimed, and---importantly---that the
+        ingredient} of stage L2 has precedent, that only their combination
+        in one independent stage after a dense backbone is unclaimed,
+        and---importantly---that the
         closest compute-matched published study reports \emph{no reliable
         gain} for its own version of this mechanism
         (Section~\ref{sec:counter-evidence}).
@@ -362,14 +366,11 @@ $\rhodim_{\min}$ & collapse floor threshold (0.05) \\
 \end{center}
 
 \noindent
-One naming caution, because two separate stages share a word. Stage~L2 is
-\emph{the sandbox}: the parallel debate layer. $S^{\mathrm{sandbox}}$ is one of
-the three state stores \emph{inside} stage~L1---a fixed-size SSM memory, not a
-layer. L1 and L2 are distinct stages, and their only coupling is the M3
-write-back (\S\ref{sec:m3}), which writes L2's consensus into the
-$S^{\mathrm{sandbox}}$ store. Elsewhere in this document ``sandbox'' alone
-always means the L2 layer, and the store is always written with its
-$S^{\,\cdot}$ decoration or as ``the L1 sandbox store''.
+Stage~L2 is \emph{the sandbox}: the parallel debate layer. Stage~L1 is a
+fixed-size SSM memory with three state stores, $S^{\mathrm{content}}$,
+$S^{\mathrm{control}}$ and $S^{\mathrm{task}}$. The two stages are
+\emph{independent} (\S\ref{sec:independence}): nothing flows from L2 back into
+L1, and each can be removed or replaced without changing the other.
 
 % =====================================================================
 \section{Background}
@@ -591,7 +592,7 @@ through $K$ trajectories of the same shape. No hidden states grow with $T$ at
 inference time.
 
 \paragraph{What is built.}
-The implementation evaluated in this thesis omits L1 and the M3 write-back:
+The implementation evaluated in this thesis omits L1:
 \begin{equation}
   \texttt{input\_ids} \;\to\; \text{embed} \;\to\; \text{T (windowed dense)}
   \;\to\; \text{L2 (sandbox)} \;\to\; \text{tied output head},
@@ -602,15 +603,15 @@ KV cache at the window $W$; the $O(1)$-in-$T$ state claims in this section
 hold only for the full design with L1. Everything about L1 below is a
 specification, not a result.
 
-Figure~\ref{fig:pipeline} draws that chain, annotates what is bounded and what
-is not, and shows the one non-obvious edge: the M3 write-back that returns
-L2's consensus into L1's third state store. That dashed edge is what makes
-this a memory/reasoning loop rather than a three-block sandwich.
+Figure~\ref{fig:pipeline} draws that chain and annotates what is bounded and
+what is not. Every edge points forward: the stages are independent by design.
+L1 bounds memory, T bounds the cache, and L2 refines the final states, so each
+stage answers its own question and can be ablated on its own.
 
 Every diagram in this document uses one fixed colour code, given once here and
 never varied: \emph{blue} is L1 and therefore storage, \emph{green} is stage T
 and therefore local dense compute, \emph{orange} is L2 and therefore
-reasoning, \emph{red dashed} marks the feedback path, and \emph{grey} is a
+reasoning, and \emph{grey} is a
 neutral tensor or projection that belongs to no stage. The same code colours the
 row groups of the tables, so a reader can tell at a glance which stage a number
 belongs to. Figure~\ref{fig:colourkey} is the key.
@@ -636,15 +637,9 @@ belongs to. Figure~\ref{fig:colourkey} is the key.
   \node[below=1.6mm of k3, font=\scriptsize, align=center, text width=28mm]
     {debate and descent\\($K$ trajectories)};
 
-  \node[draw=ekWarn, fill=ekWarn!12, line width=1.1pt, rounded corners=2pt,
-        minimum width=27mm, minimum height=8mm, align=center,
-        font=\footnotesize\bfseries] (k4) at (93mm,0) {feedback};
-  \node[below=1.6mm of k4, font=\scriptsize, align=center, text width=28mm]
-    {M3 write-back\\dashed everywhere};
-
   \node[draw=ekEdge, fill=ekEdge!12, line width=1.1pt, rounded corners=2pt,
         minimum width=27mm, minimum height=8mm, align=center,
-        font=\footnotesize\bfseries] (k5) at (124mm,0) {neutral};
+        font=\footnotesize\bfseries] (k5) at (93mm,0) {neutral};
   \node[below=1.6mm of k5, font=\scriptsize, align=center, text width=28mm]
     {tensors, heads\\stage-neutral};
 \end{tikzpicture}
@@ -689,16 +684,11 @@ consistently from this point on.}
   \draw[ekflow] (l2) -- (head);
   \draw[ekflow] (head) -- (logits);
 
-  % ---------- M3 write-back ----------
-  \draw[ekloop] (l2.north west) to[out=125,in=255,looseness=0.9]
-    node[ektag, midway, fill=white, inner sep=1.5pt, align=center]
-    {\textbf{M3 write-back}\\[-2pt] $\hat a \to$ L1 sandbox store} (l1.south west);
 \end{tikzpicture}
 \caption{The three-stage design (the dashed L1 box is specified but not built;
-the evaluated model is embed $\to$ T $\to$ L2 $\to$ head). Solid arrows are the forward chain; the
-dashed red edge is the M3 write-back, which carries L2's consensus back
-into L1's sandbox store, so that reasoning and memory are coupled rather than
-merely adjacent. The italic line inside each stage states that stage's memory
+the evaluated model is embed $\to$ T $\to$ L2 $\to$ head). All arrows point
+forward: the three stages are independent, and nothing returns from L2 to L1.
+The italic line inside each stage states that stage's memory
 cost, which is the whole justification for the layout: L1 contributes a
 constant-size state, stage T caps the cache at a fixed window, and L2 adds work
 proportional to $K$ but never to $T$.}
@@ -708,7 +698,7 @@ proportional to $K$ but never to $T$.}
 \subsection{Layer 1: selective SSM storage (specified, not implemented)}
 
 \noindent
-\emph{This subsection and Section~\ref{sec:m3} specify a design that is not
+\emph{This subsection specifies a design that is not
 part of the evaluated model. No result in this thesis depends on them.}
 
 
@@ -771,7 +761,7 @@ A single shared trunk $u_t = \mathrm{DWConv}(\mathrm{SiLU}(\mathrm{Linear}(h_t))
 feeds \emph{three} selective channels, all inside stage L1, scanned in parallel.
 They are given different step-size biases so that they specialize, and each keeps
 its own $A, \Delta, B, C$, recurrence, readout, gate, and norm. The third store
-is named $S^{\mathrm{sandbox}}$ only because it tracks stage L2; it is an L1
+is named $S^{\mathrm{task}}$ only because it tracks stage L2; it is an L1
 state store, not the L2 layer.
 
 \begin{center}
@@ -782,7 +772,7 @@ state store, not the L2 layer.
 \midrule
 \rowcolor{ekRowL}$S^{\mathrm{content}}$ & slow $\Delta$ & retains \emph{what was said}; long memory over discourse \\
 \rowcolor{ekRowL}$S^{\mathrm{control}}$ & fast $\Delta$ & retains \emph{what to do}; instruction and task features that must update quickly \\
-\rowcolor{ekRow2}$S^{\mathrm{sandbox}}$ & medium $\Delta$ & tracks stage L2: scans distilled task features plus the L2 write-back $f$ \\
+\rowcolor{ekRowL}$S^{\mathrm{task}}$ & medium $\Delta$ & tracks the running task state: scans distilled task features from the input only (L1 does not read L2) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -812,7 +802,7 @@ fusion gate decides how much of each reaches the residual stream.
   \node[ekstageL, below=1.4mm of sc, text width=38mm, minimum height=8.5mm] (sctl)
     {\textbf{control}\\[-1pt]\scriptsize scan; $\Delta$ fast, retain \emph{do}};
   \node[ekstageL, below=1.4mm of sctl, text width=38mm, minimum height=8.5mm] (ssb)
-    {\textbf{sandbox store}\\[-1pt]\scriptsize scan; $\Delta$ medium, tracks L2};
+    {\textbf{task store}\\[-1pt]\scriptsize scan; $\Delta$ medium, task state};
 
   \draw[ekflow] (sel) -- (sc);
   \draw[ekflow] (sel.east) -- ++(2mm,0) |- (sctl.east);
@@ -1094,8 +1084,8 @@ Section~\ref{sec:defect1}.
 the debate phase lets them read and revise each other ($R$ rounds, bidirectional
 arrows) while the anchor does not yet exist. Only then is $a_t = W_a hT_t$
 computed, and all $K$ trajectories descend toward that single external point for
-$S$ steps under per-trajectory gates. The consensus and the agreement
-diagnostic $\hat a$ leave as the M3 write-back.}
+$S$ steps under per-trajectory gates. The consensus leaves the stage towards
+the head; the agreement diagnostic $\hat a$ is reported, never fed back.}
 \label{fig:sandbox}
 \end{figure}
 
@@ -1124,32 +1114,24 @@ design undetectable.
     Collapse is $\rhodim \to 0$.
 \end{description}
 
-\subsection{The M3 write-back, and the causality rule (specified, not implemented)}
-\label{sec:m3}
+\subsection{Independence of L1 and L2}
+\label{sec:independence}
 
 \noindent
-Stage L2 is not a terminal head. After the consensus is formed, it emits a
-feedback signal that is written into L1's third state store,
-$S^{\mathrm{sandbox}}$:
-\begin{equation}
-  f_t = \mathrm{Linear}_{\mathrm{fb}}\bigl([\,y_t \,;\, V_t\,]\bigr),
-  \qquad
-  x^{3}_t = \Atr^{3}_t \odot x^{3}_{t-1} + \Btr^{3}_t \odot u_t + F \odot f_{t-1}.
-  \label{eq:m3-writeback}
-\end{equation}
-This closes the loop between reasoning and memory: the sandbox can carry
-tracking state and inject instructions into subsequent processing. Two
-constraints are enforced and are not negotiable:
-
-\begin{enumerate}
-  \item \textbf{Causality.} Position $t$ reads only states at positions $<t$.
-    The per-position state $m^3_t$ is the only thing stage L2 ever reads; the
-    pooled $\texttt{compressed}$ triple is diagnostic and never feeds forward.
-  \item \textbf{No cross-batch leakage.} During training, $f$ arrives
-    \emph{detached} from the previous micro-batch. This is stated rather than
-    hidden because the alternative silently conditions on future minibatch
-    content.
-\end{enumerate}
+L1 and L2 are separate, independent stages. L1 sits in front of the dense
+stack and compresses what has been read into a fixed-size state; L2 sits
+after it and refines the final per-token states through $K$ debating
+hypotheses. No signal flows from L2 back into L1: an earlier draft of this
+design wrote L2's consensus into an L1 store, and that write-back has been
+removed. Three reasons support the separation. First, each stage then answers
+its own research question and can be ablated alone (RQ1 for L1, RQ2 and RQ3
+for L2), which a feedback loop would entangle. Second, without a loop there is
+no recurrent dependency between stages to train around: no feedback carried
+across micro-batches and no special causality rule between them; every L2
+operation remains per position and causal by construction. Third, the
+experiments support it: L2 was most useful as a terminal stage, and moving it
+into the backbone, where later layers read its output, helped less
+(Section~\ref{sec:results}).
 
 \subsection{Training objective}
 \label{sec:loss}
@@ -1959,13 +1941,12 @@ this is reported as a tie.
 
 \noindent
 \paragraph{L2 inside the backbone (second configuration).}
-The tie has a structural explanation. Placed after the final normalisation,
-L2 refines every token's state in isolation, and nothing else reads its
-output: it cannot influence any other token. In the full design that
-influence comes from the M3 write-back, which returns L2's consensus to the
-L1 sandbox store for the next step (Section~\ref{sec:m3}). Without L1, the
-second configuration approximates this coupling by placing L2 after decoder
-layer 20 of 30, as a pre-norm residual block,
+Placed after the final normalisation, L2 refines every token's state in
+isolation and nothing else reads its output, so it cannot influence any other
+token. To test whether L2 does more when later computation can use it, the
+second configuration---an extension beyond the thesis design, in which L2 is
+an independent final stage---places L2 after decoder layer 20 of 30, as a
+pre-norm residual block,
 \begin{equation}
   h'_t = h_t + g \odot \mathrm{RMSNorm}\bigl(f(\mathrm{RMSNorm}(h_t))\bigr),
   \qquad g = 0 \text{ at initialisation},
@@ -1974,8 +1955,6 @@ layer 20 of 30, as a pre-norm residual block,
 so that the remaining ten layers, and through their attention all later
 tokens, read L2's output. The input is normalised because the residual
 stream there has an RMS of about $100$ with outliers near $2\times10^{4}$.
-The approximation differs from the write-back in kind (attention within one
-pass instead of recurrent memory to the next step) and is described as such.
 Two further changes apply to both arms: the gate has its own learning rate
 ($10^{-3}$; L2's matrices stay at $10^{-4}$), and phase~1 runs two epochs of
 PubMedQA, for both arms.
@@ -1995,10 +1974,9 @@ against $3.958$, PubMedQA held-out after phase~1 $7.593$ against $7.534$; the
 model fitted PubMedQA's style more closely and transferred less. Training
 cost: $10{,}491$ against $8{,}053$\,s ($+30\%$), $22.9$ against $16.6$\,GB.
 
-\paragraph{L2 at several depths (third configuration, pending).}
-The thesis iterates L2 within itself (debate rounds and descent steps) and,
-through the write-back, once per token; it does not place L2 at several
-depths. As an extension, the third configuration applies \emph{one} L2, with
+\paragraph{L2 at several depths, and the final comparison.}
+The thesis iterates L2 within itself (debate rounds and descent steps) but
+places it once, as an independent final stage. As an extension, the third configuration applies \emph{one} L2, with
 shared weights, after layers 10, 20 and 30. Each site has its own
 zero-initialised gate and its own input and output normalisation, because the
 residual stream's scale differs strongly between these depths (RMS about 6,
@@ -2018,6 +1996,43 @@ L2's gradient norm jumps above three times its running average, or the size
 of L2's internal state exceeds 50, all gates are multiplied by $0.9$ and the
 learning rates of L2 and of the gates are halved, recovering by one percent
 per healthy step. Each brake event is logged and counted.
+
+\noindent
+All four runs trained stably: no update was skipped and the brake never fired.
+The boost opened the gates quickly (about $0.05$ after 500 steps); once it
+faded, the network partly closed them again during PubMedQA and reopened them
+during the MedQuAD fine-tune.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\rowcolor{ekHeadBG}\color{white}\textbf{Run (seed 17, 1 epoch)} & \color{white}\textbf{Benchmark ppl} & \color{white}\textbf{$\Delta$ NLL/token (95\% CI)} & \color{white}\textbf{ROUGE-L / F1} & \color{white}\textbf{PubMedQA ppl} & \color{white}\textbf{$|g|$} \\
+\midrule
+Baseline & 3.7826 & --- & 0.3144 / 0.3788 & 8.205 & --- \\
+L2 after layer 20 & 3.7815 & $-0.0003$ $[-0.0003, -0.0002]$ & 0.3152 / 0.3792 & 8.208 & 0.063 \\
+L2 at layers 10, 20, 30 & 3.7792 & $-0.0009$ $[-0.0010, -0.0008]$ & 0.3171 / 0.3820 & 8.196 & 0.071 \\
+\textbf{L2 at the end} & \textbf{3.7761} & $\mathbf{-0.0017}$ $[-0.0019, -0.0016]$ & \textbf{0.3202 / 0.3852} & \textbf{8.176} & 0.028 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Every L2 variant beats the baseline beyond its interval, and L2 as the
+independent final stage beats it on every measure: perplexity by $0.17\%$,
+ROUGE-L and token F1 by $+0.006$ each, which exceeds the spread of the three
+same-seed baseline runs ($0.3127$--$0.3155$ and $0.3770$--$0.3797$), and it
+forgets less of PubMedQA. With the gate controller its gain is about three
+times that of the same placement without it ($-0.0006$). Placing L2 inside the
+network helped less: once after layer 20 barely, at three depths moderately,
+and in the three-site run the network opened the deepest gate most ($0.127$
+at layer 30, against $0.037$ and $0.050$ at layers 10 and 20). Both point the
+same way: in this setting L2 is most useful close to the output, as an
+independent refinement stage. The effect is small and measured on one seed;
+the interval covers question sampling, not training randomness. Peak memory
+was $16.6$, $22.9$, $34.9$ and $22.8$\,GB; the end placement took 14\% longer
+than the baseline (the two inner placements shared their GPU with other jobs,
+so their times are not comparable).
 
 \noindent
 Before the paired runs succeeded, two sandbox runs diverged and are kept as
@@ -2187,11 +2202,10 @@ tie.
     $0.003$), but the variation across seeds, which also changes the data
     order, is not measured; the sandbox arm's $0.06\%$ perplexity gain should
     not be read as more than a tie until it is.
-  \item[A nearly closed gate.] The sandbox arm ended with $|g| = 0.005$, so the
-    experiment tests L2 as the network chose to use it, which was very
-    little. The add-on learning rate was lowered to $10^{-4}$ for stability,
-    which also slows the gate; a separate, larger gate learning rate and a
-    forced contribution of L2 are untested variants.
+  \item[A small gate.] Even with the gate controller the gates stayed small
+    ($0.03$--$0.13$), so L2 refines rather than replaces the backbone's
+    states; the experiment measures L2 as the network chose to use it. L2's
+    own learning rate was lowered to $10^{-4}$ for stability.
   \item[No kernels.] Plain PyTorch (no \texttt{flash-attn}, \texttt{mamba-ssm}
     or Triton) leaves throughput on the table. This is a deliberate
     auditability trade, not an oversight.
@@ -2251,12 +2265,15 @@ inspectable by materializing several live hypotheses and lets them confront
 one another. In the from-scratch pilot, both arms learned only the
 answer-letter prior, so the head-to-head ended in an uninformative tie; the
 evaluated configuration therefore tested L2 on a pretrained backbone against
-the backbone alone. The result is a tie in every practical sense: a
-statistically detectable but negligible gain in reference-answer perplexity
-($-0.06\%$), identical generated-answer quality within run-to-run variation,
-and a gate the network kept almost closed, at a cost of 26\% more training
-time. This agrees with the strongest prior evidence against the idea
-(Section~\ref{sec:counter-evidence}) and is reported as it stands.
+the backbone alone. Without control of its gate, L2 tied. With a gate
+controller that opens the gate quickly and brakes it before L2 becomes
+unstable, L2 as an independent final stage gave a small but consistent
+improvement: $0.17\%$ lower perplexity, $+0.006$ ROUGE-L and F1, and less
+forgetting, for 14\% more training time; placing it inside the backbone
+helped less. The gain is real but modest and rests on one seed, which is
+consistent with the strongest prior evidence against large gains from this
+kind of mechanism (Section~\ref{sec:counter-evidence}); it is reported as it
+stands.
 
 \noindent
 The substantive result of this thesis is as much about the corrections as

@@ -52,6 +52,7 @@ Debugging: see [13_Debugging_Guide](06-Training-Eval/13_Debugging_Guide.md). Iss
 
 | Done | Not done |
 |---|---|
+| ✅ v2.2 four runs with gate control: L2 as the final stage wins on every measure (ppl 3.783 → 3.776, ROUGE-L/F1 +0.006); inner placements less ([run.md](run.md) A7d) | ❌ second seed to confirm |
 | ✅ v2.1 run: L2 after layer 20 — a tie (3.914 vs 3.913), 2nd epoch hurt both (T35/T36) | ❌ v2.2 four-run comparison incl. one shared L2 at layers 10/20/30 (`run.md` A3) |
 | ✅ v2 paired runs done: a practical tie — benchmark ppl 3.7817 vs 3.7795 (−0.06 %, CI excludes 0), generation tie, gate \|g\| = 0.005 ([run.md](run.md) A7a) | ❌ seed-to-seed variation (a second seed for both arms) |
 | ✅ v2 built: SmolLM2-135M + gated L2, generative data + metrics, 171 green tests, CPU smoke with the real backbone | ❌ v2 GPU runs for both arms (`run.md` Part A) |

@@ -276,6 +276,24 @@ perplexity. Three same-seed baseline runs gave benchmark ppl 3.782 each and
 ROUGE-L 0.3127–0.3155 / F1 0.3770–0.3797, so the generation scores tie.
 **Verdict: a practical tie;** the network kept L2's gate almost closed.
 
+## A7d. v2.2 four-run results (2026-10-27, the current thesis numbers)
+
+`v22_*.log`; identical flags; no skipped steps, **no brake events**.
+
+| run (seed 17, 1 epoch, gate control) | benchmark ppl | per-token NLL vs baseline (95 % CI) | ROUGE-L / F1 | PubMedQA ppl | \|g\| | peak mem |
+|---|---|---|---|---|---|---|
+| baseline | 3.7826 | — | 0.3144 / 0.3788 | 8.205 | — | 16.6 GB |
+| L2 after layer 20 | 3.7815 | −0.0003 [−0.0003, −0.0002] | 0.3152 / 0.3792 | 8.208 | 0.063 | 22.9 GB |
+| L2 at layers 10/20/30 (shared) | 3.7792 | −0.0009 [−0.0010, −0.0008] | 0.3171 / 0.3820 | 8.196 | 0.071 (0.037 / 0.050 / 0.127) | 34.9 GB |
+| **L2 at the end** | **3.7761** | **−0.0017 [−0.0019, −0.0016]** | **0.3202 / 0.3852** | **8.176** | 0.028 | 22.8 GB |
+
+Every L2 run beats the baseline beyond its interval; **L2 at the end wins on every
+measure** (−0.17 % perplexity; ROUGE-L / F1 +0.006, above the 0.3127–0.3155 /
+0.3770–0.3797 spread of three same-seed baselines; less PubMedQA forgetting). The
+three-depth run opened its deepest gate most. Wall-clock: baseline 4,613 s, end
+5,274 s (+14 %); the two inner runs shared their GPU with other jobs, so their
+times (≈ 4 h) are not comparable. One seed — confirm with `--seed 23`.
+
 ## A7c. v2.1 results (L2 after layer 20, 2 PubMedQA epochs, 2026-10-24)
 
 `v21_baseline.log`, `v21_sandbox.log`; seed 17, gate LR 1e-3.

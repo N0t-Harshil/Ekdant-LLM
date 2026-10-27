@@ -35,13 +35,13 @@ Per position, with input-dependent selection:
 
 > L1 is not in the current `09-Code` package (T + L2 (no L1) build); these are design-target tests for when L1 is integrated. Shipped tests cover T + L2 only.
 
-Shapes `[B,T,H]` + `compressed [B,3·d_state]` triple; grads reach all 3 channels' Δ/B/C; fusion weights move; feedback port carries `f`; selective-copying unit check (B5 Table 1 style); O(1) curve 512/2048/4096; 10-step loss decrease.
+Shapes `[B,T,H]` + `compressed [B,3·d_state]` triple; grads reach all 3 channels' Δ/B/C; fusion weights move; selective-copying unit check (B5 Table 1 style); O(1) curve 512/2048/4096; 10-step loss decrease.
 
 ## 6. Triple-store build notes (aSSM)
 
 - Code shape: one shared trunk (`Linear H→2H` + causal DWConv) → three lightweight selective heads (per-channel Δ/B/C linears + diagonal A). Mamba-2 multi-head precedent (B6).
 - Per-channel Δ regimes: slow bias (content, dt≈0.01–0.1) vs. fast bias (control/sandbox, dt≈0.1–0.5) — set via projection bias, learned after.
-- M3 feedback wiring: `forward(..., prev_feedback)` adds `F·f_{t−1}` to M3 only; train with detached previous-micro-batch `f`, generate with exact carry. Test the port with a nonzero `f` asserting M3 moves and M1/M2 don't.
+- No feedback port (T38): L1 and L2 are independent; the third store (`task`) scans the input trunk only.
 - Causality: sandbox reads per-position `m3_t`; pooled triple is logging-only.
 
 ## Connections

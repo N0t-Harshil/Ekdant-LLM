@@ -20,7 +20,7 @@ Ekdant is designed as **two layers (L1 SSM Storage, L2 Sandbox) with a dense Tra
 - **Layer 2 — Sandbox (the reasoning answer; built).** The backbone representation is expanded into K parallel trajectories that debate (read and revise each other) and descend toward an external anchor (energy refinement), then average into a consensus and project through the tied vocabulary head. Multiple live hypotheses replace single-path chain-of-thought, and trajectory agreement becomes an observable proxy for confidence. In full: `22_Thesis_Ch3_Layer2_Sandbox.md`. Why it should work: `20_Thesis_Ch2_Sandbox_Papers.md`.
 - **Layer T — Dense Transformer (the retrieval answer; built).** N_T = 12 identical blocks of windowed GQA (window 512, KV bounded) + SwiGLU FFN. Restores exact local recall that a pure SSM compresses away, before reasoning begins.
 
-The built forward pass (the full design adds `SSMStack` before T and the M3 write-back):
+The built forward pass (the full design adds `SSMStack` before T; L1 and L2 stay independent):
 
 ```
 input_ids
@@ -51,7 +51,6 @@ graph TB
     end
     subgraph "Not built"
         L1[Layer 1: SSM Storage] -.-> TR
-        L2 -.M3 write-back.-> L1
     end
 ```
 

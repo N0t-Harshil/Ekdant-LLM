@@ -1,5 +1,7 @@
 # 29 — Prior-Art and Novelty Check for Layer 2 (Sandbox)
 
+> [!note] **T38 (2026-10-27):** L1 and L2 are independent stages; the M3 write-back was removed from the design. The unclaimed part is now the combination of multi-hypothesis debate, anchored gated descent and the collapse floor in one independent stage after a dense backbone — the write-back is no longer part of the claim.
+
 > Question this file answers: *has L2 been implemented before?* Checked 2026-10-04 against the literature, not from memory. PDFs: [`papers/Sandbox_Reasoning/`](../papers/Sandbox_Reasoning/) · Index: [`papers/00_Papers_Index.md`](../papers/00_Papers_Index.md) · Spec under review: [22](22_Thesis_Ch3_Layer2_Sandbox.md) · Build: [26c](26c_Internal_Sandbox_Build.md)
 
 ## 1. Verdict
@@ -110,7 +112,7 @@ Three consequences for Ekdant, stated plainly:
    against a gain from spending the same compute on more layers, which is exactly what C24 found winning. Add
    `depth-matched-no-sandbox` as a control, and report K=1 as the other.
 
-**Net effect on the novelty claim.** The novelty claim in " + SEC1 + " is unchanged (the M3 write-back and the
+**Net effect on the novelty claim.** The novelty claim in " + SEC1 + " is unchanged ((as revised in T38, without the M3 write-back) the
 after-the-backbone debate placement are still unclaimed), but the *expected result* is now weaker: the honest prior
 from the best-matched study in our own library is **"no reliable gain"**. RQ2 should therefore be written as a
 falsifiable question with a genuine chance of a negative answer, and the thesis must pre-commit to reporting a tie.

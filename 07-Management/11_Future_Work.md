@@ -5,6 +5,8 @@
 - **Run v2, both arms** — `run.md` Part A: SmolLM2-135M `baseline` / `sandbox`, one per free A100, then `python -m ekdant.gen_eval compare`. Fills the v2 results tables (benchmark perplexity with 95 % CI, ROUGE-L / F1, gate size, cost). A tie is reported as a tie.
 - ~~Run v2, both arms~~ **DONE 2026-10-24:** a practical tie (benchmark ppl 3.7817 vs 3.7795, CI excludes 0 but −0.06 %; gate |g| = 0.005) — `run.md` A7a.
 - ~~Run v2.1~~ **DONE:** a tie (3.914 vs 3.913); the 2nd PubMedQA epoch hurt both arms.
+- ~~v2.2 four-run comparison~~ **DONE 2026-10-27:** L2 at the end wins (−0.0017 per token, ROUGE-L/F1 +0.006).
+- **Confirm with a second seed** (baseline + L2 at the end, `--seed 23`), then try one lever at a time from note 22 §0 (L2 LR 3e-4, K=8, `lowest_energy` readout, 16 descent steps).
 - **Run the v2.2 four-run comparison** (baseline, L2 after layer 20, shared L2 at 10/20/30, L2 at the end; 1 epoch) — `run.md` A3, ~7 h on one GPU.
 - **Second seed for both arms** — the CI excludes 0 but covers only question sampling; a different `--seed` (new data order and split) shows whether the 0.0006-nat gain survives.
 - **Why the gate stays closed** — log per-step `|g|` and the gate gradient; test a forced contribution (fixed g) as a separate question.
@@ -23,7 +25,7 @@
 
 ## High (should finish)
 
-- **L1 integration** — add `ssm_storage.py` (selective SSM, three stores) before T, the L1 → T shape assertion (T9), the O(1)-state proof (same `compressed [B, 3·d_state]` shape and flat peak memory for T = 512 / 2048 / 4096), and the M3 write-back. Unlocks RQ1 and the layer-addition ladder (backbone-only → +L2 → +L1+L2). Until then the thesis states L1 as specified-not-built.
+- **L1 integration** — add `ssm_storage.py` (selective SSM, three stores) before T, the L1 → T shape assertion (T9), the O(1)-state proof (same `compressed [B, 3·d_state]` shape and flat peak memory for T = 512 / 2048 / 4096). Unlocks RQ1 and the layer-addition ladder (backbone-only → +L2 → +L1+L2). Until then the thesis states L1 as specified-not-built.
 - **CI** — `pytest -q` on every push in `09-Code/` (171 tests, CPU, ~10 s).
 - **Cost report** — tokens × K, FLOPs, wall-clock per arm (C8); the runner currently logs tok/s only.
 - **Rebuild `thesis.pdf`** from the updated `thesis.tex` (`pdflatex` three times); the committed PDF predates the T + L2 alignment.

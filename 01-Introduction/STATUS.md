@@ -4,11 +4,13 @@
 
 ## 1. Current build status
 
+**v2.2 + gate control result (2026-10-27): first clear win.** L2 as the independent final stage: benchmark ppl 3.783 → 3.776 (per-token NLL −0.0017 [−0.0019, −0.0016]), ROUGE-L / F1 +0.006 (above same-seed spread), less forgetting; inner placements helped less (−0.0009 three depths, −0.0003 layer 20). One seed. L1 and L2 declared independent (T38) (`run.md` A7d).
+
 **v2.3 gate control built (2026-10-25, T37):** boost (10× gate LR fading over 1,000 steps), `tanh` cap at 1.0, brake on L2 gradient spikes / size; used by all sandbox runs of the four-run comparison; 171 tests.
 
 **v2.1 result:** a tie (benchmark ppl 3.914 vs 3.913; gate 0.029); the 2nd PubMedQA epoch hurt both arms (`run.md` A7c). **v2.2 built (T36):** one shared L2 at layers 10/20/30; a four-run comparison at 1 epoch (baseline, mid, multi, end) is ready to run (`run.md` A3); 171 tests.
 
-**v2.1 built (2026-10-24, T35):** L2 moved inside SmolLM2 (after layer 20 of 30) so later layers and tokens use it — the stand-in for the M3 write-back; gate LR 1e-3; 2 PubMedQA epochs; 171 tests. GPU runs pending.
+**v2.1 built (2026-10-24, T35):** L2 moved inside SmolLM2 (after layer 20 of 30) so later layers and tokens use it — an extension beyond the design (L1/L2 independent, T38); gate LR 1e-3; 2 PubMedQA epochs; 171 tests. GPU runs pending.
 
 **v2 paired result (2026-10-24): a practical tie.** Benchmark perplexity 3.7817 (baseline) vs 3.7795 (sandbox); per-token NLL −0.0006, 95 % CI [−0.0007, −0.0005] — detectable but 0.06 %; ROUGE-L / F1 within same-seed run-to-run spread; gate |g| = 0.0054 (L2 barely used); +26 % wall-clock, +6.2 GB peak memory. Seed-to-seed variation untested (`run.md` A7a).
 

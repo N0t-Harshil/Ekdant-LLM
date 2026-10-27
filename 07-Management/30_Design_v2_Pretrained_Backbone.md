@@ -141,7 +141,7 @@ L1 (still design-only), backbones larger than 135M, instruction/chat tuning, LLM
 
 ## 13. v2.1 — L2 inside the backbone (2026-10-24)
 
-**Why.** v2.0 put L2 after SmolLM2's final norm, where nothing reads its output: each token's state is refined in isolation and L2 cannot influence any other token. The paired v2.0 runs tied (benchmark ppl 3.7817 vs 3.7795; gate |g| = 0.005). In the thesis design L2 is not a dead end: the **M3 write-back** feeds L2's consensus into L1's sandbox store, which conditions the processing of the next token. v2 has no L1, so v2.1 approximates that coupling by placing L2 **after decoder layer 20 of 30**: layers 21–30 read L2's output and, through attention, carry it to later tokens. (The coupling differs in kind: attention in the same pass instead of recurrent memory to the next step; the thesis says so.)
+**Why.** v2.0 put L2 after SmolLM2's final norm, where nothing reads its output: each token's state is refined in isolation and L2 cannot influence any other token. The paired v2.0 runs tied (benchmark ppl 3.7817 vs 3.7795; gate |g| = 0.005). (At the time this was framed as approximating an M3 write-back from L2 into L1; T38 removed that coupling — L1 and L2 are independent — so v2.1 is an extension beyond the design.) v2.1 places L2 **after decoder layer 20 of 30**: layers 21–30 read L2's output and, through attention, carry it to later tokens. 
 
 ```
 v2.1 (current):  ids ─► SmolLM2 layers 1–20 ─► h ─► h + g ⊙ RMSNorm(L2(RMSNorm(h))) ─► layers 21–30 ─► final norm ─► lm_head
@@ -159,7 +159,7 @@ v2.0 (the tie):  ids ─► SmolLM2 layers 1–30 ─► final norm ─► h ─
 
 ## 14. v2.2 — the same L2 at several depths (2026-10-24)
 
-**Idea (user):** run L2 more than once inside the model, spaced through its depth. The thesis iterates L2 internally (debate rounds, descent steps) and once per token via M3, but never at several depths — so this is an extension, not the original design.
+**Idea (user):** run L2 more than once inside the model, spaced through its depth. The thesis iterates L2 internally (debate rounds, descent steps) and places it once, as an independent final stage — so this is an extension, not the original design.
 
 - **One shared L2** after layers 10, 20 and 30 (`configs/v2_sandbox_multi.json`: `"addon_layers": [10, 20, 30]`, `"addon_shared": true`). Parameters 19,598,976 — only 3,456 more than one site — so a gain cannot be credited to extra size. `"addon_shared": false` gives three copies (58,786,560) as a fallback if sharing proves unstable.
 - **Per site:** its own zero-init gate and its own input/output RMSNorm, because the stream's scale differs strongly by depth (rms ≈ 6 at layer 10, ≈ 100 at 20, ≈ 2 at 30). All gates in the gate LR group (1e-3). The spread floor applies at every site; diagnostics are averaged; `gate_per_site` is logged.
@@ -175,5 +175,6 @@ v2.0 (the tie):  ids ─► SmolLM2 layers 1–30 ─► final norm ─► h ─
 - **Brake (`GateBrake`):** a step bursts when L2's pre-clip gradient norm > 3 × its running average (after 20 steps) or L2's size > 50; then gates × 0.9, L2 + gate LR factor × 0.5 (floor 0.05), recovering × 1.01 per healthy step. State saved in `last.pt`; events in `cost.brake_events`. Non-finite steps stay with the skip guard.
 - **Scope:** all sandbox runs of the four-run experiment use it (mid, multi, end); the baseline has no gate.
 - **Tests:** `tests/test_gate_control.py` (8) and `test_brake_fires_on_forced_spike_and_is_recorded`.
+- **Result (2026-10-27):** no brake events; L2 at the end −0.0017 [−0.0019, −0.0016] per token (3.783 → 3.776), ROUGE-L/F1 +0.006 — about 3× the uncontrolled end placement (−0.0006). Inner placements less (`run.md` A7d).
 
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

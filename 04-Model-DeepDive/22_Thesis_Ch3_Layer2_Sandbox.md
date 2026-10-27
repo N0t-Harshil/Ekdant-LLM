@@ -3,9 +3,107 @@
 > Thesis Ch. 3 §2. Background: [`20_Thesis_Ch2_Sandbox_Papers.md`](../03-Background/20_Thesis_Ch2_Sandbox_Papers.md) · PDFs: [`papers/Sandbox_Reasoning/`](../papers/Sandbox_Reasoning/) · Index: [`papers/00_Papers_Index.md`](../papers/00_Papers_Index.md)
 > Code: `src/ekdant/sandbox.py` + `src/ekdant/output_head.py` · Config: [`12_Configuration_Guide.md`](../02-Architecture/12_Configuration_Guide.md) · Eval: [`09_Validation_System.md`](../06-Training-Eval/09_Validation_System.md)
 
-> [!important] **v2.1 placement (current, T35):** L2 sits after decoder layer 20 of 30 as `h + g ⊙ RMSNorm(L2(RMSNorm(h)))`, so layers 21–30 and later tokens use its output — standing in for the M3 write-back, which needs L1. The note below describes v2.0 (after the final norm), which tied.
+> [!important] **Current status (2026-10-27).** L1 and L2 are **independent** stages (T38). The best result so far is L2 as the **final stage after SmolLM2**, with gate control (v2.3): benchmark perplexity 3.783 → 3.776, ROUGE-L / F1 +0.006 (`run.md` A7d). Placing L2 inside the backbone (after layer 20, or at layers 10/20/30) helped less.
 
-> [!note] **v2.0 placement.** L2 now sits on a pretrained SmolLM2-135M (H=576) as a **zero-init gated residual** `h + g ⊙ (RMSNorm(consensus) − h)`, scaled to **R=4 debate rounds with a 4× debate MLP** (19,594,944 params, 12.7 % of the model — v1's share was 13.1 %), and is compared with the plain backbone. Everything below (mechanism, math, diagnostics) is unchanged. Spec: [30](../07-Management/30_Design_v2_Pretrained_Backbone.md).
+## 0. How the sandbox works — a plain-language walkthrough (as built)
+
+This section explains L2 the way the code runs it in the current experiment
+(`configs/v2_sandbox_final.json`: L2 after SmolLM2's last layer). Every number
+is the real setting; the code is `09-Code/src/ekdant/sandbox.py` (L2 itself)
+and `model.py` (`GatedAddOn`, the way L2 is attached).
+
+**What goes in.** For every token, SmolLM2 produces a vector `h` of 576 numbers —
+its final "understanding" of that position, just before it predicts the next
+word. L2 works on **each token separately**: it never looks at other tokens
+(attention across the text is SmolLM2's job). Its question is: *can a small
+team of hypotheses improve this one vector before the prediction is made?*
+
+**Step 1 — make 4 different hypotheses (`DiverseInit`, 1.33M parameters).**
+`h` is multiplied by **K = 4 different matrices**, giving 4 versions of the
+token's state, called *trajectories* `T_1 … T_4`. The matrices are built to be
+mutually orthogonal and slightly different in scale (gains 0.8–1.25), so the
+four start out genuinely different. If they started identical, the debate
+below would have nothing to argue about.
+
+**Step 2 — debate, 4 rounds (`DebateRound` ×4, 4.32M parameters each).** In
+each round, every trajectory:
+1. is normalised (pre-norm, T33), so no round can blow up the next;
+2. **reads the other three** with a small attention (query/key/value, 1.0M
+   parameters): "what do the others think?" — it never attends to itself;
+3. passes what it read through an MLP (576 → 2,304 → 576, 2.66M parameters)
+   to form a proposal;
+4. decides **how much to accept** with a gate `γ` between 0 and 1, computed
+   from its own state and what it read (starts at about 0.12: cautious):
+   `T_k ← (1 − γ)·T_k + γ·MLP(read_k)`.
+
+After 4 rounds each hypothesis has been revised by what the others said, but
+each one could also refuse (γ ≈ 0) — that is what lets a correct minority
+survive.
+
+**Step 3 — an external reference point (the anchor, 0.33M parameters).**
+`a = W_a · h`: one more learned projection of the **original** backbone state.
+It is deliberately *not* the average of the hypotheses (pulling towards their
+own average provably changes nothing — Defect 1, note 29).
+
+**Step 4 — careful descent towards the anchor, 8 steps (`AnchoredDescent`).**
+Each step moves every trajectory a little towards the anchor:
+`T_k ← T_k − 0.0625 · g_k ⊙ (T_k − a)`, where `g_k` is a per-trajectory,
+per-number gate between 0 and 1. Because each trajectory has its own gate,
+they move by different amounts — so their average genuinely changes, and the
+disagreement shrinks without forcing them into one point.
+
+**Step 5 — consensus.** The final answer of the team is the **average of the
+4 trajectories** (`readout: mean`; `lowest_energy` instead picks, per token,
+the trajectory closest to the anchor).
+
+**Step 6 — health checks (no effect on the answer).** Three numbers are
+logged: `anchor_energy` (how far the team still is from the anchor),
+`trajectory_variance` (how different the hypotheses still are after the
+debate) and `spread_ratio` ρ (that variance relative to the backbone's own
+size). If ρ falls below 0.05 the hypotheses have **collapsed** into one, and
+a small penalty `(0.05 − ρ)²` is added to the loss — the only loss term L2 has
+of its own.
+
+**Step 7 — attaching L2 to SmolLM2 (`GatedAddOn`).** The consensus is
+normalised (RMSNorm, T32) and mixed into the backbone's state through a gate:
+`h' = h + g ⊙ (RMSNorm(consensus) − h)`, then SmolLM2's own head predicts the
+next word from `h'`.
+- `g` has one value per number (576) and **starts at exactly 0**, so at the
+  start the model *is* SmolLM2 — any later difference comes from training L2.
+- `g = tanh(θ)`: it can never exceed 1 (T37).
+- **Gate control (T37):** the gate learns 10× faster during the first 1,000
+  steps (boost); if L2's gradient spikes (> 3× its average) or its internal
+  size `l2` exceeds 50, the brake closes the gates a little (×0.9) and halves
+  L2's learning rates, recovering slowly.
+
+**Cost.** L2 adds 19.59M parameters (12.7 % of the model) and roughly
+`K × (R debate + S descent)` extra work per token — the end placement took
+14 % longer to train than the baseline.
+
+### What the experiments taught us about how L2 behaves
+
+| observation | evidence | meaning |
+|---|---|---|
+| L2 helps most as the **final** stage | v2.2: end −0.0017 > three depths −0.0009 > middle −0.0003 (per-token NLL vs baseline) | it works as a refinement close to the output |
+| the gate opens only as far as L2 helps | gates 0.03–0.13; after the boost faded the network closed them partly, then reopened them on MedQuAD | L2 helps more on MedQuAD than on PubMedQA |
+| without normalisation inside, L2's size compounds and explodes | T32–T34 | the pre-norm, output norm, low L2 LR and brake are load-bearing — keep them |
+| training longer hurts both models | v2.1: 2 PubMedQA epochs → 3.914 vs 3.782 | more epochs is not a lever |
+| the gate controller roughly tripled L2's effect | end placement: −0.0006 without, −0.0017 with | how fast L2 *learns* matters more than how big it is |
+
+### Levers you can change for a better result
+
+Each lever is a single change; compare it against the existing baseline run
+(`runs/v22_baseline`, seed 17, 1 epoch) — only the sandbox run is needed, about
+1 h 30 min each. Change one thing at a time.
+
+| # | lever | how | why it might help | risk |
+|---|---|---|---|---|
+| 1 | **L2 learns faster** | `--addon-lr 3e-4` (now 1e-4) | L2's matrices still learn slowly; the effect grew when the *gate* learned faster. The brake and norms now guard against the old drift | drift returns — watch `l2=` and `brake=` |
+| 2 | **more hypotheses** | `"n_sandbox": 8` in a copy of `v2_sandbox_final.json` | more diverse candidates per token; only +1.33M params (20.92M) but ~2× L2 compute | slower; may add little |
+| 3 | **pick instead of average** | `"readout": "lowest_energy"` | the closest-to-anchor hypothesis may be sharper than the average | can be noisier |
+| 4 | **more refinement** | `"descent_steps": 16` (η = 0.0625 kept, or `"eta": 0.03125`) | more careful convergence towards the anchor | over-smoothing |
+| 5 | **gate boost again in phase 2** | needs a small code change | the gate reopened during MedQuAD, where L2 helps most | — |
+| 6 | **confirm the result first** | baseline + end with `--seed 23` | the current gain is one seed; a second seed shows it is real | none — recommended before any lever |
 
 ## 1. Problem: one pass that hides its reasoning and misstates its confidence
 
@@ -84,4 +182,4 @@ Shapes: `hT [B,T,H]` in; K=4, R=2, S=8; all ops plain torch (build recipe → [2
 - **Overturn accounting (per round):** count wrong→right vs. right→wrong transitions; majority pressure suppressing corrections shows up here first (C9).
 - **Cost:** `O(R·K²·T·H + S·K·T·H)` — quadratic only in tiny K, never in T; always report FLOPs/tokens beside accuracy (C8 rule).
 - Worked numbers: [28_Worked_Examples.md](28_Worked_Examples.md) §2–3 (K=3 debate + RoPE by hand).
-- **Sandbox ↔ M3 channel:** L2 reads per-position M3 states `m3_t` as extra context (causal — never the pooled triple); after consensus it emits feedback `f = Linear_fb([consensus; variance])` carried into M3's next update. This is how the sandbox tracks state and instructs further processing across positions and steps.
+- **Independent of L1 (T38):** L2 reads only the backbone's states and writes only to the head (or, in the v2.1/v2.2 extensions, back into the residual stream of the same backbone). Nothing flows into L1; the earlier M3 write-back was removed from the design.

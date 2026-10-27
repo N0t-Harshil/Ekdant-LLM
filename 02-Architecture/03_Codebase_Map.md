@@ -57,4 +57,4 @@ No `main.py`, no `scripts/`, no YAML size configs. Full shipped signatures: [API
 
 ## Planned, not built — L1
 
-`ssm_storage.py` (selective SSM front end, three stores, M3 write-back) is specified in `26a`, `21` and `02 §3`. Adding it means: a new module, an `n_ssm_layers` / `d_state` config, an L1 → T handoff shape assertion (Known Issues T9), and the O(1)-state proof. Until then the memory claim (RQ1) is design only.
+`ssm_storage.py` (selective SSM front end, three stores; independent of L2, no write-back) is specified in `26a`, `21` and `02 §3`. Adding it means: a new module, an `n_ssm_layers` / `d_state` config, an L1 → T handoff shape assertion (Known Issues T9), and the O(1)-state proof. Until then the memory claim (RQ1) is design only.

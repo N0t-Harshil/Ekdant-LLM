@@ -6,7 +6,7 @@
 
 ## 0. v2 — the current build (pretrained backbone + gated add-on)
 
-> [!important] **v2.1 (current, T35):** L2 now sits **after decoder layer 20 of 30**, so layers 21–30 and, through attention, later tokens read its output — the role the thesis gives the M3 write-back. The diagram and table below describe v2.0 (L2 after the final norm, a dead end), which tied.
+> [!important] **v2.1 (current, T35):** L2 now sits **after decoder layer 20 of 30**, so layers 21–30 and, through attention, later tokens read its output — an extension beyond the design, in which L2 is an independent final stage (T38). The diagram and table below describe v2.0 (L2 after the final norm, a dead end), which tied.
 >
 > ```
 > v2.1 (current):  ids ─► SmolLM2 layers 1–20 ─► h ─► h + g ⊙ RMSNorm(L2(RMSNorm(h))) ─► layers 21–30 ─► final norm ─► lm_head
@@ -40,9 +40,11 @@ input ids ─► SmolLM2-135M (30 layers, H=576, 9 heads / 3 KV, vocab 49,152, t
 
 ## 1. System at a glance
 
+> [!important] **L1 and L2 are independent stages (T38).** L1 is SSM memory in front of T, L2 a reasoning stage after it; nothing flows from L2 back into L1 (the earlier M3 write-back was removed). L1's third store is the **task store** `S^task`.
+
 Three subsystems. The model subsystem is the thesis contribution; the other two are the apparatus that feeds and judges it.
 
-> **Implemented vs. designed:** the runnable code lives at `09-Code/src/ekdant/` — 7 modules (`model`, `transformer_stack`, `sandbox`, `output_head`, `train`, `data`, `__init__`), the **T + L2 build** (`embed → T → L2 → head`, N_T=12, A/B configs in `09-Code/configs/*.json`). L1 (`ssm_storage.py`, §3, `21`) and the M3 write-back are **specified here but not built**; every L1 statement is design, not result.
+> **Implemented vs. designed:** the runnable code lives at `09-Code/src/ekdant/` — 7 modules (`model`, `transformer_stack`, `sandbox`, `output_head`, `train`, `data`, `__init__`), the **T + L2 build** (`embed → T → L2 → head`, N_T=12, A/B configs in `09-Code/configs/*.json`). L1 (`ssm_storage.py`, §3, `21`) is **specified here but not built** and independent of L2 (no write-back, T38); every L1 statement is design, not result.
 
 **Data** (`ekdant.data`): MedMCQA, then MedQA, rendered as one prompt template with the answer letter as the target; a shared BPE tokenizer; a seed-locked 60/40 MedQA partition. Documented in [05](../05-Data/05_Data_Pipeline.md).
 

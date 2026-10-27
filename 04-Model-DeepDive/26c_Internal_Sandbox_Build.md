@@ -9,7 +9,7 @@
 ## 1. Diverse init (K=4 default)
 
 - K distinct `Linear(H→H)` projections with ==orthogonal init + spread gains== (copies collapse — diversity is load-bearing, C19).
-- Input: backbone-enhanced `hT [B,T,H]` → `trajectories [K,B,T,H]`, plus per-position M3 context `m3_t` (causal sandbox-channel states).
+- Input: backbone-enhanced `hT [B,T,H]` → `trajectories [K,B,T,H]`. L2 reads nothing else — it is independent of L1 (T38).
 
 ## 2. Debate round (×R=2, pure torch)
 

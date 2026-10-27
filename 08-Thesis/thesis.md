@@ -11,7 +11,7 @@ Supervisor: [Supervisor 1] · Co-supervisor: [Supervisor 2]
 > (PubMedQA → MedQuAD, split by question), by reference-answer perplexity with a paired bootstrap.
 > The from-scratch pilot (`embed → T → L2 → head`, ~50M, MedMCQA → MedQA) is reported as the
 > motivation: it learned only the answer-letter prior (T27, T28). The L1 selective-SSM storage
-> layer and the M3 write-back are **specified in this thesis but not implemented**; every L1
+> layer is **specified in this thesis but not implemented** (L1 and L2 are independent stages); every L1
 > statement below is design, not result.
 
 > [!note] This file is the **condensed vault-linked outline**. The full article, with the
@@ -26,22 +26,23 @@ The seven diagrams from the compiled article, exported at 240 dpi.
 
 **Fig. 1 — Colour key.** Fixed code used by every figure and every table row group.
 
-![Colour key: blue = L1 storage, green = stage T, orange = L2 sandbox, red = feedback, grey = neutral](figures/fig1.png)
+![Colour key: blue = L1 storage, green = stage T, orange = L2 sandbox, grey = neutral](figures/fig1.png)
+
+> [!warning] `fig1.png` / `fig2.png` predate T38 and still show a red feedback (M3 write-back) arrow that is no longer part of the design; re-export them from `thesis.tex` after building the PDF.
 
 | Colour | Meaning | Applied to |
 |---|---|---|
 | Blue `#1F4E79` | Stage L1 — storage / memory | L1 boxes, parameter-table rows |
 | Green `#2E6B4F` | Stage T — local dense compute | T boxes, parameter-table rows |
 | Orange `#7B3F00` | Stage L2 — reasoning | L2 boxes, sandbox-store row |
-| Red `#A11212` | Feedback / defect | M3 arrows, `[PENDING]` rows |
+| Red `#A11212` | Defect | `[PENDING]` rows |
 | Grey `#8A94A0` | Stage-neutral tensors, heads | Embedding, head, projections |
 
-**Fig. 2 — Three-stage forward pass.** Solid arrows are the forward chain; the dashed red edge is the
-M3 write-back that returns **L2's** consensus into L1's third state store (`S^sandbox`). L1 and L2 are
-separate stages; the store is SSM memory, the sandbox is the debate layer.
-*L1 and the write-back are design only; the built model is embed -> T -> L2 -> head.*
+**Fig. 2 — Three-stage forward pass.** All arrows point forward: L1 (SSM memory) → T (dense stack) →
+L2 (sandbox, the debate layer) → head. The stages are **independent** — nothing returns from L2 to L1 (T38).
+*L1 is design only; the built model is embed -> T -> L2 -> head.*
 
-![Three-stage forward pass with the M3 write-back loop](figures/fig2.png)
+![Three-stage forward pass](figures/fig2.png)
 
 **Fig. 3 — One L1 step.** Selection emits per-channel step sizes; three stores integrate the same
 token at different rates; a learned gate fuses them with a residual.
@@ -81,7 +82,7 @@ peer-mean leaves it bit-identical to S = 0.
 - ==Layer 1 — SSM Storage (memory answer; design only).== Selective state-space stack compresses any sequence into a fixed-size recurrent state. Linear-time training, ==O(1) inference==, no KV-cache. ([21](../04-Model-DeepDive/21_Thesis_Ch3_Layer1_SSM_Storage.md))
 - ==Layer 2 - Sandbox (reasoning answer; built).== The T output expands into ==K parallel trajectories== that debate (cross-read + revise), then run ==anchored gated descent== on the energy `½‖T_k − a_t‖²` toward a token-conditioned anchor `a_t = W_a·hT_t`, and vote. Agreement is the observable confidence signal; collapse is policed by a spread *floor*, not an agreement penalty. ([22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md))
 
-Built forward: `input_ids → embed → T (windowed GQA + SwiGLU) → K trajectories → debate → anchored gated descent → consensus → tied head → logits`. Full-design forward adds `SSMStack` before T and the M3 write-back.
+Built forward: `input_ids → embed → T (windowed GQA + SwiGLU) → K trajectories → debate → anchored gated descent → consensus → tied head → logits`. Full-design forward adds `SSMStack` before T; L1 and L2 stay independent (no write-back).
 - ==Why dense + windowed:== global attention's growing KV-cache is the wall from Ch.1; T keeps a fixed window (W=512), so its cache stays bounded. No MoE — the sandbox is the mixture mechanism.
 - ==Bounded-memory story (full design):== L1 fixed state + T window-bounded KV + dense FFN + K-bounded sandbox — peak memory flat in T. Untested until L1 exists.
 
@@ -104,7 +105,7 @@ Lineage: S4 (Gu et al. 2021, B1) → diagonal S4D/DSS (B2/B3) → S5 parallel sc
 > L1 follows the selective-SSM line (S4; diagonal; S5; selection+scan; duality), with Hyena/H3/RetNet/RWKV as family context and Jamba + surveys marking the acknowledged retrieval limitation.
 
 ### §C Why parallel-trajectory sandbox (L2)
-Control: ==CoT single path (Wei et al. 2022, C1) = K=1==. Baseline: ==self-consistency voting (Wang et al. 2022, C2)== — every sandbox claim is measured against it at matched budget. Blueprints: ==multi-agent debate (Du et al. 2023, C3)== for rounds; ==energy calibration for implicit CoT (2025, C11)== for descent, plus the energy-descent lineage (Energy Transformer C25, NRGPT C26) — Ekdant anchors descent to the backbone state, not to the peer mean, because the peer-mean pull is provably consensus-preserving. Support: ToT/GoT search structure (C4/C13), least-to-most decomposition (C17), folded reflection (C6/C7), process supervision (C12/C16), self-improve/STaR loops (C14/C15), divergent init (C19), debate dynamics (C9), debate-judge eval (C18), RASC early-stop (C20), latent-agent internalization as future (C10). ==Closest architectural priors== (all fetched locally): multi-stream hypotheses in one model (C21), heads reading each other (C22), function-separated streams at 29M (C23), latent iterative refinement (C29, TRM), energy descent (C25/C26), layered proposal-aggregation (C27), diversity-collapse evidence that forced the floor (C28) — **and C24, the compute-matched negative result** (Rauba et al. 2026, Tiny Autoregressive Recursive Models: the full Autoregressive TRM "shows no reliable gain / no consistent benefit") — see [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md). **Novelty claimed is the combination plus the M3 write-back, not any single ingredient.**
+Control: ==CoT single path (Wei et al. 2022, C1) = K=1==. Baseline: ==self-consistency voting (Wang et al. 2022, C2)== — every sandbox claim is measured against it at matched budget. Blueprints: ==multi-agent debate (Du et al. 2023, C3)== for rounds; ==energy calibration for implicit CoT (2025, C11)== for descent, plus the energy-descent lineage (Energy Transformer C25, NRGPT C26) — Ekdant anchors descent to the backbone state, not to the peer mean, because the peer-mean pull is provably consensus-preserving. Support: ToT/GoT search structure (C4/C13), least-to-most decomposition (C17), folded reflection (C6/C7), process supervision (C12/C16), self-improve/STaR loops (C14/C15), divergent init (C19), debate dynamics (C9), debate-judge eval (C18), RASC early-stop (C20), latent-agent internalization as future (C10). ==Closest architectural priors== (all fetched locally): multi-stream hypotheses in one model (C21), heads reading each other (C22), function-separated streams at 29M (C23), latent iterative refinement (C29, TRM), energy descent (C25/C26), layered proposal-aggregation (C27), diversity-collapse evidence that forced the floor (C28) — **and C24, the compute-matched negative result** (Rauba et al. 2026, Tiny Autoregressive Recursive Models: the full Autoregressive TRM "shows no reliable gain / no consistent benefit") — see [29](../04-Model-DeepDive/29_Prior_Art_and_Novelty_Check.md). **Novelty claimed is the combination in one independent stage after a dense backbone, not any single ingredient (T38).**
 
 > **Cite C24 against your own interest.** It is the only paper in this library that runs a *compute-matched* comparison of exactly our design question, and it concludes that the full recursive TRM "shows no reliable gain (**no consistent benefit**)". Do not cite it as support. Cite it as the reason RQ2 is pre-registered with a **depth-matched-no-sandbox** control (same parameters, same block-pass budget, no L2) in addition to K=1, and as the reason a tie is a publishable outcome. What survives from it is narrower and still useful: *stream separation* helped (dual/two-stream), independently corroborated by C23 at 29M — so defend that part, and treat the recursive-refinement part as the hypothesis under test. Cost honesty (load-bearing): ==MAD critique (Smit et al. 2024, C8)== — report tokens×K and FLOPs always. Scope: acting with tools out (ReAct C5, cited to draw boundary). Full vault: [20](../03-Background/20_Thesis_Ch2_Sandbox_Papers.md).
 
@@ -120,7 +121,7 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 **System.** Package `09-Code/src/ekdant/`: `model.py` (assembly + loss), `transformer_stack.py` (T), `sandbox.py` (L2), `output_head.py` (tied head), `data.py` (MedMCQA/MedQA pipeline + tokenizer), `train.py` (sequential training/eval). Pure PyTorch, 171 tests. Spec: [03_Codebase_Map](../02-Architecture/03_Codebase_Map.md).
 
-**L1 — SSM Storage (design only, not built).** `input_ids [B,T]` → tied embed `[B,T,H]` + RoPE (base 100K, window 4096, YaRN-extendable) → N aSSM blocks (shared trunk + 3 L1 state stores: content/control/sandbox — the third *is an L1 store*, not the L2 layer; per-channel Δ/B/C, scan, gating+residual+norm) → `h [B,T,H]` + pooled triple `compressed [B,3·d_state]` handed to T; the L2 consensus write-back returns via M3. Design sizes — XS: H=256, d=96, N=2, V=32K · S: H=320, d=128, N=4, V=32K · M: H=512, d=256, N=4, V=32K; T=2048 all.
+**L1 — SSM Storage (design only, not built).** `input_ids [B,T]` → tied embed `[B,T,H]` + RoPE (base 100K, window 4096, YaRN-extendable) → N aSSM blocks (shared trunk + 3 L1 state stores: content/control/task; per-channel Δ/B/C, scan, gating+residual+norm) → `h [B,T,H]` + pooled triple `compressed [B,3·d_state]` handed to T. L1 does not read L2 (independent stages, T38). Design sizes — XS: H=256, d=96, N=2, V=32K · S: H=320, d=128, N=4, V=32K · M: H=512, d=256, N=4, V=32K; T=2048 all.
 
 **Layer T — Dense Transformer (built).** embeddings → N_T=12 identical blocks (H=512, 8 heads / 2 KV heads, windowed GQA W=512 + SwiGLU 1024, RoPE, RMSNorm) → `hT`. KV bounded by W. 26.75M params. (Design sizes were N_T=3/5/6.)
 
@@ -196,7 +197,7 @@ MedMCQA gap 1.3 pts vs noise σ ≈ 0.7 → **a tie** at this scale (pre-committ
 
 ## Ch.7 — Future Work (from [11](../07-Management/11_Future_Work.md))
 
-Critical (defense): pick phase-1 epochs from the validation curve → run the campaign for both arms → depth-/parameter-matched control and K/R/S ablations (report ties honestly) → multi-seed. High: implement L1 (`ssm_storage.py`) and the O(1) proof + M3 write-back; resolve the L2 size overage. Medium: scale-up to a 500M-class model on a larger GPU. Boundary: tools, multimodality, MoE, internalized debate each need their own RQ.
+Critical (defense): pick phase-1 epochs from the validation curve → run the campaign for both arms → depth-/parameter-matched control and K/R/S ablations (report ties honestly) → multi-seed. High: implement L1 (`ssm_storage.py`) and the O(1) proof (L1 stays independent of L2, T38); resolve the L2 size overage. Medium: scale-up to a 500M-class model on a larger GPU. Boundary: tools, multimodality, MoE, internalized debate each need their own RQ.
 
 ---
 

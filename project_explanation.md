@@ -6,7 +6,7 @@ Document: [thesis.pdf](08-Thesis/thesis.pdf) · Source: [thesis.tex](08-Thesis/t
 > **What is built vs. designed.** The evaluated model is **T + L2** (embed → windowed dense
 > Transformer → parallel sandbox → head), ~50M parameters, trained from scratch on MedMCQA then
 > MedQA, as an architecture-matched A/B against the identical backbone without L2. **L1 (SSM
-> storage) and the M3 write-back are fully specified but not implemented** — the memory
+> storage) is fully specified but not implemented** — the memory
 > numbers below are projections for the full design, and RQ1 is future work.
 >
 > This file explains the whole project end to end — why the two layers exist, how
@@ -24,8 +24,8 @@ long records, long papers. Ekdant has **two layers**. **L1** compresses any sequ
 into a fixed-size selective SSM state. **L2** is a parallel sandbox that runs several
 hypotheses against each other and refines them with a provable descent step. A small
 standard Transformer between them only bounds the attention window. L1 answers
-*what was said*, L2 answers *what to do*, and they are wired together by a single
-write-back edge. For the full design (with L1), at 12M / 21M / 46M parameters the inference state is projected to stay **flat at
+*what was said*, L2 answers *what to do*, and the two are **independent stages**:
+nothing flows from L2 back into L1. For the full design (with L1), at 12M / 21M / 46M parameters the inference state is projected to stay **flat at
 1.58 MB** regardless of sequence length, and every design claim is backed by either a
 proof, a locally stored paper, or a number.
 
@@ -145,8 +145,8 @@ on. In a healthy run it is exactly zero and contributes no gradient at all.
 > with a fixed 6 KB notebook that only writes what matters. L2 replaces a single
 > answer with four competing hypotheses that debate each other and then refine
 > toward an external target - because refining toward their own average is provably
-> a no-op. The two are separate layers so each can be ablated, and they are joined
-> by a single write-back edge."
+> a no-op. The two are separate, independent layers so each can be ablated on its
+> own."
 
 ---
 
@@ -177,13 +177,11 @@ with its own `A, Δ, B, C`, recurrence, readout, gate and norm:
 |---|---|---|
 | `S^content` | slow Δ | retains **what was said**; long memory over discourse |
 | `S^control` | fast Δ | retains **what to do**; instruction/task features that update quickly |
-| `S^sandbox` | medium Δ | **tracks stage L2**; scans distilled task features plus the L2 write-back `f` |
+| `S^task` | medium Δ | tracks the **running task state**; scans distilled task features from the input only |
 
-> **Naming caution — two layers share a word.** Stage **L2 is the sandbox** (the
-> debate layer). `S^sandbox` is one of the three state stores **inside L1** — a
-> fixed-size SSM memory, not a layer. They are separate stages; their only coupling
-> is the M3 write-back. Elsewhere in the thesis, "sandbox" alone always means the
-> L2 layer.
+> **L1 and L2 are independent.** Stage **L2 is the sandbox** (the debate layer);
+> L1 is a fixed-size SSM memory with three stores. No signal flows from L2 back
+> into L1 — an earlier draft had a write-back into an L1 store, removed in T38.
 
 The three outputs are fused by a learned gate and a residual:
 `h_t = RMSNorm(Σ_c gᶜₜ ⊙ yᶜₜ + h^in_t)`.
@@ -259,24 +257,14 @@ L1 = memory (what was said). L2 = reasoning (what to do). Different jobs,
 different failure modes, each independently ablatable at matched parameters — that
 independence is contribution 1 and it is what makes RQ2 falsifiable.
 
-**The only coupling is the M3 write-back** (the dashed red edge in Fig. 2):
+**There is no coupling between L1 and L2** (T38). An earlier draft wrote L2's
+consensus back into an L1 store (the "M3 write-back"); it was removed because
 
-```
-fₜ = Linear_fb([yₜ ; Vₜ])
-x³ₜ = Ā³ₜ ⊙ x³ₜ₋₁ + B̄³ₜ ⊙ uₜ + F ⊙ fₜ₋₁
-```
-
-L2's consensus is written into L1's third store `S^sandbox`, so reasoning feeds
-memory. Two constraints are enforced, not negotiable:
-
-1. **Causality** — position `t` only reads states at positions `< t`.
-2. **No cross-batch leakage** — during training `f` arrives *detached* from the
-   previous micro-batch. Stated openly, because the alternative silently conditions
-   on future minibatch content.
-
-Without the write-back, L2 would be a terminal head and reasoning would leave no
-trace in memory. Without L1, there would be no bounded context for the debate to
-occur in.
+1. each stage then answers its own question and can be ablated alone,
+2. there is no recurrent loop between stages to train around (no feedback carried
+   across micro-batches, no special causality rule between them), and
+3. the experiments agree: L2 helped most as a terminal stage at the output
+   (v2.2: end > three depths > middle).
 
 ---
 
@@ -403,10 +391,10 @@ control, K ablations and multi-seed are the remaining thesis experiments. Sandbo
 are now logged per epoch (T24). The `train.py` LR schedule
 bugs (warmup + stage-2 reset) are **fixed**.
 
-**Q: What is the M3 write-back for?**
-So reasoning leaves a trace in memory. It is the only edge between L1 and L2,
-guarded by a causality rule (position t reads only positions < t) and a no-cross-batch-leakage
-rule (`f` detached between micro-batches).
+**Q: Do L1 and L2 talk to each other?**
+No. They are independent stages (T38): L1 compresses the input into a fixed-size
+memory before the dense stack, L2 refines the final states after it, and nothing
+flows back. An earlier write-back from L2 into L1 was removed from the design.
 
 ---
 
@@ -418,8 +406,7 @@ P2 stack unauditable ─► the two layers stay separate ─► each ablated ind
 P3 agreement ≠ confidence ─► L2 sandbox + floor ─► ρ logged, collapse detectable
 
 L1 (memory) ──forward──► T (bounded window) ──forward──► L2 (reasoning) ──► head
-   ▲                                                        │
-   └──────────── M3 write-back: L2 consensus → S^sandbox ───┘
+   (independent stages: nothing flows back from L2 to L1)
 
 Defect 1 (readout-invariant) ──proof──► AGD with external anchor ──► Fig. 7
 Defect 2 (penalty collapses) ──proof──► floor, non-degenerate   ──► Fig. 5
