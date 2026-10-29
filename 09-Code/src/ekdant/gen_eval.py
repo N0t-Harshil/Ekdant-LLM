@@ -208,13 +208,15 @@ def compare(run_dirs: List[str]) -> None:
         with open(os.path.join(d, "results.json"), encoding="utf-8") as f:
             runs.append((d, json.load(f)))
     print(f"{'run':28s} {'bench ppl':>10s} {'ROUGE-L':>8s} {'F1':>7s} "
-          f"{'|g|':>8s} {'pubmed ppl':>11s}")
+          f"{'|g|':>8s} {'pubmed ppl':>11s} {'L2 off ppl':>11s}")
     for d, r in runs:
         b, p = r["test"]["medquad_bench"], r["test"]["pubmedqa_held"]
+        off = r["test"].get("l2_off")
         print(f"{os.path.basename(d.rstrip('/')):28s} {b['ppl']:10.3f} "
               f"{b.get('rouge_l', float('nan')):8.4f} "
               f"{b.get('token_f1', float('nan')):7.4f} "
-              f"{r['test'].get('gate_magnitude', 0.0):8.4f} {p['ppl']:11.3f}")
+              f"{r['test'].get('gate_magnitude', 0.0):8.4f} {p['ppl']:11.3f} "
+              + (f"{off['medquad_bench']['ppl']:11.3f}" if off else f"{'-':>11s}"))
     ref_d, ref = runs[0]
     ra = _rows(ref["test"]["medquad_bench"])
     groups = dict(zip(ref["test"]["medquad_bench"]["row_idx"],
@@ -230,6 +232,17 @@ def compare(run_dirs: List[str]) -> None:
               f"{os.path.basename(ref_d.rstrip('/'))}: per-token NLL "
               f"{ci['diff']:+.4f}  95% CI [{ci['lo']:+.4f}, {ci['hi']:+.4f}]  "
               f"({verdict}; negative = better)")
+    # T44: how much each trained model depends on its L2
+    for d, r in runs:
+        off = r["test"].get("l2_off")
+        if off:
+            imp = off["importance"]
+            verdict = ("the model depends on L2" if imp["lo"] > 0 else
+                       "the model is better without L2" if imp["hi"] < 0 else
+                       "no measurable dependence on L2")
+            print(f"{os.path.basename(d.rstrip('/'))}: L2 off -> per-token NLL "
+                  f"{imp['diff']:+.4f}  95% CI [{imp['lo']:+.4f}, {imp['hi']:+.4f}]  "
+                  f"({verdict}; positive = L2 matters)")
 
 
 if __name__ == "__main__":

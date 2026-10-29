@@ -12,6 +12,7 @@ Spec: 02-Architecture/03_Codebase_Map.md, 04-Model-DeepDive/26c
 
 from __future__ import annotations
 
+import contextlib
 import functools
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Optional, Tuple
@@ -247,6 +248,8 @@ class GatedAddOn(nn.Module):
         # scale is frozen (it cannot be shrunk to zero behind the gate) and
         # a mid site's output is sized to the residual stream.
         self.force = force
+        # False = L2 switched off at this site (the L2-off test, T44)
+        self.enabled = True
         # Scheduled minimum opening (T39), set by the trainer each step:
         # g = floor + (1 - floor) * capped_gate, so floor 0 = the plain gate.
         self.gate_floor = 0.0
@@ -261,6 +264,8 @@ class GatedAddOn(nn.Module):
 
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        if not self.enabled:
+            return h, {}
         x = self.in_norm(h) if self.mode == "mid" else h
         g = self.effective_gate()
         if self.checkpoint and torch.is_grad_enabled():
@@ -522,6 +527,21 @@ class EkdantLM(nn.Module):
 
     def addon_params(self) -> int:
         return count_parameters(self.addon) if self.addon is not None else 0
+
+    @contextlib.contextmanager
+    def l2_off(self):
+        """Every L2 site switched off: the model is exactly its backbone
+        (the L2-off test, T44); switched back on afterwards."""
+        sites = ([] if self.addon is None else
+                 self.addon._all() if isinstance(self.addon, MultiAddOn)
+                 else [self.addon])
+        for s in sites:
+            s.enabled = False
+        try:
+            yield self
+        finally:
+            for s in sites:
+                s.enabled = True
 
     def param_groups(self, backbone_lr: float, addon_lr: float,
                      wd: float = 0.1, gate_lr: Optional[float] = None) -> list:

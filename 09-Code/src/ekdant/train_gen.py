@@ -35,7 +35,8 @@ from ekdant.gen_data import (
     question_key,
     split_by_question,
 )
-from ekdant.gen_eval import answer_nll, by_type, generate_greedy, score_generations
+from ekdant.gen_eval import (_rows, answer_nll, by_type, generate_greedy,
+                             paired_bootstrap, score_generations)
 from ekdant.model import EkdantLM, V2Config, count_parameters
 from ekdant.train import fmt_duration, log, lr_at
 
@@ -78,7 +79,7 @@ RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
             "gate_force", "gate_rollback", "snapshot_every", "floor_slowdown",
-            "floor_step_down", "gate_floor_min", "warmup",
+            "floor_step_down", "gate_floor_min", "l2_warmup", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
 
@@ -283,6 +284,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gate-force", action="store_true",
                     help="forced L2 (T42): --gate-floor becomes a hard minimum "
                          "and L2 cannot be switched off")
+    ap.add_argument("--l2-warmup", type=int, default=0,
+                    help="T44: SmolLM2 frozen for the first N optimiser steps of "
+                         "phase 1, so L2 learns before it competes (0 = off)")
     ap.add_argument("--gate-rollback", action="store_true",
                     help="T43: on a burst go back to the last snapshot and "
                          "re-open the floor more slowly and a little lower")
@@ -354,6 +358,9 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1)
         cfg = V2Config.from_dict({**V2Config().to_dict(), **raw})
         cfg.addon = ADDON[args.variant]
+        if args.l2_warmup > 0 and cfg.addon == "none":
+            log("error: --l2-warmup needs L2 (the baseline would train nothing)")
+            raise SystemExit(1)
         if args.gate_force and args.gate_floor <= 0:
             log("error: --gate-force needs --gate-floor > 0 (the minimum gate)")
             raise SystemExit(1)
@@ -450,6 +457,14 @@ def main(argv: Optional[List[str]] = None) -> None:
                     slowdown=fl["floor_slowdown"], step_down=fl["floor_step_down"],
                     min_target=fl["gate_floor_min"])
     rollback_on = args.gate_rollback and not args.eval_only
+    frozen = False
+
+    def set_frozen(on: bool) -> None:
+        nonlocal frozen
+        if on != frozen:
+            for p in model.lm.parameters():
+                p.requires_grad_(not on)
+            frozen = on
     snap: Optional[Dict] = None
     if "gate_ramp" in st:
         ramp.load_state_dict(st["gate_ramp"])
@@ -495,6 +510,13 @@ def main(argv: Optional[List[str]] = None) -> None:
             opt.zero_grad(set_to_none=True)
             t0, loss_ema, group_bad, l2_rms = time.time(), None, False, None
             for bi in range(skip, nb):
+                # T44 warm-up: SmolLM2 frozen, only L2 learns
+                warm = si == 0 and opt_step < args.l2_warmup
+                if warm != frozen:
+                    set_frozen(warm)
+                    log(f"[{stage}] step {opt_step}: L2 warm-up "
+                        + ("- SmolLM2 frozen, only L2 learns" if warm
+                           else "done - SmolLM2 trains again"))
                 b = collate([ds[i] for i in batches[bi]])
                 ids, mask = b["input_ids"].to(device), b["attention_mask"].to(device)
                 with autocast():
@@ -615,6 +637,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             results["history"] = history
             write()
 
+    set_frozen(False)
+
     # ---- final protocol: better of best/last on the validation slice ----
     scores = {"last.pt": score("medquad_val")["nll"]}
     chosen = "last.pt"
@@ -646,6 +670,23 @@ def main(argv: Optional[List[str]] = None) -> None:
                        if model.addon else 0.0,
                        "gate_per_site": model.addon.site_gate_magnitudes()
                        if model.addon else []}
+    if model.addon is not None:
+        # T44 L2-off test: the same model with every L2 site switched off;
+        # the NLL rise is how much the trained model depends on L2
+        with model.l2_off():
+            bo = score("medquad_bench")
+            po = _strip_rows(score("pubmedqa_held"))
+        on, off = _rows(b), _rows(bo)
+        keys = sorted(set(on) & set(off))
+        grp = dict(zip(b["row_idx"], b["row_group"]))
+        imp = paired_bootstrap([on[k][0] for k in keys], [off[k][0] for k in keys],
+                               [grp[k] for k in keys],
+                               weights=[on[k][1] for k in keys])
+        results["test"]["l2_off"] = {"medquad_bench": _strip_rows(bo),
+                                     "pubmedqa_held": po, "importance": imp}
+        log(f"[test L2 off] medquad_bench ppl={bo['ppl']:.3f} (with L2 {b['ppl']:.3f}): "
+            f"per-token NLL {imp['diff']:+.4f} 95% CI [{imp['lo']:+.4f}, "
+            f"{imp['hi']:+.4f}]; pubmedqa_held ppl={po['ppl']:.3f}")
     results["cost"] = {"params_total": count_parameters(model),
                        "params_addon": model.addon_params(),
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,

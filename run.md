@@ -159,6 +159,56 @@ in a new `--out` folder. Expect the loss to rise when
 the floor comes up — that is the experiment: can the model learn to make good
 use of L2 when it cannot ignore it? Copy both `results.json` files and logs back.
 
+## A3f. Does the model depend on L2? The L2-off test (T44)
+
+A forced gate proves L2 is *in the path*, not that the model *needs* it: L2
+could learn to pass its input through almost unchanged, or the later layers
+could learn to cancel it. The honest measure: take the trained model, switch
+every L2 site off, and score the benchmark again. The rise in per-token NLL
+(with a paired-bootstrap 95 % CI) is how much the model depends on L2.
+
+Every new run does this automatically at the end (`[test L2 off]` in the log,
+`results.json` `test.l2_off`). For runs that finished with older code — the
+v25 runs and the two A3e forced runs — add it afterwards with `--eval-only`
+(a few minutes per run; it re-scores the test set, the numbers do not change):
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+export CUDA_VISIBLE_DEVICES=3
+for r in v25_end v25_mix v26_end_forced v26_mix_forced; do
+  cp runs/$r/results.json runs/$r/results_before_l2off.json
+  python -m ekdant.train --task gen --variant sandbox --out runs/$r --eval-only --min-free-gb 30 > ${r}_l2off.log 2>&1
+done
+python -m ekdant.gen_eval compare runs/v25_baseline runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced
+```
+
+Run this only for a run that has **finished** (never while it trains). The
+compare output gets an `L2 off ppl` column and one line per L2 run:
+`L2 off -> per-token NLL +x [lo, hi]` — positive and the CI above 0 = the
+model depends on L2.
+
+## A3g. Next: L2 warm-up before joint training (T44)
+
+Why the model turns L2 down: at step 0 SmolLM2 is pretrained and L2 is
+random, so L2 can only hurt at first (the v25 gates first closed). With
+`--l2-warmup 2000`, SmolLM2 is **frozen** for the first 2,000 steps of
+PubMedQA: only L2 learns, already forced open (the floor reaches 0.5 by step
+600). L2 joins the competition already useful; then everything trains
+together as before.
+
+```bash
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 3 --ft-epochs 5 --min-free-gb 30"
+FORCE="--gate-floor 0.5 --gate-force --gate-floor-start 100 --gate-floor-steps 500 --gate-rollback"
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS $FORCE --l2-warmup 2000 --variant sandbox --config configs/v2_sandbox_final.json --out runs/v27_end_warm > v27_end_warm.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS $FORCE --l2-warmup 2000 --variant sandbox --config configs/v2_sandbox_mix.json   --out runs/v27_mix_warm > v27_mix_warm.log 2>&1 &
+python -m ekdant.gen_eval compare runs/v25_baseline runs/v26_end_forced runs/v26_mix_forced runs/v27_end_warm runs/v27_mix_warm
+```
+
+Fairness note: SmolLM2 gets 2,000 fewer updates than in the other runs
+(17,620 of 19,620 in PubMedQA), so a win here is not from extra backbone
+training. The log shows `L2 warm-up - SmolLM2 frozen` at step 0 and
+`L2 warm-up done` at step 2,000.
+
 ## A3d. More epochs: the three models again (T41) — done, results in A7e
 
 The whole model is trained, as before (no LoRA): every SmolLM2 weight and
@@ -626,7 +676,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,201) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,211) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -901,7 +951,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 201 tests
+python -m pytest            # 211 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

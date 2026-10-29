@@ -6,6 +6,7 @@
 - ~~Run v2, both arms~~ **DONE 2026-10-24:** a practical tie (benchmark ppl 3.7817 vs 3.7795, CI excludes 0 but −0.06 %; gate |g| = 0.005) — `run.md` A7a.
 - ~~Run v2.1~~ **DONE:** a tie (3.914 vs 3.913); the 2nd PubMedQA epoch hurt both arms.
 - ~~v2.2 four-run comparison~~ **DONE 2026-10-27:** L2 at the end wins (−0.0017 per token, ROUGE-L/F1 +0.006).
+- **L2-off test on the finished runs (`run.md` A3f, T44)**, then **L2 warm-up runs (A3g)**.
 - **Run `run.md` A3e (T42):** end and mix with forced L2 (gate ≥ 0.5), compared with the v25 runs.
 - **Second seed and 1 PubMedQA epoch:** v25 showed epochs 2–3 overfit PubMedQA; repeat the best arm vs baseline at 1 + 4 epochs, seed 23.
 - **Run the mix (`run.md` A3c, T40):** shared L2 at layers 10, 15, 20–30 (every 2nd) and at the end, vs `v22_baseline` / `v22_end`.
@@ -29,7 +30,7 @@
 ## High (should finish)
 
 - **L1 integration** — add `ssm_storage.py` (selective SSM, three stores) before T, the L1 → T shape assertion (T9), the O(1)-state proof (same `compressed [B, 3·d_state]` shape and flat peak memory for T = 512 / 2048 / 4096). Unlocks RQ1 and the layer-addition ladder (backbone-only → +L2 → +L1+L2). Until then the thesis states L1 as specified-not-built.
-- **CI** — `pytest -q` on every push in `09-Code/` (201 tests, CPU, ~10 s).
+- **CI** — `pytest -q` on every push in `09-Code/` (211 tests, CPU, ~10 s).
 - **Cost report** — tokens × K, FLOPs, wall-clock per arm (C8); the runner currently logs tok/s only.
 - **Rebuild `thesis.pdf`** from the updated `thesis.tex` (`pdflatex` three times); the committed PDF predates the T + L2 alignment.
 

@@ -35,7 +35,7 @@ Two public datasets, used **strictly in sequence, never jointly**. The same code
 ```
 MedMCQA train  (182,822 raw → 182,496 labelled)  ── phase 1 ──▶ train
 MedMCQA val    (4,183 → 4,170 usable)            ── never trained on ──▶ phase-1 score · checkpoint selection · retention score
-MedQA train    (10,201) ─ seed-locked permutation ─┬─ 60 % = 6,106  ── phase 2 ──▶ fine-tune
+MedQA train    (10,211) ─ seed-locked permutation ─┬─ 60 % = 6,106  ── phase 2 ──▶ fine-tune
                                                    └─ 40 % = 4,072  ── never trained on ──▶ benchmark (scored once)
 MedQA test     (1,273) ── never trained on ──▶ second untouched number
 ```
@@ -100,7 +100,7 @@ Measured with the real tokenizer on all four splits:
 
 ```bash
 cd 09-Code
-pip install -e .[dev] && pytest -q                         # 201 tests, includes the data and split tests
+pip install -e .[dev] && pytest -q                         # 211 tests, includes the data and split tests
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke
 python -m ekdant.train --variant sandbox|baseline --out runs/<variant> ...                        # real run (see run.md §3)
 ```
