@@ -116,7 +116,23 @@ These two runs **force** L2 to be used: `--gate-floor 0.5 --gate-force`.
   (without this, L2's output would be ~100× smaller than the stream at
   layer 20 and forcing would mean nothing).
 - L2's output scale is frozen, so the model cannot hide L2 by shrinking it.
-- Safety: if L2 bursts, the brake still fires and moves the ramp back 10 %.
+- **Fast, then controlled (T43):** the minimum starts rising after 100 steps
+  and reaches 0.5 in **500 steps** (4× faster than before). Every 100 steps the
+  trainer keeps a copy of the last good state in memory. **If L2 bursts, it
+  goes back to that copy** (weights and optimiser), then re-opens **half as
+  fast** and holds the minimum **0.05 lower** (never below 0.4 = 0.8 × 0.5);
+  the brake also halves L2's learning rate. Each burst slows and lowers it a
+  bit more, so the gate settles at the highest opening L2 can handle.
+
+The comparison then has **five models**, all seed 17, 3 PubMedQA + 5 MedQuAD epochs:
+
+| # | run | L2 | status |
+|---|---|---|---|
+| 1 | `v25_baseline` | none | done (A7e) |
+| 2 | `v25_end` | at the end, optional (free gate) | done (A7e) |
+| 3 | `v25_mix` | layers 10, 15, 20–30 + end, optional | done (A7e) |
+| 4 | `v26_end_forced` | at the end, **forced** (gate ≥ 0.5) | run now |
+| 5 | `v26_mix_forced` | layers 10, 15, 20–30 + end, **forced** | run now |
 
 Same flags as A3d (3 PubMedQA + 5 MedQuAD epochs, seed 17), so both runs
 compare directly with `runs/v25_baseline`, `v25_end` and `v25_mix`.
@@ -126,7 +142,7 @@ cd ~/work/Ekdant-LLM && git pull && cd 09-Code
 python -m pytest -q                          # all tests must pass
 nvidia-smi                                   # two GPUs with >= 30 GB free (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 3 --ft-epochs 5 --min-free-gb 30"
-FORCE="--gate-floor 0.5 --gate-force"
+FORCE="--gate-floor 0.5 --gate-force --gate-floor-start 100 --gate-floor-steps 500 --gate-rollback"
 CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS $FORCE --variant sandbox --config configs/v2_sandbox_final.json --out runs/v26_end_forced > v26_end_forced.log 2>&1 &
 CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS $FORCE --variant sandbox --config configs/v2_sandbox_mix.json   --out runs/v26_mix_forced > v26_mix_forced.log 2>&1 &
 
@@ -134,8 +150,12 @@ CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS $FORCE --variant sand
 python -m ekdant.gen_eval compare runs/v25_baseline runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced
 ```
 
-Time (from the v25 logs): end ~4 h, mix ~17 h. Watch `|g|=` rise to ≥ 0.50
-after ~2,200 steps and stay there, and `brake=`. Expect the loss to rise when
+Time (from the v25 logs): end ~4 h, mix ~17 h (the snapshots add well under
+1 %; they need ~2 GB of CPU RAM). Watch `|g|=` reach ≥ 0.50 after ~600 steps
+and stay there; a `rollback:` line in the log means a burst was undone (the
+log shows the new target and ramp length). If you already started the A3e
+runs without `--gate-rollback`, stop them and start again with these flags
+in a new `--out` folder. Expect the loss to rise when
 the floor comes up — that is the experiment: can the model learn to make good
 use of L2 when it cannot ignore it? Copy both `results.json` files and logs back.
 
@@ -606,7 +626,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,195) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,201) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -881,7 +901,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 195 tests
+python -m pytest            # 201 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

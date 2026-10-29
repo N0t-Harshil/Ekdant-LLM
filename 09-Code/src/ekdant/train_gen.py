@@ -15,6 +15,7 @@ identical (zero-init gate) and see identical data in identical order.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -76,7 +77,8 @@ def pick_device(gpu: str, min_free_gb: float) -> torch.device:
 RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
-            "gate_force", "warmup",
+            "gate_force", "gate_rollback", "snapshot_every", "floor_slowdown",
+            "floor_step_down", "gate_floor_min", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
 
@@ -153,12 +155,23 @@ class GateRamp:
     the floor rises smoothly (cosine) to ``target`` over ``steps`` steps,
     then holds.  Starting late gives L2 time to learn before it is forced to
     contribute; a brake event moves the ramp back by ``backoff`` x ``steps``
-    (the gate closes a little), so an unstable L2 is never pushed open."""
+    (the gate closes a little), so an unstable L2 is never pushed open.
+
+    ``rollback`` (T43): the trainer went back to an earlier snapshot - the
+    ramp returns to that position, re-opens ``slowdown`` x more slowly and
+    holds ``step_down`` lower, never below ``min_target`` (default 0.8 x
+    target)."""
 
     def __init__(self, target: float = 0.0, start: int = 200,
-                 steps: int = 2000, backoff: float = 0.1):
+                 steps: int = 2000, backoff: float = 0.1,
+                 slowdown: float = 2.0, step_down: float = 0.05,
+                 min_target: Optional[float] = None):
         self.target, self.start, self.steps = target, start, max(1, steps)
         self.backoff, self.pos = backoff, 0
+        self.slowdown, self.step_down = slowdown, step_down
+        self.min_target = 0.8 * target if min_target is None or min_target < 0 \
+            else min_target
+        self.rollbacks = 0
 
     def floor(self) -> float:
         if self.target <= 0:
@@ -172,11 +185,43 @@ class GateRamp:
         else:
             self.pos += 1
 
+    def rollback(self, pos: int) -> None:
+        self.pos = pos
+        self.steps = max(1, int(round(self.steps * self.slowdown)))
+        self.target = max(self.min_target, self.target - self.step_down)
+        self.rollbacks += 1
+
     def state_dict(self) -> Dict:
-        return {"pos": self.pos}
+        return {"pos": self.pos, "target": self.target, "steps": self.steps,
+                "rollbacks": self.rollbacks}
 
     def load_state_dict(self, d: Dict) -> None:
         self.pos = int(d["pos"])
+        self.target = float(d.get("target", self.target))
+        self.steps = int(d.get("steps", self.steps))
+        self.rollbacks = int(d.get("rollbacks", 0))
+
+
+def _cpu_copy(obj):
+    if torch.is_tensor(obj):
+        return obj.detach().to("cpu", copy=True)
+    if isinstance(obj, dict):
+        return {k: _cpu_copy(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_cpu_copy(v) for v in obj]
+    return copy.deepcopy(obj)
+
+
+def take_snapshot(model, opt, pos: int = 0) -> Dict:
+    """In-memory copy (on the CPU) of the weights, the optimiser state and
+    the ramp position - the "last good state" a rollback returns to (T43)."""
+    return {"model": _cpu_copy(model.state_dict()),
+            "opt": _cpu_copy(opt.state_dict()), "pos": pos}
+
+
+def restore_snapshot(model, opt, snap: Dict) -> None:
+    model.load_state_dict(snap["model"])
+    opt.load_state_dict(_cpu_copy(snap["opt"]))
 
 
 def save_checkpoint(state: Dict, path: str) -> None:
@@ -238,6 +283,18 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gate-force", action="store_true",
                     help="forced L2 (T42): --gate-floor becomes a hard minimum "
                          "and L2 cannot be switched off")
+    ap.add_argument("--gate-rollback", action="store_true",
+                    help="T43: on a burst go back to the last snapshot and "
+                         "re-open the floor more slowly and a little lower")
+    ap.add_argument("--snapshot-every", type=int, default=100,
+                    help="optimiser steps between in-memory snapshots")
+    ap.add_argument("--floor-slowdown", type=float, default=2.0,
+                    help="after a rollback the floor ramp takes this x longer")
+    ap.add_argument("--floor-step-down", type=float, default=0.05,
+                    help="after a rollback the floor target drops by this")
+    ap.add_argument("--gate-floor-min", type=float, default=-1.0,
+                    help="lowest floor target rollbacks may reach "
+                         "(-1 = 0.8 x --gate-floor)")
     ap.add_argument("--brake-warmup", type=int, default=20,
                     help="steps before gradient spikes are judged")
     ap.add_argument("--max-bad-steps", type=int, default=20,
@@ -389,7 +446,11 @@ def main(argv: Optional[List[str]] = None) -> None:
         brake.load_state_dict(st["brake"])
     # a checkpoint's own floor settings (--eval-only passes none of them)
     fl = {**vars(args), **st.get("run_args", {})}
-    ramp = GateRamp(fl["gate_floor"], fl["gate_floor_start"], fl["gate_floor_steps"])
+    ramp = GateRamp(fl["gate_floor"], fl["gate_floor_start"], fl["gate_floor_steps"],
+                    slowdown=fl["floor_slowdown"], step_down=fl["floor_step_down"],
+                    min_target=fl["gate_floor_min"])
+    rollback_on = args.gate_rollback and not args.eval_only
+    snap: Optional[Dict] = None
     if "gate_ramp" in st:
         ramp.load_state_dict(st["gate_ramp"])
     if model.addon is not None:
@@ -421,6 +482,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         total_opt = math.ceil(nb / args.grad_accum) * epochs
         eval_at = (phase1_eval_points(nb, args.eval_fraction, args.grad_accum)
                    if si == 0 else set())
+        if rollback_on and model.addon is not None:
+            snap = take_snapshot(model, opt, ramp.pos)   # never back into a previous stage
         log(f"\n=== stage {stage} n={len(ds)} | {nb} batches x {epochs} epochs, "
             f"{total_opt} opt steps ===")
         for epoch in range(st_epoch, epochs):
@@ -467,10 +530,23 @@ def main(argv: Optional[List[str]] = None) -> None:
                         f = lr_at(opt_step, total_opt, 1.0, args.warmup)
                         burst = (model.addon is not None
                                  and brake.update(gn_addon, l2_rms))
-                        if model.addon is not None:
+                        rolled = burst and snap is not None
+                        if rolled:
+                            # T43: back to the last good state; re-open
+                            # slower and a little less far; this step's
+                            # update is dropped
+                            restore_snapshot(model, opt, snap)
+                            ramp.rollback(snap["pos"])
+                            model.addon.set_gate_floor(ramp.floor())
+                            log(f"[{stage}] rollback: L2 burst at step {opt_step + 1} "
+                                f"(gnorm {gn_addon:.3g}, l2 {l2_rms}) - back to the "
+                                f"snapshot, floor target {ramp.target:.3g} over "
+                                f"{ramp.steps} steps, L2 LR factor {brake.factor:.3g} "
+                                f"({ramp.rollbacks} rollbacks)")
+                        elif model.addon is not None:
                             ramp.step(burst)
                             model.addon.set_gate_floor(ramp.floor())
-                        if burst:
+                        if burst and not rolled:
                             # burst: close the gates a little; L2 LRs cut
                             with torch.no_grad():
                                 for gt in model.addon.gates():
@@ -486,7 +562,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                             mult = (brake.factor * (boost if kind == "gate" else 1.0)
                                     if kind in ("addon", "gate") else 1.0)
                             grp["lr"] = grp["base_lr"] * f * mult
-                        opt.step()
+                        if not rolled:
+                            opt.step()
+                            if (snap is not None
+                                    and (opt_step + 1) % args.snapshot_every == 0):
+                                snap = take_snapshot(model, opt, ramp.pos)
                         bad_streak = 0
                     opt.zero_grad(set_to_none=True)
                     group_bad = False
@@ -571,6 +651,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,
                        "skipped_steps": skipped_steps,
                        "brake_events": brake.events,
+                       "rollbacks": ramp.rollbacks,
                        "peak_mem_gb": torch.cuda.max_memory_allocated(device) / 1e9
                        if device.type == "cuda" else 0.0}
     log(f"[test medquad_bench] ppl={b['ppl']:.3f} rouge_l={b['rouge_l']:.4f} "
