@@ -233,7 +233,7 @@ class GatedAddOn(nn.Module):
 
     def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final",
                  sandbox: Optional[Sandbox] = None, gate_cap: float = 0.0,
-                 checkpoint: bool = False):
+                 checkpoint: bool = False, force: bool = False):
         super().__init__()
         if mode not in ("final", "mid"):
             raise ValueError(f"mode must be final|mid, got {mode!r}")
@@ -243,6 +243,10 @@ class GatedAddOn(nn.Module):
         # beyond the cap however hard training pushes (T37).
         self.gate_cap = gate_cap
         self.checkpoint = checkpoint
+        # Forced L2 (T42): the floor becomes a hard minimum, L2's output
+        # scale is frozen (it cannot be shrunk to zero behind the gate) and
+        # a mid site's output is sized to the residual stream.
+        self.force = force
         # Scheduled minimum opening (T39), set by the trainer each step:
         # g = floor + (1 - floor) * capped_gate, so floor 0 = the plain gate.
         self.gate_floor = 0.0
@@ -250,6 +254,8 @@ class GatedAddOn(nn.Module):
         # ``sandbox`` given = one L2 shared by several sites (v2.2, spec §14)
         self.sandbox = sandbox if sandbox is not None else Sandbox(dim, **sandbox_kwargs)
         self.out_norm = RMSNorm(dim)
+        if force:
+            self.out_norm.weight.requires_grad_(False)
         if mode == "mid":
             self.in_norm = RMSNorm(dim)
 
@@ -270,7 +276,11 @@ class GatedAddOn(nn.Module):
         aux["consensus_rms"] = masked_mean_bt(
             out.consensus.detach().float().pow(2).mean(-1), mask).sqrt()
         if self.mode == "mid":
-            return h + g * self.out_norm(out.consensus), aux
+            add = self.out_norm(out.consensus)
+            if self.force:
+                # sized to the stream: g = 0.5 adds half the stream's rms
+                add = add * h.float().pow(2).mean(-1, keepdim=True).sqrt().detach().type_as(h)
+            return h + g * add, aux
         return h + g * (self.out_norm(out.consensus) - h), aux
 
     def effective_gate(self) -> torch.Tensor:
@@ -278,6 +288,10 @@ class GatedAddOn(nn.Module):
              if self.gate_cap > 0 else self.gate)
         if self.gate_floor > 0:
             g = self.gate_floor + (1.0 - self.gate_floor) * g
+            if self.force:
+                # hard minimum; straight-through, so the raw gate keeps its
+                # gradient and the gate can still open further
+                g = g + (g.clamp(min=self.gate_floor) - g).detach()
         return g
 
     def set_gate_floor(self, floor: float) -> None:
@@ -304,18 +318,19 @@ class MultiAddOn(nn.Module):
 
     def __init__(self, dim: int, sandbox_kwargs: Dict, n_sites: int,
                  shared: bool = True, gate_cap: float = 0.0,
-                 final: bool = False, checkpoint: bool = False):
+                 final: bool = False, checkpoint: bool = False,
+                 force: bool = False):
         super().__init__()
         one = Sandbox(dim, **sandbox_kwargs) if shared else None
         self.sites = nn.ModuleList(
             [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one,
-                        gate_cap=gate_cap, checkpoint=checkpoint)
+                        gate_cap=gate_cap, checkpoint=checkpoint, force=force)
              for _ in range(n_sites)])
         # ``final`` (the "mix", T40): the same L2 once more after the final
         # norm, i.e. the inner sites plus the end placement
         self.final_site = (GatedAddOn(dim, sandbox_kwargs, mode="final",
                                       sandbox=one, gate_cap=gate_cap,
-                                      checkpoint=checkpoint)
+                                      checkpoint=checkpoint, force=force)
                            if final else None)
 
     def _all(self) -> list:
@@ -374,6 +389,9 @@ class V2Config:
     # Soft cap on the effective gate, cap * tanh(gate / cap) (T37);
     # 0 = uncapped (v2.0-v2.2 runs).
     gate_cap: float = 0.0
+    # Forced L2 (T42): set by --gate-force together with --gate-floor; the
+    # floor is then a hard minimum and L2 cannot be switched off.
+    gate_force: bool = False
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
@@ -435,12 +453,14 @@ class EkdantLM(nn.Module):
                                         shared=cfg.addon_shared,
                                         gate_cap=cfg.gate_cap,
                                         final=cfg.addon_final,
-                                        checkpoint=cfg.sandbox_checkpoint)
+                                        checkpoint=cfg.sandbox_checkpoint,
+                                        force=cfg.gate_force)
                 self._sites = list(self.addon.sites)
             else:
                 self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
                                         mode="mid" if sites else "final",
-                                        gate_cap=cfg.gate_cap)
+                                        gate_cap=cfg.gate_cap,
+                                        force=cfg.gate_force)
                 self._sites = [self.addon] if sites else []
             for i, k in enumerate(sites):
                 lm.model.layers[k - 1].register_forward_hook(

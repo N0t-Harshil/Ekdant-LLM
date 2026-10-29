@@ -17,7 +17,7 @@ Runnable code lives at `09-Code/src/ekdant/` — a 7-module, pure-PyTorch packag
 | `__init__.py` | Re-exports |
 
 Plus:
-- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (186 tests, CPU)
+- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (195 tests, CPU)
 - `configs/` — `sandbox_50m.json`, `baseline_50m.json` (identical architecture, only `use_sandbox` differs)
 - `pyproject.toml`, `pytest.ini`, `README.md`
 

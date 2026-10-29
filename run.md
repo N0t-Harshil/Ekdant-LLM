@@ -100,7 +100,46 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3d. More epochs: the three models again (T41) — **run this next**
+## A3e. Forced L2: L2 must be used (T42) — **run this next**
+
+In every run so far L2 was **optional**: each gate starts at 0 and the model
+opened it only as far as it found L2 useful (v25: end gate 0.076, mix 0.120).
+These two runs **force** L2 to be used: `--gate-floor 0.5 --gate-force`.
+
+- After 200 steps (L2 learns first) a minimum gate rises smoothly from 0 to
+  **0.5** over 2,000 steps and is then held. The model can open the gate
+  further (up to 1.0) but **never below 0.5** — L2 is always at least as
+  important as the stream it joins.
+- At the end: the final state is at least half L2's output.
+- Inside the network (mix): L2's output is scaled to the size of the
+  residual stream, so 0.5 means L2 adds half as much as the stream holds
+  (without this, L2's output would be ~100× smaller than the stream at
+  layer 20 and forcing would mean nothing).
+- L2's output scale is frozen, so the model cannot hide L2 by shrinking it.
+- Safety: if L2 bursts, the brake still fires and moves the ramp back 10 %.
+
+Same flags as A3d (3 PubMedQA + 5 MedQuAD epochs, seed 17), so both runs
+compare directly with `runs/v25_baseline`, `v25_end` and `v25_mix`.
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # two GPUs with >= 30 GB free (not GPU 0)
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 3 --ft-epochs 5 --min-free-gb 30"
+FORCE="--gate-floor 0.5 --gate-force"
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS $FORCE --variant sandbox --config configs/v2_sandbox_final.json --out runs/v26_end_forced > v26_end_forced.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS $FORCE --variant sandbox --config configs/v2_sandbox_mix.json   --out runs/v26_mix_forced > v26_mix_forced.log 2>&1 &
+
+# afterwards:
+python -m ekdant.gen_eval compare runs/v25_baseline runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced
+```
+
+Time (from the v25 logs): end ~4 h, mix ~17 h. Watch `|g|=` rise to ≥ 0.50
+after ~2,200 steps and stay there, and `brake=`. Expect the loss to rise when
+the floor comes up — that is the experiment: can the model learn to make good
+use of L2 when it cannot ignore it? Copy both `results.json` files and logs back.
+
+## A3d. More epochs: the three models again (T41) — done, results in A7e
 
 The whole model is trained, as before (no LoRA): every SmolLM2 weight and
 all of L2. The only change, applied **identically to all three models**, is
@@ -431,6 +470,25 @@ perplexity. Three same-seed baseline runs gave benchmark ppl 3.782 each and
 ROUGE-L 0.3127–0.3155 / F1 0.3770–0.3797, so the generation scores tie.
 **Verdict: a practical tie;** the network kept L2's gate almost closed.
 
+## A7e. v25 results: 3 PubMedQA + 5 MedQuAD epochs (2026-10-29)
+
+Seed 17, L2 optional (gates free). MedQuAD benchmark: 8,258 questions, 1,000
+generated answers. NLL difference vs baseline, paired bootstrap 95 % CI.
+
+| run | bench ppl | ROUGE-L | F1 | PubMedQA held ppl | final `|g|` | Δ NLL vs baseline [95 % CI] | time |
+|---|---|---|---|---|---|---|---|
+| `v25_baseline` | 3.925 | 0.3087 | 0.3762 | 8.916 | — | — | ~2 h 45 min |
+| `v25_end` | 3.921 | **0.3137** | **0.3810** | 8.913 | 0.0746 | −0.0011 [−0.0015, −0.0008] | ~3 h 50 min |
+| `v25_mix` | **3.918** | 0.3092 | 0.3762 | **8.887** | 0.1192 | **−0.0019 [−0.0022, −0.0015]** | ~16 h 40 min |
+
+- Both L2 placements beat the baseline (CIs exclude 0); the mix gains most in
+  perplexity. ROUGE-L/F1 differences are within same-seed noise (~0.003).
+- More epochs hurt every arm: PubMedQA val ppl is best after epoch 1 (7.68)
+  and rises in epochs 2–3 (7.78); benchmark ppl 3.93 vs 3.78 at 1 + 3 epochs.
+- The gates were free: both first closed (end 0.023 → 0.015, mix 0.062 →
+  0.052 by step 6,500), then opened as L2 became useful, fastest in MedQuAD.
+- Stable: no skipped steps; 2 brake events in the mix (steps 6,040/6,043, l2 3.1).
+
 ## A7d. v2.2 four-run results (2026-10-27, the current thesis numbers)
 
 `v22_*.log`; identical flags; no skipped steps, **no brake events**.
@@ -548,7 +606,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,186) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,195) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -823,7 +881,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 186 tests
+python -m pytest            # 195 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

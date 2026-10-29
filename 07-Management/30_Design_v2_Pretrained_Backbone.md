@@ -189,4 +189,8 @@ One shared L2 at 9 sites: after layers 10, 15, 20, 22, 24, 26, 28, 30 (pre-norm 
 
 The next comparison (`run.md` A3d) reruns baseline, end and mix with 3 PubMedQA epochs and 5 MedQuAD epochs (was 1 and 3), identical for all arms. The whole model is trained, as before. LoRA on the backbone was briefly added and removed again at the author's request: the thesis trains all of SmolLM2 together with L2. The earlier 1 + 3-epoch runs are not comparable with these.
 
+## 19. Forced L2 (2026-10-29, T42)
+
+The thesis claim is that L2 should carry real weight in the model, not be an optional extra the network may ignore. Until now every gate started at 0 and was free; the model opened L2 to 0.076 (end) and 0.120 (mix, mean of 9) in the v25 runs. `--gate-force` with `--gate-floor 0.5` makes L2 mandatory: (1) the effective gate is `max(f, f + (1 − f)·tanh θ)` per channel, with a straight-through gradient so θ keeps learning and the gate can open towards 1; (2) the output norm's scale is frozen, so L2's contribution cannot be shrunk to zero behind the gate; (3) a mid site adds `g · rms(h) · RMSNorm(c)`, sized per token to the stream, so g = 0.5 adds half the stream's magnitude; at the end `h + g·(RMSNorm(c) − h)` already means at least half the final state is L2's. The floor ramps in after 200 steps over 2,000 steps; the brake still moves the ramp back on a burst. `gate_force` is stored in the config, so `--eval-only` rebuilds the forced model, and the ramp's settings are read from the checkpoint. Compared against the v25 runs with identical flags (`run.md` A3e).
+
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

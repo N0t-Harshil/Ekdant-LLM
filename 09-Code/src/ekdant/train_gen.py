@@ -76,7 +76,7 @@ def pick_device(gpu: str, min_free_gb: float) -> torch.device:
 RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
-            "warmup",
+            "gate_force", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
 
@@ -235,6 +235,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="healthy steps before the ramp starts (L2 learns first)")
     ap.add_argument("--gate-floor-steps", type=int, default=2000,
                     help="steps over which the floor ramps up")
+    ap.add_argument("--gate-force", action="store_true",
+                    help="forced L2 (T42): --gate-floor becomes a hard minimum "
+                         "and L2 cannot be switched off")
     ap.add_argument("--brake-warmup", type=int, default=20,
                     help="steps before gradient spikes are judged")
     ap.add_argument("--max-bad-steps", type=int, default=20,
@@ -294,6 +297,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1)
         cfg = V2Config.from_dict({**V2Config().to_dict(), **raw})
         cfg.addon = ADDON[args.variant]
+        if args.gate_force and args.gate_floor <= 0:
+            log("error: --gate-force needs --gate-floor > 0 (the minimum gate)")
+            raise SystemExit(1)
+        cfg.gate_force = args.gate_force
 
     log(f"hugging face token: {apply_hf_token(cfg.hf_token_file)}")
     torch.manual_seed(args.seed)
@@ -380,7 +387,9 @@ def main(argv: Optional[List[str]] = None) -> None:
                       warmup=args.brake_warmup)
     if "brake" in st:
         brake.load_state_dict(st["brake"])
-    ramp = GateRamp(args.gate_floor, args.gate_floor_start, args.gate_floor_steps)
+    # a checkpoint's own floor settings (--eval-only passes none of them)
+    fl = {**vars(args), **st.get("run_args", {})}
+    ramp = GateRamp(fl["gate_floor"], fl["gate_floor_start"], fl["gate_floor_steps"])
     if "gate_ramp" in st:
         ramp.load_state_dict(st["gate_ramp"])
     if model.addon is not None:
