@@ -159,6 +159,24 @@ in a new `--out` folder. Expect the loss to rise when
 the floor comes up — that is the experiment: can the model learn to make good
 use of L2 when it cannot ignore it? Copy both `results.json` files and logs back.
 
+**Fix T45 (2026-11-01) — the first `v26_mix_forced` broke.** At step 2,610 it
+hit bursts on step after step, and each rollback (code `e22563c`) doubled the
+ramp length *measured from the start*, so the floor at the snapshot fell
+towards 0, the forced gates were released, and the model broke (loss 34,
+hundreds of `rollback:` lines). Fixed: a rollback now lowers the floor by at
+most 0.05 (never below 0.4), at most `--max-rollbacks 3` rollbacks go to the
+same snapshot (then the brake takes over until the next healthy snapshot), and
+the brake's running average follows a lasting rise in L2's gradient. If a log
+shows a run of `rollback:` lines, stop that run and start it again:
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+grep -c "rollback:" v26_end_forced.log      # 0 or 1: keep it running (same numbers as the fixed code)
+pkill -f "runs/v26_mix_forced"              # stop the broken mix run
+mv runs/v26_mix_forced runs/v26_mix_forced_broken_T45 && mv v26_mix_forced.log v26_mix_forced_broken_T45.log
+CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS $FORCE --variant sandbox --config configs/v2_sandbox_mix.json   --out runs/v26_mix_forced > v26_mix_forced.log 2>&1 &
+```
+
 ## A3f. Does the model depend on L2? The L2-off test (T44)
 
 A forced gate proves L2 is *in the path*, not that the model *needs* it: L2
@@ -676,7 +694,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,211) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,215) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -951,7 +969,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 211 tests
+python -m pytest            # 215 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

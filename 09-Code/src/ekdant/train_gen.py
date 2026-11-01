@@ -78,7 +78,7 @@ def pick_device(gpu: str, min_free_gb: float) -> torch.device:
 RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
-            "gate_force", "gate_rollback", "snapshot_every", "floor_slowdown",
+            "gate_force", "gate_rollback", "max_rollbacks", "snapshot_every", "floor_slowdown",
             "floor_step_down", "gate_floor_min", "l2_warmup", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
@@ -137,6 +137,11 @@ class GateBrake:
         if big_l2 or spiked:
             self.factor = max(self.min_factor, self.factor * self.cut)
             self.events += 1
+            if self.ema is not None:
+                # T45: the average still follows (capped at the spike level),
+                # so a lasting rise in L2's gradient becomes the new normal
+                # instead of a burst on every step forever
+                self.ema = 0.95 * self.ema + 0.05 * min(gn_addon, self.spike * self.ema)
             return True
         self.ema = gn_addon if self.ema is None else 0.95 * self.ema + 0.05 * gn_addon
         self.factor = min(1.0, self.factor * self.recover)
@@ -161,7 +166,9 @@ class GateRamp:
     ``rollback`` (T43): the trainer went back to an earlier snapshot - the
     ramp returns to that position, re-opens ``slowdown`` x more slowly and
     holds ``step_down`` lower, never below ``min_target`` (default 0.8 x
-    target)."""
+    target).  T45: the rise restarts from the floor the snapshot had (capped
+    at the new target), so a rollback lowers the floor by at most
+    ``step_down`` - never towards 0 - and the ramp length is capped."""
 
     def __init__(self, target: float = 0.0, start: int = 200,
                  steps: int = 2000, backoff: float = 0.1,
@@ -173,12 +180,18 @@ class GateRamp:
         self.min_target = 0.8 * target if min_target is None or min_target < 0 \
             else min_target
         self.rollbacks = 0
+        # the current rise: from ``base`` at position ``seg`` to ``target``
+        self.base, self.seg = 0.0, start
+        self.max_steps = 16 * self.steps
 
-    def floor(self) -> float:
+    def floor_at(self, pos: int) -> float:
         if self.target <= 0:
             return 0.0
-        p = min(1.0, max(0.0, (self.pos - self.start) / self.steps))
-        return self.target * 0.5 * (1.0 - math.cos(math.pi * p))
+        p = min(1.0, max(0.0, (pos - self.seg) / self.steps))
+        return self.base + (self.target - self.base) * 0.5 * (1.0 - math.cos(math.pi * p))
+
+    def floor(self) -> float:
+        return self.floor_at(self.pos)
 
     def step(self, burst: bool) -> None:
         if burst:
@@ -187,20 +200,24 @@ class GateRamp:
             self.pos += 1
 
     def rollback(self, pos: int) -> None:
+        was = self.floor_at(pos)
         self.pos = pos
-        self.steps = max(1, int(round(self.steps * self.slowdown)))
+        self.steps = min(self.max_steps, max(1, int(round(self.steps * self.slowdown))))
         self.target = max(self.min_target, self.target - self.step_down)
+        self.base, self.seg = min(was, self.target), pos
         self.rollbacks += 1
 
     def state_dict(self) -> Dict:
         return {"pos": self.pos, "target": self.target, "steps": self.steps,
-                "rollbacks": self.rollbacks}
+                "rollbacks": self.rollbacks, "base": self.base, "seg": self.seg}
 
     def load_state_dict(self, d: Dict) -> None:
         self.pos = int(d["pos"])
         self.target = float(d.get("target", self.target))
         self.steps = int(d.get("steps", self.steps))
         self.rollbacks = int(d.get("rollbacks", 0))
+        self.base = float(d.get("base", 0.0))
+        self.seg = int(d.get("seg", self.start))
 
 
 def _cpu_copy(obj):
@@ -290,6 +307,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gate-rollback", action="store_true",
                     help="T43: on a burst go back to the last snapshot and "
                          "re-open the floor more slowly and a little lower")
+    ap.add_argument("--max-rollbacks", type=int, default=3,
+                    help="T45: rollbacks to the same snapshot before the "
+                         "trainer falls back to the brake")
     ap.add_argument("--snapshot-every", type=int, default=100,
                     help="optimiser steps between in-memory snapshots")
     ap.add_argument("--floor-slowdown", type=float, default=2.0,
@@ -466,6 +486,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 p.requires_grad_(not on)
             frozen = on
     snap: Optional[Dict] = None
+    snap_rollbacks = 0      # rollbacks to the current snapshot (T45)
     if "gate_ramp" in st:
         ramp.load_state_dict(st["gate_ramp"])
     if model.addon is not None:
@@ -499,6 +520,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                    if si == 0 else set())
         if rollback_on and model.addon is not None:
             snap = take_snapshot(model, opt, ramp.pos)   # never back into a previous stage
+            snap_rollbacks = 0
         log(f"\n=== stage {stage} n={len(ds)} | {nb} batches x {epochs} epochs, "
             f"{total_opt} opt steps ===")
         for epoch in range(st_epoch, epochs):
@@ -552,12 +574,18 @@ def main(argv: Optional[List[str]] = None) -> None:
                         f = lr_at(opt_step, total_opt, 1.0, args.warmup)
                         burst = (model.addon is not None
                                  and brake.update(gn_addon, l2_rms))
-                        rolled = burst and snap is not None
+                        rolled = (burst and snap is not None
+                                  and snap_rollbacks < args.max_rollbacks)
+                        if burst and snap is not None and not rolled:
+                            log(f"[{stage}] rollback limit: {snap_rollbacks} rollbacks "
+                                f"to the same snapshot did not help - using the "
+                                f"brake instead until the next healthy snapshot")
                         if rolled:
                             # T43: back to the last good state; re-open
                             # slower and a little less far; this step's
                             # update is dropped
                             restore_snapshot(model, opt, snap)
+                            snap_rollbacks += 1
                             ramp.rollback(snap["pos"])
                             model.addon.set_gate_floor(ramp.floor())
                             log(f"[{stage}] rollback: L2 burst at step {opt_step + 1} "
@@ -586,9 +614,10 @@ def main(argv: Optional[List[str]] = None) -> None:
                             grp["lr"] = grp["base_lr"] * f * mult
                         if not rolled:
                             opt.step()
-                            if (snap is not None
+                            if (snap is not None and not burst
                                     and (opt_step + 1) % args.snapshot_every == 0):
                                 snap = take_snapshot(model, opt, ramp.pos)
+                                snap_rollbacks = 0
                         bad_streak = 0
                     opt.zero_grad(set_to_none=True)
                     group_bad = False
