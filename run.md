@@ -153,6 +153,13 @@ tail -f mcq_all.log                            # "=== ALL DONE" at the end, then
   (before the perplexity / thinking numbers), with an unreadable `mcq.json`
   or with a test missing is scored again automatically (`--rescore` redoes
   every model). The log says which, per model.
+- **Forced runs (T49):** the forced gate floor is set by the trainer and is
+  not stored in the weights; the benchmark now rebuilds it from `last.pt`
+  exactly as training's final test did (the log prints `gate floor 0.500
+  (as in training)`). The first full pod run (2026-11-02) scored
+  `v26_end_forced` and `v26_mix_forced` without it — their numbers in that
+  `leaderboard.md` are invalid. A restart re-scores only those two (free runs
+  have floor 0 and are kept).
 - At the end it prints and saves **`leaderboard.md`** with five tables:
   1. **Leaderboard** — rank, L2 placement, % right per test, average,
      points vs the baseline, MedQuAD perplexity (% change), ROUGE-L, F1;
@@ -768,7 +775,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,231) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,232) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1043,7 +1050,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 231 tests
+python -m pytest            # 232 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

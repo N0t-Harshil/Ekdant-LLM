@@ -291,4 +291,31 @@ def test_restart_rescores_files_from_an_older_version(two_runs, tmp_path, capsys
     assert "some tests missing" in capsys.readouterr().out
 
 
+def test_forced_run_is_scored_with_its_trained_gate_floor(two_runs, tiny, tmp_path, capsys):
+    # T49: the forced floor is not in the weights; scored without it, v26
+    # gave perplexity 33.6 instead of the 4.026 training saved
+    forced = tmp_path / "forced"
+    G.main(_args(tiny, forced, extra=["--gate-floor", "0.5", "--gate-force",
+                                      "--gate-floor-start", "0", "--gate-floor-steps", "2"]))
+    M.mcq_main([str(forced), "--datasets", "pubmedqa", "--gpu", "cpu",
+                "--min-free-gb", "0", "--markdown", str(tmp_path / "f.md")])
+    m = json.loads((forced / "mcq.json").read_text())
+    res = json.loads((forced / "results.json").read_text())
+    assert m["gate_floor"] == pytest.approx(0.5)
+    assert m["medquad_ppl"]["on"]["ppl"] == pytest.approx(
+        res["test"]["medquad_bench"]["ppl"], rel=1e-4)
+    assert m["medquad_ppl"]["off"]["ppl"] == pytest.approx(
+        res["test"]["l2_off"]["medquad_bench"]["ppl"], rel=1e-4)
+    # a free run keeps floor 0; a forced file from version 3 is scored again,
+    # a free one is kept
+    base, l2 = two_runs
+    assert M.load_run(str(l2), with_args=True)[3]["trained_gate_floor"] == 0.0
+    for d in (forced, l2):
+        f = json.loads((d / "mcq.json").read_text()) if (d / "mcq.json").exists() else {}
+        f.update({"version": 3, "pubmedqa": {}, "l2": "end, forced" if d == forced else "end, free"})
+        (d / "mcq.json").write_text(json.dumps(f))
+    assert "forced gate floor" in M._score_state(str(forced), ["pubmedqa"])
+    assert M._score_state(str(l2), ["pubmedqa"]) == "complete"
+
+
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)

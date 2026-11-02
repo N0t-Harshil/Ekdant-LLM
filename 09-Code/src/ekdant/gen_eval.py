@@ -284,8 +284,10 @@ CLI:
 
 MCQ_DATASETS = ("medmcqa", "medqa", "pubmedqa")
 # mcq.json format: 1 = % right (T46), 2 = + thinking time (T47), 3 = + MedQuAD
-# perplexity on / off / thinking, facts (T48).  An older file is scored again.
-MCQ_VERSION = 3
+# perplexity on / off / thinking, facts (T48), 4 = forced runs scored with
+# their trained gate floor (T49).  An older file is scored again (a version-3
+# file only for a forced run).
+MCQ_VERSION = 4
 MCQ_CHANCE = {"medmcqa": 0.25, "medqa": 0.25, "pubmedqa": 1 / 3}
 PUBMED_OPTIONS = ["yes", "no", "maybe"]
 
@@ -438,8 +440,29 @@ def load_run(run_dir: str, with_args: bool = False):
                       weights_only=False)
     cfg = V2Config.from_dict(last["cfg"])
     if with_args:
-        return (*load_run_weights(run_dir, last, cfg), last.get("run_args", {}))
+        run_args = dict(last.get("run_args", {}))
+        run_args["trained_gate_floor"] = trained_gate_floor(last)
+        return (*load_run_weights(run_dir, last, cfg), run_args)
     return load_run_weights(run_dir, last, cfg)
+
+
+def trained_gate_floor(last: Dict) -> float:
+    """The gate floor the run's final benchmark used (T49).  The forced floor
+    (T42) is set by the trainer's ramp and is not part of the weights, so it
+    is rebuilt from last.pt exactly as ``--eval-only`` does; 0 for free runs."""
+    from ekdant.train_gen import GateRamp
+
+    fl = last.get("run_args", {})
+    if not fl.get("gate_floor"):
+        return 0.0
+    ramp = GateRamp(fl["gate_floor"], fl.get("gate_floor_start", 200),
+                    fl.get("gate_floor_steps", 2000),
+                    slowdown=fl.get("floor_slowdown", 2.0),
+                    step_down=fl.get("floor_step_down", 0.05),
+                    min_target=fl.get("gate_floor_min", -1.0))
+    if "gate_ramp" in last:
+        ramp.load_state_dict(last["gate_ramp"])
+    return ramp.floor()
 
 
 def load_run_weights(run_dir: str, last: Dict, cfg: V2Config):
@@ -570,8 +593,13 @@ def _score_state(run_dir: str, names: Sequence[str]) -> str:
             m = json.load(f)
     except (OSError, ValueError):
         return "unreadable mcq.json"
-    if m.get("version", 1) < MCQ_VERSION:
+    v = m.get("version", 1)
+    if v < 3:
         return "scored with an older version (no perplexity / thinking numbers)"
+    if v < MCQ_VERSION and "forced" in str(m.get("l2", "")):
+        # version 3 scored forced runs without their forced gate floor (T49);
+        # free runs have floor 0, so their numbers stay valid
+        return "scored without its forced gate floor (T49)"
     if any(n not in m for n in names):
         return "some tests missing"
     return "complete"
@@ -655,12 +683,17 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                 model = EkdantLM(cfg, load_backbone(cfg.backbone))
                 if state is not None:
                     model.load_state_dict(state)
+                floor = float(run_args.get("trained_gate_floor", 0.0))
+                if model.addon is not None and floor > 0:
+                    model.addon.set_gate_floor(floor)    # forced runs (T49)
+                    _log(f"  gate floor {floor:.3f} (as in training)")
                 model.to(device)
                 res = mcq_evaluate(model, tok, qs, device, cfg.max_seq_len,
                                    args.batch_size, not args.no_l2_off, think, _log)
                 res["checkpoint"] = chosen
                 res["l2"] = describe_l2(cfg)
                 res["version"] = MCQ_VERSION
+                res["gate_floor"] = floor
                 res["seed"] = int(run_args.get("seed", 17))
                 res["params_total"] = sum(p.numel() for p in model.parameters())
                 res["params_l2"] = model.addon_params()
