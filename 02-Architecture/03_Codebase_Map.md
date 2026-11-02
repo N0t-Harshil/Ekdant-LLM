@@ -10,14 +10,14 @@ Runnable code lives at `09-Code/src/ekdant/` — a 7-module, pure-PyTorch packag
 |--------|----------------|
 | `model.py` | `EkdantConfig` (dataclass), `EkdantModel` (plain `nn.Module`), `ModelOutput`, `baseline_config`, `estimate_model_size` — embed → T → L2 → head; LM loss + optional answer-letter loss + spread floor |
 | `transformer_stack.py` | T: N dense blocks — windowed GQA + SwiGLU + RoPE + RMSNorm (A/B: N_T=12) |
-| `sandbox.py` | L2: K trajectories, cross-read debate, anchored descent, consensus + aux (`anchor_energy`, `trajectory_variance`, `spread_ratio`) |
+| `sandbox.py` | L2: K trajectories, cross-read debate, anchored descent, consensus + aux (`anchor_energy`, `trajectory_variance`, `spread_ratio`, `confidence`); v3 (T50, opt-in): `ContextRead` (trajectories read earlier tokens), verifier-weighted consensus, per-token confidence |
 | `output_head.py` | Head: single tied `hidden → vocab` projection |
 | `train.py` | Entry point: `python -m ekdant.train --variant sandbox|baseline` (sequential: MedMCQA → validation score → MedQA 60 % fine-tune → untouched 40 % benchmark) |
 | `data.py` | MedMCQA/MedQA MCQ pipeline (prompt template, tokenizer, letter-token eval) |
 | `__init__.py` | Re-exports |
 
 Plus:
-- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (232 tests, CPU)
+- `tests/` — `test_model.py`, `test_sandbox.py`, `test_transformer.py`, `test_data.py`, `test_schedule.py`, `test_eval_split.py` (244 tests, CPU)
 - `configs/` — `sandbox_50m.json`, `baseline_50m.json` (identical architecture, only `use_sandbox` differs)
 - `pyproject.toml`, `pytest.ini`, `README.md`
 

@@ -129,7 +129,7 @@ def test_addon_mask_matches_loss_positions():
     m = _arms()["sandbox"]
     seen = {}
     real = m.addon.forward
-    m.addon.forward = lambda h, mask: (seen.setdefault("mask", mask), real(h, mask))[1]
+    m.addon.forward = lambda h, mask, attn_mask=None: (seen.setdefault("mask", mask), real(h, mask, attn_mask))[1]
     ids, _ = _batch()
     labels = torch.full_like(ids, -100)
     labels[:, 4:6] = ids[:, 4:6]

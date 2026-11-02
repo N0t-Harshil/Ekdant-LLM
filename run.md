@@ -100,6 +100,63 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3j. L2 v3: L2 reads the text and knows how sure it is (T50) — new
+
+**What was missing in L2 (found 2026-11-02, T50).** Three gaps between
+the design idea ("a sandbox inside the LLM that reasons and is confident
+like a human") and the v2 code:
+
+1. **L2 saw one token at a time.** The debate (`CrossRead`) mixes the K
+   trajectories *at the same position only*; nothing in L2 looked at the
+   other tokens. So L2 could not read the question or the abstract — every
+   bit of reading was done by SmolLM2, and L2 was a per-token refinement
+   (a fancy MLP), not a place where hypotheses are tested against the text.
+2. **No confidence.** The K trajectories were averaged; how much they
+   agreed was thrown away, so the model never knew whether its "thoughts"
+   agreed.
+3. **One gate for every token.** The gate is one number per channel, the
+   same for easy and hard tokens: L2 could not count more where it helps.
+
+(The anchored descent stays as it was: it pulls the trajectories towards a
+learned anchor of the token's state; with very many steps they collapse onto
+it, which is what the thinking-time test shows at 32 steps.)
+
+**The v3 L2** (`configs/v3_sandbox_end.json` = `v2_sandbox_final.json` plus
+three switches; all off = the old L2, so every old run loads unchanged):
+
+| switch | what it adds |
+|---|---|
+| `sandbox_context` | in each of the 4 debate rounds every trajectory first **reads the earlier tokens** (causal attention, 9 heads), then debates with the others: 4 hypotheses, each re-reading the question and context its own way |
+| `sandbox_confidence` | a **verifier** scores each trajectory per token and the consensus trusts the better ones; the trajectories' **agreement** becomes a per-token **confidence** (1 = all agree); a **per-token gate** uses L2's output and that confidence, so L2 counts more where it helps and where it is sure |
+
+Every new part starts at zero: at step 0 the v3 model gives exactly the
+backbone's output (checked on the real SmolLM2), like v2. Size: L2 24.9M
+parameters (v2: 19.6M; model 159.4M). Generation re-runs the whole sequence
+each new token (L2 has no KV cache of its own): ROUGE/F1 take longer. Train
+time on the A100 not measured yet.
+
+Same v22 recipe, seed 17, so it compares directly with the existing
+`v22_baseline` and `v22_end`:
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # one GPU with >= 30 GB free (not GPU 0, not the seed-23 GPU)
+export CUDA_VISIBLE_DEVICES=2                # <- the GPU you picked
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
+
+nohup bash -c "
+python -m ekdant.train $FLAGS --variant sandbox --config configs/v3_sandbox_end.json --out runs/v3_end > v3_end.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v3_end > mcq_v3.log 2>&1;
+python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v3.md runs/zero_shot_smollm2 runs/v22_baseline runs/v22_end runs/v3_end > /dev/null 2>&1
+" > v3_all.log 2>&1 &
+
+tail -f v3_end.log
+```
+
+The log shows `confidence` and `token_gate` with the other L2 numbers. Bring
+back `leaderboard_v3.md`, `mcq_v3.log` and `v3_end.log`.
+
 ## A3i. Second seed of the best model: v22 recipe, seed 23 — **run this next**
 
 The first full benchmark (2026-11-02, A3h) made `v22_end` the best model:
@@ -809,7 +866,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,232) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,244) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1084,7 +1141,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 232 tests
+python -m pytest            # 244 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

@@ -153,13 +153,34 @@ def generate_greedy(model, prompts: List[List[int]], max_new: int, device,
             mask[r, L - len(p):] = 1
         ids, mask = ids.to(device), mask.to(device)
         pos = (mask.cumsum(-1) - 1).clamp_min(0)
+        gen = [[] for _ in chunk]
+        done = torch.zeros(len(chunk), dtype=torch.bool, device=device)
+        if getattr(model, "needs_full_context", False):
+            # L2 reads earlier tokens (T50): recompute the whole sequence
+            # each step - exact, slower, no KV cache
+            with autocast():
+                nxt = model(ids, attention_mask=mask, position_ids=pos).logits[:, -1].argmax(-1)
+            for _ in range(max_new):
+                done |= nxt == eos_id
+                for r in range(len(chunk)):
+                    if not done[r]:
+                        gen[r].append(int(nxt[r]))
+                if bool(done.all()):
+                    break
+                step = torch.where(done, torch.full_like(nxt, pad_id), nxt)
+                ids = torch.cat([ids, step.unsqueeze(1)], dim=1)
+                mask = torch.cat([mask, torch.ones_like(mask[:, :1])], dim=1)
+                pos = (mask.cumsum(-1) - 1).clamp_min(0)
+                with autocast():
+                    nxt = model(ids, attention_mask=mask,
+                                position_ids=pos).logits[:, -1].argmax(-1)
+            out += gen
+            continue
         with autocast():
             o = model(ids, attention_mask=mask, position_ids=pos, use_cache=True)
         past = o.aux["past_key_values"]
         nxt = o.logits[:, -1].argmax(-1)
         last_pos = pos[:, -1]
-        gen = [[] for _ in chunk]
-        done = torch.zeros(len(chunk), dtype=torch.bool, device=device)
         for _ in range(max_new):
             done |= nxt == eos_id
             for r in range(len(chunk)):
@@ -736,7 +757,10 @@ def describe_l2(cfg: V2Config) -> str:
         where = f"after layer {cfg.addon_layer}"
     else:
         where = "end"
-    return f"{where}, {'forced' if cfg.gate_force else 'free'}"
+    v3 = [n for n, on in (("context", getattr(cfg, "sandbox_context", False)),
+                          ("confidence", getattr(cfg, "sandbox_confidence", False))) if on]
+    return (f"{where}, {'forced' if cfg.gate_force else 'free'}"
+            + (f", v3 {'+'.join(v3)}" if v3 else ""))
 
 
 def _paired_acc(ref: Dict, run: Dict, names: Sequence[str]) -> Optional[Dict]:

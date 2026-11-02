@@ -25,6 +25,9 @@ class SandboxOutput(NamedTuple):
     consensus: torch.Tensor
     trajectories: torch.Tensor
     aux: Dict[str, torch.Tensor]
+    # per-token agreement of the K trajectories, in (0, 1]: 1 = they all
+    # reached the same state (T50); detached - a signal, not a loss target
+    confidence: Optional[torch.Tensor] = None
 
 
 def masked_mean_bt(x: torch.Tensor,
@@ -101,12 +104,52 @@ class CrossRead(nn.Module):
         return torch.einsum("kjbt,jbtd->kbtd", attn, v)
 
 
+class ContextRead(nn.Module):
+    """Each trajectory reads the earlier tokens of the text (T50): causal
+    multi-head attention over the sequence, the same weights for all K
+    trajectories, so each hypothesis looks at the question and context in
+    its own way.  The output projection starts at zero: an untrained
+    ContextRead changes nothing.  ``attn_mask`` [B, T] (1 = real token)
+    keeps padding out; every token always sees itself."""
+
+    def __init__(self, dim: int, heads: int = 0):
+        super().__init__()
+        heads = heads or max(1, dim // 64)
+        if dim % heads:
+            raise ValueError(f"sandbox_heads {heads} must divide dim {dim}")
+        self.heads = heads
+        self.norm = RMSNorm(dim)
+        self.qkv = nn.Linear(dim, 3 * dim, bias=False)
+        self.out = nn.Linear(dim, dim, bias=False)
+        nn.init.zeros_(self.out.weight)
+
+    def forward(self, traj: torch.Tensor,
+                attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        K, B, T, D = traj.shape
+        H = self.heads
+        x = self.norm(traj).reshape(K * B, T, D)
+        q, k, v = self.qkv(x).view(K * B, T, 3, H, D // H).permute(2, 0, 3, 1, 4)
+        if attn_mask is None:
+            o = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        else:
+            causal = torch.ones(T, T, dtype=torch.bool, device=traj.device).tril()
+            m = causal & attn_mask.bool().unsqueeze(1)                    # [B,T,T]
+            m = m | torch.eye(T, dtype=torch.bool, device=traj.device)
+            m = m.repeat(K, 1, 1).unsqueeze(1)                           # [K*B,1,T,T]
+            o = F.scaled_dot_product_attention(q, k, v, attn_mask=m)
+        o = o.transpose(1, 2).reshape(K, B, T, D)
+        return traj + self.out(o)
+
+
 class DebateRound(nn.Module):
-    """Repair gate lets a trajectory decline the crowd."""
+    """Repair gate lets a trajectory decline the crowd.  With ``context``
+    (T50) every trajectory first reads the earlier tokens."""
 
     def __init__(self, dim: int, mlp_ratio: float = 2.0, gate_bias: float = -2.0,
-                 norm_input: bool = False):
+                 norm_input: bool = False, context: bool = False,
+                 heads: int = 0):
         super().__init__()
+        self.context = ContextRead(dim, heads) if context else None
         # Pre-norm (v2, T33): the round reads a fixed-size input, so weight
         # growth cannot compound across rounds. Off for v1 (unchanged).
         self.norm = RMSNorm(dim) if norm_input else nn.Identity()
@@ -120,7 +163,10 @@ class DebateRound(nn.Module):
         nn.init.zeros_(self.mlp[2].bias)
         nn.init.constant_(self.gate.bias, gate_bias)
 
-    def forward(self, traj: torch.Tensor) -> torch.Tensor:
+    def forward(self, traj: torch.Tensor,
+                attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if self.context is not None:
+            traj = self.context(traj, attn_mask)
         x = self.norm(traj)
         cross = self.read(x)
         gamma = torch.sigmoid(self.gate(torch.cat([x, cross], dim=-1)))
@@ -173,6 +219,9 @@ class Sandbox(nn.Module):
         gain_hi: float = 1.25,
         mlp_ratio: float = 2.0,
         norm_inputs: bool = False,
+        context: bool = False,
+        heads: int = 0,
+        confidence: bool = False,
     ):
         super().__init__()
         if readout not in ("mean", "lowest_energy"):
@@ -191,22 +240,40 @@ class Sandbox(nn.Module):
         self.readout = readout
         self.init_proj = DiverseInit(dim, K, gain_lo, gain_hi)
         self.debate = nn.ModuleList(
-            [DebateRound(dim, mlp_ratio=mlp_ratio, norm_input=norm_inputs)
+            [DebateRound(dim, mlp_ratio=mlp_ratio, norm_input=norm_inputs,
+                         context=context, heads=heads)
              for _ in range(rounds)])
         self.descent = AnchoredDescent(dim)
+        # Confidence-weighted readout (T50): a verifier scores each
+        # trajectory per token and the consensus trusts the better ones.
+        # Zero-init = equal weights = the plain mean.
+        self.verifier = None
+        if confidence:
+            self.verifier = nn.Sequential(RMSNorm(dim), nn.Linear(dim, 1))
+            nn.init.zeros_(self.verifier[1].weight)
+            nn.init.zeros_(self.verifier[1].bias)
 
     def forward(self, hT: torch.Tensor,
-                mask: Optional[torch.Tensor] = None) -> SandboxOutput:
-        """hT [B,T,H]; mask [B,T] (1 = real token) only affects the
-        diagnostics / spread floor, never the consensus."""
+                mask: Optional[torch.Tensor] = None,
+                attn_mask: Optional[torch.Tensor] = None) -> SandboxOutput:
+        """hT [B,T,H]; mask [B,T] (1 = token the loss trains) only affects
+        the diagnostics / spread floor, never the consensus; attn_mask
+        [B,T] (1 = real token) keeps padding out of the context read."""
         traj = self.init_proj(hT)
         for _ in range(self.debate_passes):
             for layer in self.debate:
-                traj = layer(traj)
+                traj = layer(traj, attn_mask)
         traj, a_t, energy, retention = self.descent(
             traj, hT, self.steps, self.eta, mask
         )
         aux = self._aux(traj, hT, a_t, energy, retention, mask)
+        if self.verifier is not None:
+            w = self.verifier(traj).squeeze(-1).float().softmax(dim=0)   # [K,B,T]
+            consensus = (w.unsqueeze(-1).type_as(traj) * traj).sum(0)
+            conf = self._confidence(traj, consensus, w)
+            aux["confidence"] = masked_mean_bt(conf, mask)
+            aux["verifier_top_weight"] = masked_mean_bt(w.detach().max(dim=0).values, mask)
+            return SandboxOutput(consensus, traj, aux, conf)
         if self.readout == "lowest_energy":
             # Per-position pick (thesis: argmin_k ||T_k - a_t||).  Choosing
             # one trajectory from batch/sequence-averaged energy let future
@@ -216,7 +283,21 @@ class Sandbox(nn.Module):
             consensus = traj.gather(0, idx).squeeze(0)
         else:
             consensus = traj.mean(dim=0)
-        return SandboxOutput(consensus, traj, aux)
+        conf = self._confidence(traj, consensus)
+        aux["confidence"] = masked_mean_bt(conf, mask)
+        return SandboxOutput(consensus, traj, aux, conf)
+
+    @staticmethod
+    def _confidence(traj: torch.Tensor, consensus: torch.Tensor,
+                    w: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Per-token agreement exp(-d), d = (weighted) mean squared distance
+        of the trajectories from the consensus relative to its size: 1 when
+        all K agree, towards 0 when they disagree.  Detached (T50)."""
+        with torch.no_grad():
+            d = (traj - consensus.unsqueeze(0)).float().pow(2).sum(-1)    # [K,B,T]
+            d = (w * d).sum(0) if w is not None else d.mean(0)
+            rel = d / consensus.float().pow(2).sum(-1).clamp_min(1e-6)
+            return torch.exp(-rel)
 
     def _aux(self, traj, hT, a_t, energy, retention,
              mask=None) -> Dict[str, torch.Tensor]:
@@ -237,11 +318,13 @@ class Sandbox(nn.Module):
         return torch.relu(self.rho_min - rho).pow(2)
 
     @torch.no_grad()
-    def post_round_state(self, hT: torch.Tensor) -> List[torch.Tensor]:
+    def post_round_state(self, hT: torch.Tensor,
+                         attn_mask: Optional[torch.Tensor] = None
+                         ) -> List[torch.Tensor]:
         states = []
         traj = self.init_proj(hT)
         states.append(traj)
         for layer in self.debate:
-            traj = layer(traj)
+            traj = layer(traj, attn_mask)
             states.append(traj)
         return states

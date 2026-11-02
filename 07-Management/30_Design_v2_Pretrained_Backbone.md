@@ -209,4 +209,27 @@ The thesis claim is that L2 should carry real weight in the model, not be an opt
 
 Perplexity and ROUGE/F1 measure how well the model reproduces reference wording, not whether it reasons. Three evaluation-only tests on every finished run: (1) multiple-choice accuracy on MedMCQA, MedQA and PubMedQA pqa_labeled, the pick being the option with the highest mean log-probability per token in the training prompt format; (2) the same with L2 switched off; (3) thinking time on PubMedQA: the debate stack is run 0 or 2 times instead of once (`Sandbox.debate_passes`; the four rounds have their own weights, so "more rounds" means repeating the stack) and the anchored descent takes 0, S/2, 2S or 4S steps instead of S at the same step size. Evidence for iterative reasoning would be accuracy that falls with less thinking (and possibly rises with more); a flat profile means L2 acts like an ordinary extra layer. Every difference is a paired bootstrap CI over questions. The same run (T48) also rebuilds the MedQuAD benchmark split exactly as training did and scores its perplexity with L2 on, off and at every thinking setting, and records L2's spread ratio and anchor energy, so one run yields every table of the paper.
 
+## 23. L2 v3: reading the text, confidence, per-token gate (2026-11-02, T50)
+
+**What was missing in L2 (found 2026-11-02, T50).** Three gaps between
+the design idea ("a sandbox inside the LLM that reasons and is confident
+like a human") and the v2 code:
+
+1. **L2 saw one token at a time.** The debate (`CrossRead`) mixes the K
+   trajectories *at the same position only*; nothing in L2 looked at the
+   other tokens. So L2 could not read the question or the abstract — every
+   bit of reading was done by SmolLM2, and L2 was a per-token refinement
+   (a fancy MLP), not a place where hypotheses are tested against the text.
+2. **No confidence.** The K trajectories were averaged; how much they
+   agreed was thrown away, so the model never knew whether its "thoughts"
+   agreed.
+3. **One gate for every token.** The gate is one number per channel, the
+   same for easy and hard tokens: L2 could not count more where it helps.
+
+(The anchored descent stays as it was: it pulls the trajectories towards a
+learned anchor of the token's state; with very many steps they collapse onto
+it, which is what the thinking-time test shows at 32 steps.)
+
+The v3 changes, all opt-in (`V2Config.sandbox_context`, `sandbox_confidence`): (a) **context read** — each debate round starts with causal multi-head attention of every trajectory over the earlier tokens (shared weights across the K trajectories, zero-init output projection, padding masked); (b) **verifier readout** — the consensus is a per-token softmax-weighted mean of the trajectories, the weights from a zero-init linear verifier (zero = the old mean); (c) **confidence** — c_t = exp(-d_t), d_t the weighted mean squared distance of the trajectories from the consensus relative to its size, detached so it cannot be gamed by collapsing the trajectories (the spread floor still keeps them apart); (d) **per-token gate** — g_t = g * 2*sigmoid(u . norm(consensus_t) + v * c_t), zero-init so it starts as the per-channel gate; under forced L2 the floor holds per token. At step 0 the v3 model equals the backbone exactly. Causal reading keeps the backbone's KV cache exact at a mid site, but L2 has no cache of its own, so generation recomputes the sequence. Size: L2 24.9M parameters (v2 19.6M), so a win must also be weighed against the extra 5.3M.
+
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)
