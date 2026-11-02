@@ -205,4 +205,8 @@ The thesis claim is that L2 should carry real weight in the model, not be an opt
 
 **L2 warm-up.** The free gates in v25 first closed: at step 0 L2 is random and can only hurt a pretrained backbone. `--l2-warmup N` freezes SmolLM2 for the first N optimiser steps of phase 1 so that only L2 (with its gates, already forced open by the floor) learns; afterwards the whole model trains as before. The backbone then receives N fewer updates than in the other arms, which works against L2, not for it. Off by default; refused for the baseline.
 
+## 22. Does L2 help the model reason? Three tests on finished runs (2026-11-02, T46, T47)
+
+Perplexity and ROUGE/F1 measure how well the model reproduces reference wording, not whether it reasons. Three evaluation-only tests on every finished run: (1) multiple-choice accuracy on MedMCQA, MedQA and PubMedQA pqa_labeled, the pick being the option with the highest mean log-probability per token in the training prompt format; (2) the same with L2 switched off; (3) thinking time on PubMedQA: the debate stack is run 0 or 2 times instead of once (`Sandbox.debate_passes`; the four rounds have their own weights, so "more rounds" means repeating the stack) and the anchored descent takes 0, S/2, 2S or 4S steps instead of S at the same step size. Evidence for iterative reasoning would be accuracy that falls with less thinking (and possibly rises with more); a flat profile means L2 acts like an ordinary extra layer. Every difference is a paired bootstrap CI over questions.
+
 Connections: why → [10_Known_Issues](10_Known_Issues.md) (T27) · L2 → [22](../04-Model-DeepDive/22_Thesis_Ch3_Layer2_Sandbox.md) · runbook → [run.md](../run.md)

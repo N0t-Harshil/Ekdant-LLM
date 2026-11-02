@@ -444,22 +444,70 @@ def load_run(run_dir: str):
     return cfg, torch.load(path, map_location="cpu", weights_only=False)["model"], chosen
 
 
+def think_settings(steps: int) -> List[Tuple[str, Optional[int], Optional[int]]]:
+    """(label, debate passes, descent steps) of the thinking-time test
+    (T47): less and more of each of L2's two loops; the trained setting
+    (1 pass, ``steps`` steps) is the reference and is not repeated."""
+    grid = sorted({0, steps // 2, 2 * steps, 4 * steps} - {steps})
+    return ([("debate x0", 0, None), ("debate x2", 2, None)]
+            + [(f"steps {s}", None, s) for s in grid])
+
+
 def mcq_evaluate(model, tok, qs: Dict[str, List[Question]], device,
-                   max_len: int, batch_size: int, l2_off: bool, log=print) -> Dict:
+                 max_len: int, batch_size: int, l2_off: bool,
+                 think: Sequence[str] = (), log=print) -> Dict:
+    """Per test: % right; for L2 models also with L2 off and, for the tests
+    in ``think``, with less / more L2 thinking (``EkdantLM.think``)."""
     autocast = _autocast(device)
     out: Dict = {}
+
+    def sc(questions):
+        return score_questions(model, tok, questions, device, autocast,
+                               max_len, batch_size)
+
     for name, questions in qs.items():
-        out[name] = score_questions(model, tok, questions, device, autocast,
-                                    max_len, batch_size)
+        out[name] = sc(questions)
         msg = f"  {name}: {100 * out[name]['accuracy']:.1f}% right"
         if model.addon is not None and l2_off:
             with model.l2_off():
-                off = score_questions(model, tok, questions, device, autocast,
-                                      max_len, batch_size)
-            out[name]["l2_off"] = {k: v for k, v in off.items()}
+                off = sc(questions)
+            out[name]["l2_off"] = off
             msg += f" (L2 off {100 * off['accuracy']:.1f}%)"
         log(msg + f" of {out[name]['n']}")
+        if model.addon is not None and name in think:
+            box = model.sandboxes()[0]
+            out[name]["think"] = {"trained": f"debate x{box.debate_passes}, "
+                                             f"steps {box.steps}"}
+            for label, passes, steps in think_settings(box.steps):
+                with model.think(passes, steps):
+                    r = sc(questions)
+                out[name]["think"][label] = r
+                log(f"    thinking {label}: {100 * r['accuracy']:.1f}% right")
     return out
+
+
+def finished_runs(runs_dir: str) -> List[str]:
+    """Run folders whose training finished (last.pt and a final test in
+    results.json); a broken or zero-shot folder is skipped."""
+    out = []
+    for name in sorted(os.listdir(runs_dir)):
+        d = os.path.join(runs_dir, name)
+        if "broken" in name or "zero_shot" in name or not os.path.isdir(d):
+            continue
+        rp = os.path.join(d, "results.json")
+        if not (os.path.exists(os.path.join(d, "last.pt")) and os.path.exists(rp)):
+            continue
+        try:
+            with open(rp, encoding="utf-8") as f:
+                if "test" in json.load(f):
+                    out.append(d)
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)
 
 
 def mcq_main(argv: Optional[List[str]] = None) -> None:
@@ -467,11 +515,19 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                                  description=MCQ_DOC,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("runs", nargs="*")
+    ap.add_argument("--all", action="store_true",
+                    help="every finished run in --runs-dir, plus plain SmolLM2; "
+                         "runs already scored are kept (see --rescore)")
+    ap.add_argument("--runs-dir", default="runs")
+    ap.add_argument("--rescore", action="store_true",
+                    help="with --all: score runs that already have mcq.json again")
     ap.add_argument("--compare", action="store_true",
-                    help="only print the table from existing mcq.json files")
+                    help="only print the tables from existing mcq.json files")
     ap.add_argument("--zero-shot", action="store_true",
-                    help="also score plain SmolLM2 (no fine-tuning) -> runs/zero_shot_smollm2")
+                    help="also score plain SmolLM2 (no fine-tuning) -> <runs-dir>/zero_shot_smollm2")
     ap.add_argument("--datasets", default=",".join(MCQ_DATASETS))
+    ap.add_argument("--think-datasets", default="pubmedqa",
+                    help="tests that also get the thinking-time test (T47); empty = none")
     ap.add_argument("--limit", type=int, default=None,
                     help="questions per dataset (default: all)")
     ap.add_argument("--batch-size", type=int, default=16)
@@ -481,47 +537,62 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--baseline", default=None,
                     help="run name the leaderboard compares against "
-                         "(default: the first run with 'baseline' in its name)")
+                         "(default: the last run by name with 'baseline' in it)")
     ap.add_argument("--markdown", default=None,
-                    help="also write the leaderboard to this markdown file")
+                    help="also write the tables to this markdown file")
     args = ap.parse_args(argv)
+    zs_dir = os.path.join(args.runs_dir, "zero_shot_smollm2")
+    runs = list(args.runs)
+    if args.all:
+        runs = [zs_dir] + finished_runs(args.runs_dir)
+        if args.markdown is None:
+            args.markdown = "leaderboard.md"
+    elif args.zero_shot:
+        runs.insert(0, zs_dir)
     if not args.compare:
         from ekdant.train_gen import pick_device
 
         names = [d for d in args.datasets.split(",") if d]
+        think = [d for d in args.think_datasets.split(",") if d]
         device = pick_device(args.gpu, args.min_free_gb)
         qs = None
-        targets = list(args.runs)
-        if args.zero_shot:
-            targets.insert(0, None)
-        for run_dir in targets:
-            if run_dir is None:
-                cfg, state, chosen = V2Config(addon="none"), None, "pretrained"
-                run_dir = os.path.join("runs", "zero_shot_smollm2")
-                os.makedirs(run_dir, exist_ok=True)
-            else:
-                cfg, state, chosen = load_run(run_dir)
-            print(f"{run_dir} ({chosen}, addon={cfg.addon})", flush=True)
-            apply_hf_token(cfg.hf_token_file)
-            tok = load_tokenizer(cfg.backbone)
-            if qs is None:
-                qs = {n: load_questions(n, args.limit, args.seed) for n in names}
-            model = EkdantLM(cfg, load_backbone(cfg.backbone))
-            if state is not None:
-                model.load_state_dict(state)
-            model.to(device)
-            res = mcq_evaluate(model, tok, qs, device, cfg.max_seq_len,
-                                 args.batch_size, not args.no_l2_off)
-            res["checkpoint"] = chosen
-            res["l2"] = describe_l2(cfg)
-            with open(os.path.join(run_dir, "mcq.json"), "w", encoding="utf-8") as f:
-                json.dump(res, f)
-            del model
+        _log("models: " + ", ".join(os.path.basename(r) for r in runs))
+        for k, run_dir in enumerate(runs, 1):
+            if (args.all and not args.rescore
+                    and os.path.exists(os.path.join(run_dir, "mcq.json"))):
+                _log(f"[{k}/{len(runs)}] {run_dir}: already scored - kept")
+                continue
+            try:
+                if run_dir == zs_dir:
+                    cfg, state, chosen = V2Config(addon="none"), None, "pretrained"
+                    os.makedirs(run_dir, exist_ok=True)
+                else:
+                    cfg, state, chosen = load_run(run_dir)
+                _log(f"[{k}/{len(runs)}] {run_dir} ({chosen}, L2: {describe_l2(cfg)})")
+                apply_hf_token(cfg.hf_token_file)
+                tok = load_tokenizer(cfg.backbone)
+                if qs is None:
+                    qs = {n: load_questions(n, args.limit, args.seed) for n in names}
+                model = EkdantLM(cfg, load_backbone(cfg.backbone))
+                if state is not None:
+                    model.load_state_dict(state)
+                model.to(device)
+                res = mcq_evaluate(model, tok, qs, device, cfg.max_seq_len,
+                                   args.batch_size, not args.no_l2_off, think, _log)
+                res["checkpoint"] = chosen
+                res["l2"] = describe_l2(cfg)
+                with open(os.path.join(run_dir, "mcq.json"), "w", encoding="utf-8") as f:
+                    json.dump(res, f)
+                del model
+            except Exception as e:  # one broken run must not stop the others
+                if not args.all:
+                    raise
+                _log(f"FAILED {run_dir}: {type(e).__name__}: {e}")
             if device.type == "cuda":
                 torch.cuda.empty_cache()
-        if args.zero_shot:
-            args.runs.insert(0, os.path.join("runs", "zero_shot_smollm2"))
-    mcq_compare(args.runs, args.baseline, args.markdown)
+        _log("=== ALL DONE")
+    runs = [r for r in runs if os.path.exists(os.path.join(r, "mcq.json"))]
+    mcq_compare(runs, args.baseline, args.markdown)
 
 
 MCQ_TITLE = {"medmcqa": "MedMCQA", "medqa": "MedQA", "pubmedqa": "PubMedQA"}
@@ -580,7 +651,9 @@ def mcq_leaderboard(run_dirs: List[str], baseline: Optional[str] = None) -> str:
                 res = json.load(f)
         runs.append((os.path.basename(d.rstrip("/\\")), m, res))
     names = [n for n in MCQ_DATASETS if any(n in m for _, m, _ in runs)]
-    base_name = baseline or next((n for n, _, _ in runs if "baseline" in n), runs[0][0])
+    # default: the newest baseline by name (v25_baseline over v22_baseline)
+    base_name = baseline or next((n for n, _, _ in reversed(sorted(runs, key=lambda r: r[0]))
+                                  if "baseline" in n), runs[0][0])
     base = next(r for r in runs if r[0] == base_name)
 
     def avg(m):
@@ -591,7 +664,7 @@ def mcq_leaderboard(run_dirs: List[str], baseline: Optional[str] = None) -> str:
     head = (["#", "Model", "L2"] + [MCQ_TITLE[n] for n in names]
             + ["Average", "vs baseline", "MedQuAD ppl (lower = better)", "ROUGE-L", "F1"])
     lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
-    bres = base[2]["test"]["medquad_bench"] if base[2] and "test" in base[2] else None
+    bres = (base[2] or {}).get("test", {}).get("medquad_bench")
     for i, (name, m, res) in enumerate(rows, 1):
         is_base = name == base_name
         cells = [str(i), f"**{name}** (baseline)" if is_base else name, m.get("l2", "?")]
@@ -612,7 +685,7 @@ def mcq_leaderboard(run_dirs: List[str], baseline: Optional[str] = None) -> str:
         else:
             ci = _paired_acc(base[1], m, names)
             cells.append(f"{100 * ci['diff']:+.1f} points{_star(ci)}" if ci else "-")
-        b = res["test"]["medquad_bench"] if res and "test" in res else None
+        b = (res or {}).get("test", {}).get("medquad_bench")
         if b is None:
             cells += ["-", "-", "-"]
         else:
@@ -642,9 +715,51 @@ def mcq_leaderboard(run_dirs: List[str], baseline: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
+def think_table(run_dirs: List[str]) -> str:
+    """The thinking-time test (T47) as a markdown table: % right with less
+    or more L2 thinking, change vs the trained setting (* = real)."""
+    out = []
+    for d in run_dirs:
+        with open(os.path.join(d, "mcq.json"), encoding="utf-8") as f:
+            m = json.load(f)
+        for n in MCQ_DATASETS:
+            if n in m and "think" in m[n]:
+                out.append((os.path.basename(d.rstrip("/\\")), n, m))
+    if not out:
+        return ""
+    labels: List[str] = []
+    for _, n, m in out:
+        labels += [k for k in m[n]["think"] if k != "trained" and k not in labels]
+    head = ["Model", "Test", "trained setting"] + labels + ["L2 off"]
+    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for name, n, m in out:
+        ref = m[n]
+        cells = [name, MCQ_TITLE[n],
+                 f"{100 * ref['accuracy']:.1f} ({ref['think']['trained']})"]
+        for lab in labels + ["L2 off"]:
+            r = ref.get("l2_off") if lab == "L2 off" else ref["think"].get(lab)
+            if not isinstance(r, dict):
+                cells.append("-")
+                continue
+            ci = _paired_acc({n: ref}, {n: r}, [n])
+            cells.append(f"{100 * r['accuracy']:.1f} ({100 * ci['diff']:+.1f}{_star(ci)})"
+                         if ci else f"{100 * r['accuracy']:.1f}")
+        lines.append("| " + " | ".join(cells) + " |")
+    lines += ["", "Thinking-time test: the same trained model answers with L2's "
+              "debate run 0 or 2 times (trained: 1) and with fewer or more "
+              "anchored-descent steps (same step size), no retraining. (+x) = "
+              "points vs the trained setting; * = real difference (paired 95% "
+              "CI excludes 0). If L2 reasons step by step, less thinking should "
+              "cost accuracy and more may help."]
+    return "\n".join(lines)
+
+
 def mcq_compare(run_dirs: List[str], baseline: Optional[str] = None,
                 markdown: Optional[str] = None) -> None:
     board = mcq_leaderboard(run_dirs, baseline)
+    think = think_table(run_dirs)
+    if think:
+        board += "\n\n" + think
     print("\n" + board + "\n")
     if markdown:
         with open(markdown, "w", encoding="utf-8") as f:

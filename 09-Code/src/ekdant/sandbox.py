@@ -183,6 +183,9 @@ class Sandbox(nn.Module):
         self.K = K
         self.rounds = rounds
         self.steps = steps
+        # times the whole debate stack is applied (T47 thinking-time test;
+        # training always uses 1)
+        self.debate_passes = 1
         self.eta = eta
         self.rho_min = rho_min
         self.readout = readout
@@ -197,8 +200,9 @@ class Sandbox(nn.Module):
         """hT [B,T,H]; mask [B,T] (1 = real token) only affects the
         diagnostics / spread floor, never the consensus."""
         traj = self.init_proj(hT)
-        for layer in self.debate:
-            traj = layer(traj)
+        for _ in range(self.debate_passes):
+            for layer in self.debate:
+                traj = layer(traj)
         traj, a_t, energy, retention = self.descent(
             traj, hT, self.steps, self.eta, mask
         )

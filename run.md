@@ -100,52 +100,65 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3h. Multiple-choice test: how many questions each model gets right (T46)
+## A3h. All finished models: % right, L2 off, thinking time — one command (T46, T47)
 
-The v2 models write free-text answers, so perplexity and ROUGE/F1 have no
-"% correct". This test asks every finished model the same multiple-choice
-questions and counts how many it gets right. Nothing is trained and
-`results.json` is not touched: each run gets its own `mcq.json`.
+Three tests, one model after another on one GPU, for **every finished run**
+in `runs/` plus plain SmolLM2 (no fine-tuning). Nothing is trained;
+`results.json` is never changed: each run gets its own `mcq.json`.
 
-| Test | Questions | Options | Chance |
-|---|---|---|---|
-| MedMCQA validation (Indian medical entrance exams) | 4,183 | 4 | 25 % |
-| MedQA-USMLE test (US licensing exam) | 1,273 | 4 | 25 % |
-| PubMedQA pqa_labeled (expert labels, with the abstract) | 1,000 | yes / no / maybe | 33 % |
+1. **% right (multiple choice).** The free-text benchmark (perplexity,
+   ROUGE/F1) has no "% correct", so every model answers the same
+   multiple-choice questions:
 
-How the model answers: the question is asked in the training format
-(`Question: ...` / `Answer:`), and the model's answer is the option it finds
-most likely (mean log-probability per token of the option text). L2 models
-are also scored with L2 switched off. A second "letter" score lists the
-options as A-D and reads the letter the model picks; the models were never
-trained on that format, so expect it near chance. Plain SmolLM2 with no
-fine-tuning (`--zero-shot`) is the reference point. **SmolLM2 has 135M
-parameters: expect scores close to chance on MedMCQA and MedQA** (exam
-questions need knowledge a model this small mostly lacks); PubMedQA, where
-the abstract holds the answer, is where differences are most likely.
+   | Test | Questions | Options | Chance |
+   |---|---|---|---|
+   | MedMCQA validation (Indian medical entrance exams) | 4,183 | 4 | 25 % |
+   | MedQA-USMLE test (US licensing exam) | 1,273 | 4 | 25 % |
+   | PubMedQA pqa_labeled (expert labels, with the abstract) | 1,000 | yes / no / maybe | 33 % |
+
+   The question is asked in the training format (`Question: ...` /
+   `Answer:`); the model's answer is the option it finds most likely (mean
+   log-probability per token). A second "letter" score lists the options as
+   A-D (never trained on: expect ~chance).
+2. **L2 off.** Every L2 model answers again with L2 switched off: does the
+   model's *answering* depend on L2?
+3. **Thinking time (PubMedQA).** The same trained L2 model answers with
+   L2's debate run 0 or 2 times (trained: 1) and with 0, 4, 16 or 32
+   anchored-descent steps (trained: 8; same step size). If L2 reasons step
+   by step, less thinking should cost accuracy and more may help; if
+   nothing moves, L2 acts like an ordinary extra layer.
+
+SmolLM2 has 135M parameters: expect MedMCQA and MedQA close to chance for
+every model (exam questions need knowledge a model this small mostly
+lacks). PubMedQA, where the abstract holds the answer, is the reasoning test.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-export CUDA_VISIBLE_DEVICES=3                  # any GPU with >= 10 GB free (not GPU 0)
-python -m ekdant.gen_eval mcq --zero-shot --limit 50 runs/v25_baseline   # quick check first
-nohup python -m ekdant.gen_eval mcq --zero-shot runs/v25_baseline runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced > mcq.log 2>&1 &
-tail -f mcq.log
-# the leaderboard of every scored model, without re-scoring (also saved as leaderboard.md):
-python -m ekdant.gen_eval mcq --compare --markdown leaderboard.md $(ls runs/*/mcq.json | xargs -n1 dirname)
+export CUDA_VISIBLE_DEVICES=3                  # one GPU with >= 10 GB free (not GPU 0)
+nohup python -m ekdant.gen_eval mcq --all > mcq_all.log 2>&1 &
+tail -f mcq_all.log                            # "=== ALL DONE" at the end, then the tables
 ```
 
-The leaderboard (model-card style) has one row per model, ranked by the
-average % right: MedMCQA, MedQA, PubMedQA, the average, the gain over the
-baseline in points, and the generative benchmark from `results.json`
-(MedQuAD perplexity with its % change vs the baseline, ROUGE-L, F1). A `*`
-marks a real difference (paired 95 % CI excludes 0); no `*` = within noise.
-The baseline is the first run with `baseline` in its name (`--baseline
-<name>` to choose another).
+- It finds the finished runs itself (`last.pt` + a final test in
+  `results.json`), skips unfinished and `*broken*` folders, logs
+  `FAILED <run>` for a checkpoint that cannot be loaded and goes on.
+- Stopped or crashed? Start the same command again: models already scored
+  are kept (`--rescore` to redo them).
+- At the end it prints and saves **`leaderboard.md`**: the leaderboard
+  (rank, L2 placement, % right per test, average, points vs the baseline,
+  MedQuAD perplexity with % change, ROUGE-L, F1) and the thinking-time
+  table. `*` = real difference (paired 95 % CI excludes 0). The baseline is
+  the last run by name with `baseline` in it (`v25_baseline`);
+  `--baseline <name>` to choose another.
+- Run time has not been measured on the pod; the mix models are the
+  slowest (L2 at 9 sites, scored with L2 on, off and 6 thinking settings).
+- **For the paper**, compare models trained with the same recipe (the v25 /
+  v26 set: 3 PubMedQA + 5 MedQuAD epochs, seed 17); older runs used other
+  epoch counts. The tables for just that set, without re-scoring:
 
-The first run downloads MedMCQA, MedQA and PubMedQA pqa_labeled if they are
-not cached. Run time has not been measured on the pod yet. The output is a
-`% right` table with 95 % CIs, the same with L2 off, the letter scores, and
-paired lines `<run> - <first run> on <test>: +x points [lo, hi]`.
+```bash
+python -m ekdant.gen_eval mcq --compare --markdown leaderboard_v25_v26.md runs/zero_shot_smollm2 runs/v25_baseline runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced
+```
 
 ## A3e. Forced L2: L2 must be used (T42) — **run this next**
 
@@ -741,7 +754,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,223) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,228) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1016,7 +1029,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 223 tests
+python -m pytest            # 228 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

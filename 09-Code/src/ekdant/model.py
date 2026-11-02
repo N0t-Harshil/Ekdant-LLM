@@ -528,6 +528,37 @@ class EkdantLM(nn.Module):
     def addon_params(self) -> int:
         return count_parameters(self.addon) if self.addon is not None else 0
 
+    def sandboxes(self) -> list:
+        """Every distinct L2 Sandbox (one when shared across sites)."""
+        if self.addon is None:
+            return []
+        sites = (self.addon._all() if isinstance(self.addon, MultiAddOn)
+                 else [self.addon])
+        out = []
+        for s in sites:
+            if all(s.sandbox is not o for o in out):
+                out.append(s.sandbox)
+        return out
+
+    @contextlib.contextmanager
+    def think(self, passes: Optional[int] = None, steps: Optional[int] = None):
+        """More (or less) L2 thinking at test time, no retraining (T47):
+        ``passes`` = times the debate stack runs (trained: 1), ``steps`` =
+        anchored-descent steps (trained: S, same step size eta).  Restored
+        afterwards."""
+        boxes = self.sandboxes()
+        saved = [(b.debate_passes, b.steps) for b in boxes]
+        for b in boxes:
+            if passes is not None:
+                b.debate_passes = passes
+            if steps is not None:
+                b.steps = steps
+        try:
+            yield self
+        finally:
+            for b, (p, s) in zip(boxes, saved):
+                b.debate_passes, b.steps = p, s
+
     @contextlib.contextmanager
     def l2_off(self):
         """Every L2 site switched off: the model is exactly its backbone

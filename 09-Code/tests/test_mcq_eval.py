@@ -165,4 +165,67 @@ def test_leaderboard_includes_the_generative_benchmark(two_runs, tmp_path, capsy
     assert "(baseline)" in board and "| - |" in board
 
 
+def test_leaderboard_survives_a_results_file_without_the_benchmark(tmp_path):
+    base = _fake(tmp_path / "v_baseline", {"pubmedqa": [0, 1] * 5})
+    other = _fake(tmp_path / "v_other", {"pubmedqa": [1, 1] * 5})
+    (tmp_path / "v_other" / "results.json").write_text(json.dumps({"test": {}}))
+    assert "| v_other |" in M.mcq_leaderboard([base, other])
+
+
+# ---- T47: thinking-time test, and all models in one command ----
+
+@pytest.mark.parametrize("kw", [{}, {"addon_layers": [1, 2], "addon_final": True}])
+def test_think_changes_l2_and_restores_it(kw):
+    torch.manual_seed(0)
+    m = EkdantLM(V2Config(addon="sandbox", **SMALL, **kw), tiny_llama()).eval()
+    for g in m.addon.gates():
+        torch.nn.init.constant_(g, 0.5)
+    assert len(m.sandboxes()) == 1                     # shared L2 counted once
+    ids = torch.randint(3, 64, (2, 7))
+    with torch.no_grad():
+        ref = m(ids).logits
+        with m.think(passes=1, steps=m.sandboxes()[0].steps):
+            assert torch.equal(m(ids).logits, ref)     # trained setting = unchanged
+        for p, s in ((0, None), (2, None), (None, 0), (None, 32)):
+            with m.think(p, s):
+                assert not torch.allclose(m(ids).logits, ref), (p, s)
+        assert torch.equal(m(ids).logits, ref)         # restored
+    assert m.sandboxes()[0].debate_passes == 1
+
+
+def test_think_settings_cover_less_and_more():
+    labels = [x[0] for x in M.think_settings(8)]
+    assert labels == ["debate x0", "debate x2", "steps 0", "steps 4", "steps 16", "steps 32"]
+
+
+def test_all_scores_every_finished_model_and_keeps_going(two_runs, tmp_path, capsys):
+    (tmp_path / "half_done").mkdir()                   # not finished: skipped
+    broken = tmp_path / "x_broken_T45"
+    broken.mkdir()
+    bad = tmp_path / "z_bad"                           # finished-looking, unloadable
+    bad.mkdir()
+    (bad / "last.pt").write_text("not a checkpoint")
+    (bad / "results.json").write_text(json.dumps({"test": {}}))
+    md = tmp_path / "board.md"
+    argv = ["--all", "--runs-dir", str(tmp_path), "--datasets", "medmcqa,pubmedqa",
+            "--gpu", "cpu", "--min-free-gb", "0", "--markdown", str(md)]
+    M.mcq_main(argv)
+    text = capsys.readouterr().out
+    assert "FAILED" in text and "z_bad" in text and "=== ALL DONE" in text
+    zs = json.loads((tmp_path / "zero_shot_smollm2" / "mcq.json").read_text())
+    rl = json.loads((tmp_path / "l2" / "mcq.json").read_text())
+    rb = json.loads((tmp_path / "base" / "mcq.json").read_text())
+    assert zs["checkpoint"] == "pretrained" and "think" not in zs["pubmedqa"]
+    assert "think" not in rb["pubmedqa"] and "think" not in rl["medmcqa"]
+    th = rl["pubmedqa"]["think"]
+    assert set(th) >= {"trained", "debate x0", "debate x2", "steps 0"}
+    assert not (tmp_path / "half_done" / "mcq.json").exists()
+    assert not (broken / "mcq.json").exists()
+    board = md.read_text()
+    assert "Thinking-time test" in board and "| l2 | PubMedQA |" in board
+    assert "zero_shot_smollm2" in board and "(baseline)" not in board.split("Thinking")[1]
+    M.mcq_main(argv)                                    # a second call keeps finished work
+    assert "already scored - kept" in capsys.readouterr().out
+
+
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)
