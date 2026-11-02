@@ -100,6 +100,40 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3i. Second seed of the best model: v22 recipe, seed 23 — **run this next**
+
+The first full benchmark (2026-11-02, A3h) made `v22_end` the best model:
+PubMedQA 60.4 % vs 58.9 % for `v22_baseline` (+1.5 points, within noise on
+1,000 questions), MedQuAD perplexity −0.2 % (real), −6.3 points with L2 off
+(real). A second seed shows whether the gain repeats. Same v22 recipe
+(1 PubMedQA + 3 MedQuAD epochs, free gate; all other flags are the defaults
+the v22 runs used), only `--seed 23`, which also gives a different data split
+— so both the baseline and the L2 model are trained again.
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # one GPU with >= 30 GB free (not GPU 0)
+export CUDA_VISIBLE_DEVICES=3                # <- the GPU you picked
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --seed 23 --min-free-gb 30"
+
+nohup bash -c "
+python -m ekdant.train $FLAGS --variant baseline --config configs/v2_baseline.json      --out runs/v22s23_baseline > v22s23_baseline.log 2>&1;
+python -m ekdant.train $FLAGS --variant sandbox  --config configs/v2_sandbox_final.json --out runs/v22s23_end      > v22s23_end.log      2>&1;
+python -m ekdant.gen_eval mcq --all > mcq_all3.log 2>&1;
+python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v22_seed23.md runs/zero_shot_smollm2 runs/v22s23_baseline runs/v22s23_end > /dev/null 2>&1
+" > v22s23_all.log 2>&1 &
+
+tail -f v22s23_baseline.log                  # then v22s23_end.log, mcq_all3.log
+```
+
+Time (from the v22 runs): baseline ~1 h 20 min, end ~1 h 30 min, benchmark
+of the two new models roughly an hour (the other models are kept) — about
+4 hours. Bring back `leaderboard_v22_seed23.md`, `leaderboard.md` and
+`mcq_all3.log`. The multiple-choice questions are the same for every seed, so
+% right compares directly across seeds; perplexity is paired only within a
+seed (another split).
+
 ## A3h. All finished models, every number for the paper — one command (T46–T48)
 
 Three tests, one model after another on one GPU, for **every finished run**
