@@ -100,6 +100,45 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3h. Multiple-choice test: how many questions each model gets right (T46)
+
+The v2 models write free-text answers, so perplexity and ROUGE/F1 have no
+"% correct". This test asks every finished model the same multiple-choice
+questions and counts how many it gets right. Nothing is trained and
+`results.json` is not touched: each run gets its own `mcq.json`.
+
+| Test | Questions | Options | Chance |
+|---|---|---|---|
+| MedMCQA validation (Indian medical entrance exams) | 4,183 | 4 | 25 % |
+| MedQA-USMLE test (US licensing exam) | 1,273 | 4 | 25 % |
+| PubMedQA pqa_labeled (expert labels, with the abstract) | 1,000 | yes / no / maybe | 33 % |
+
+How the model answers: the question is asked in the training format
+(`Question: ...` / `Answer:`), and the model's answer is the option it finds
+most likely (mean log-probability per token of the option text). L2 models
+are also scored with L2 switched off. A second "letter" score lists the
+options as A-D and reads the letter the model picks; the models were never
+trained on that format, so expect it near chance. Plain SmolLM2 with no
+fine-tuning (`--zero-shot`) is the reference point. **SmolLM2 has 135M
+parameters: expect scores close to chance on MedMCQA and MedQA** (exam
+questions need knowledge a model this small mostly lacks); PubMedQA, where
+the abstract holds the answer, is where differences are most likely.
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+export CUDA_VISIBLE_DEVICES=3                  # any GPU with >= 10 GB free (not GPU 0)
+python -m ekdant.gen_eval mcq --zero-shot --limit 50 runs/v25_baseline   # quick check first
+nohup python -m ekdant.gen_eval mcq --zero-shot runs/v25_baseline runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced > mcq.log 2>&1 &
+tail -f mcq.log
+# the table again later, without re-scoring (first run = reference for the paired lines):
+python -m ekdant.gen_eval mcq --compare runs/v25_baseline runs/zero_shot_smollm2 runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced
+```
+
+The first run downloads MedMCQA, MedQA and PubMedQA pqa_labeled if they are
+not cached. Run time has not been measured on the pod yet. The output is a
+`% right` table with 95 % CIs, the same with L2 off, the letter scores, and
+paired lines `<run> - <first run> on <test>: +x points [lo, hi]`.
+
 ## A3e. Forced L2: L2 must be used (T42) — **run this next**
 
 In every run so far L2 was **optional**: each gate starts at 0 and the model
@@ -694,7 +733,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,215) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,221) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -969,7 +1008,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 215 tests
+python -m pytest            # 221 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

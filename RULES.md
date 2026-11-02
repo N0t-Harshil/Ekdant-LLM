@@ -37,7 +37,7 @@ You are an AI coding agent working inside **Ekdant**: an MSc thesis (Hochschule 
 | v2.1 placement | L2 after decoder layer **20** of 30: `h + g ⊙ RMSNorm(L2(RMSNorm(h)))`; add-on **19,595,520**, total 154,110,528; gate LR **1e-3** (`--gate-lr`), L2 matrices 1e-4; 2 PubMedQA epochs. v2.0 (after the final norm) is `configs/v2_sandbox_final.json` | `model.py`, spec 30 §13, T35 |
 | v2 L2 | K=4, **R=4 debate rounds, debate MLP 4×**, S=8, η=0.0625, ρ_min=0.05, λ_sbx=1.0, readout `mean` (scaled to v1's 13.1 % share of the model) | `configs/v2_baseline.json`, `configs/v2_sandbox.json` (identical except `addon`) |
 | v2 data | PubMedQA `pqa_artificial` 211,269 (2,000 held out); MedQuAD 16,407 rows / 14,345 unique questions, split 50/50 by question, 10 % of the fine-tune half's questions = validation | `gen_data.py`, `train_gen.py` |
-| v2 metrics | reference-answer perplexity (primary) + per-question-type; ROUGE-L / token F1 on 1,000 generated answers; paired bootstrap 95 % CI between arms | `gen_eval.py` |
+| v2 metrics | reference-answer perplexity (primary) + per-question-type; ROUGE-L / token F1 on 1,000 generated answers; paired bootstrap 95 % CI between arms | `gen_eval.py`; multiple-choice accuracy (MedMCQA / MedQA / PubMedQA, `gen_eval mcq`, T46) is a secondary test of finished runs, written to `mcq.json` |
 | Built model, v1 (`--task mcq`, from-scratch pilot) | `embed → T (windowed dense Transformer) → L2 (sandbox) → tied head` | `09-Code/src/ekdant/model.py` (`EkdantModel`) |
 | Not built | L1 selective SSM (independent of L2; no write-back, T38) | `04-Model-DeepDive/21_*`, `26a_*` (design only) |
 | A/B sizes | sandbox **50.09M** / baseline **43.53M** (L2 = 6.56M, T = 26.75M, embeddings 16.78M) | `estimate_model_size`, `tests/test_model.py` |
@@ -119,7 +119,7 @@ Work in this order every time. Do not skip steps because a task "looks small".
 - **CLI flags** default to the old behaviour so old commands and `--resume` keep working.
 - **Checkpoints**: never rename or remove keys in `last.pt` / `best.pt` (`model, cfg, step, completed, opt_step, history, best_medmcqa`); only add.
 - **`results.json`**: only add keys; never rename `phase1`, `test.medqa_bench`, `test.medqa_test`, `test.medmcqa_val`, `selected`, `history`.
-- **No new files under `src/ekdant/`** without asking (11 modules today: the v1 seven + `backbone.py`, `gen_data.py`, `gen_eval.py`, `train_gen.py`, approved 2026-10-22).
+- **No new files under `src/ekdant/`** without asking (11 modules today: the v1 seven + `backbone.py`, `gen_data.py`, `gen_eval.py`, `train_gen.py`, approved 2026-10-22; the T46 multiple-choice test lives in `gen_eval.py`).
 - **Tests**: one test per behaviour, named as a sentence (`test_lowest_energy_readout_is_per_position_and_causal`), CPU-only, tiny shapes, seeded, < 1 s each. Put it in the file for that module.
 
 ---

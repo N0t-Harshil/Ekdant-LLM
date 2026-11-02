@@ -9,20 +9,27 @@
                       together)
 
 CLI:  python -m ekdant.gen_eval compare runs/v2_baseline runs/v2_sandbox ...
+      python -m ekdant.gen_eval mcq runs/v25_baseline runs/v25_end ... (T46,
+      multiple-choice accuracy; see ``MCQ_DOC``)
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
 import random
 import string
 import sys
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
+
+from ekdant.backbone import _offline_first, apply_hf_token, load_backbone, load_tokenizer
+from ekdant.data import LETTERS, load_examples
+from ekdant.model import EkdantLM, V2Config
 
 DIAG_KEYS = ("anchor_energy", "trajectory_variance", "spread_ratio")
 
@@ -245,9 +252,326 @@ def compare(run_dirs: List[str]) -> None:
                   f"({verdict}; positive = L2 matters)")
 
 
+# ---------------------------------------------------------------------------
+# Multiple-choice accuracy (T46)
+# ---------------------------------------------------------------------------
+
+MCQ_DOC = """Multiple-choice accuracy of finished v2 runs (T46).
+
+The v2 models write free-text answers, so their benchmark has no
+"% correct".  This section asks every finished run the same multiple-choice
+questions and reports the share it gets right:
+
+    medmcqa   MedMCQA validation (4 options; the test split has no labels)
+    medqa     MedQA-USMLE test   (4 options)
+    pubmedqa  PubMedQA pqa_labeled, 1,000 expert-labelled questions with
+              their abstract (yes / no / maybe)
+
+Main method - option likelihood (as in lm-evaluation-harness): the prompt
+is the training format ``Question: ...\\nAnswer:`` (plus ``Context:`` for
+PubMedQA) and the model's choice is the option text with the highest mean
+log-probability per token.  Second method - letter: the options are listed
+as A-D in the prompt and the model's choice is the letter with the highest
+next-token probability (the models were never trained on this format, so
+expect it near chance).  For L2 runs both are also scored with L2 switched
+off (the L2-off test, T44).  Nothing is trained; results.json is never
+changed - each run gets its own ``mcq.json``.
+
+CLI:
+    python -m ekdant.gen_eval mcq runs/v25_baseline runs/v25_end ... [--zero-shot]
+    python -m ekdant.gen_eval mcq --compare runs/v25_baseline runs/v25_end ...
+"""
+
+MCQ_DATASETS = ("medmcqa", "medqa", "pubmedqa")
+MCQ_CHANCE = {"medmcqa": 0.25, "medqa": 0.25, "pubmedqa": 1 / 3}
+PUBMED_OPTIONS = ["yes", "no", "maybe"]
+
+
+class Question:
+    def __init__(self, question: str, options: List[str], answer: int,
+                 context: str = ""):
+        self.question, self.options = question, options
+        self.answer, self.context = answer, context
+
+
+def load_questions(name: str, limit: Optional[int] = None,
+                   seed: int = 17) -> List[Question]:
+    if name in ("medmcqa", "medqa"):
+        split = "validation" if name == "medmcqa" else "test"
+        out = [Question(e.question, list(e.options), LETTERS.index(e.answer))
+               for e in load_examples(name, split)]
+    elif name == "pubmedqa":
+        from datasets import load_dataset
+
+        ds = _offline_first(lambda: load_dataset("qiaojin/PubMedQA",
+                                                 "pqa_labeled", split="train"))
+        out = [Question(r["question"], PUBMED_OPTIONS,
+                        PUBMED_OPTIONS.index(r["final_decision"]),
+                        " ".join(r["context"]["contexts"]))
+               for r in ds if r["final_decision"] in PUBMED_OPTIONS]
+    else:
+        raise ValueError(f"unknown dataset {name!r}")
+    if limit is not None and limit < len(out):
+        out = random.Random(seed).sample(out, limit)
+    return out
+
+
+def _enc(tok, s: str) -> List[int]:
+    return tok(s, add_special_tokens=False)["input_ids"]
+
+
+def _mcq_prompt(tok, q: Question, max_prompt: int, letters: bool) -> Optional[List[int]]:
+    """Training-format prompt; a long context is cut to fit, a question that
+    still does not fit is skipped (None)."""
+    head = f"Question: {' '.join(q.question.split())}"
+    if letters:
+        head += "\n" + "\n".join(f"{L}. {' '.join(o.split())}"
+                                 for L, o in zip(LETTERS, q.options))
+    suf = _enc(tok, "\nAnswer:")
+    if q.context:
+        pre = _enc(tok, head + "\nContext:")
+        ctx = _enc(tok, " " + q.context)
+        keep = max_prompt - len(pre) - len(suf)
+        return None if keep < 0 else pre + ctx[:keep] + suf
+    ids = _enc(tok, head) + suf
+    return ids if len(ids) <= max_prompt else None
+
+
+@torch.no_grad()
+def _forward_rows(model, rows: List[List[int]], pad: int, device, autocast,
+                  batch_size: int):
+    """Yields (row index, logits [len, V] on the device) for every row,
+    batched by length so little compute is spent on padding."""
+    order = sorted(range(len(rows)), key=lambda i: len(rows[i]))
+    for s in range(0, len(order), batch_size):
+        chunk = order[s:s + batch_size]
+        L = max(len(rows[i]) for i in chunk)
+        ids = torch.full((len(chunk), L), pad, dtype=torch.long)
+        mask = torch.zeros((len(chunk), L), dtype=torch.long)
+        for r, i in enumerate(chunk):
+            ids[r, :len(rows[i])] = torch.tensor(rows[i])
+            mask[r, :len(rows[i])] = 1
+        with autocast():
+            out = model(ids.to(device), attention_mask=mask.to(device))
+        for r, i in enumerate(chunk):
+            yield i, out.logits[r, :len(rows[i])]
+
+
+def score_questions(model, tok, questions: Sequence[Question], device, autocast,
+                    max_len: int = 1024, batch_size: int = 16) -> Dict:
+    """Per question: the option chosen by option likelihood and by letter,
+    and whether each is right.  Questions that do not fit are skipped."""
+    model.eval()
+    pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    letter_ids = [_enc(tok, " " + L)[-1] for L in LETTERS]
+    opt_rows, opt_meta, let_rows, let_q = [], [], [], []
+    kept: List[int] = []
+    for qi, q in enumerate(questions):
+        opts = [_enc(tok, " " + " ".join(o.split())) for o in q.options]
+        p = _mcq_prompt(tok, q, max_len - max(len(o) for o in opts), letters=False)
+        pl = _mcq_prompt(tok, q, max_len, letters=True) if len(q.options) == 4 else None
+        if p is None:
+            continue
+        kept.append(qi)
+        for oi, o in enumerate(opts):
+            opt_rows.append(p + o)
+            opt_meta.append((qi, oi, len(p), len(o)))
+        if pl is not None:
+            let_rows.append(pl)
+            let_q.append(qi)
+    mean_lp = {qi: [float("-inf")] * len(questions[qi].options) for qi in kept}
+    for i, lp in _forward_rows(model, opt_rows, pad, device, autocast, batch_size):
+        qi, oi, n_p, n_o = opt_meta[i]
+        tgt = torch.tensor(opt_rows[i][n_p:], device=lp.device)
+        # position t predicts token t+1: the option's tokens are read from
+        # positions n_p-1 .. n_p+n_o-2
+        sel = F.log_softmax(lp[n_p - 1:n_p - 1 + n_o].float(), dim=-1)
+        mean_lp[qi][oi] = float(sel.gather(-1, tgt.unsqueeze(-1)).mean())
+    letter_pick: Dict[int, int] = {}
+    for i, lp in _forward_rows(model, let_rows, pad, device, autocast, batch_size):
+        letter_pick[let_q[i]] = int(lp[-1, letter_ids].float().argmax())
+    rows = []
+    for qi in kept:
+        q, scores = questions[qi], mean_lp[qi]
+        pick = max(range(len(scores)), key=scores.__getitem__)
+        row = {"q": qi, "pick": pick, "right": int(pick == q.answer)}
+        if qi in letter_pick:
+            row["letter_pick"] = letter_pick[qi]
+            row["letter_right"] = int(letter_pick[qi] == q.answer)
+        rows.append(row)
+    return mcq_summarise(rows, len(questions))
+
+
+def _acc_ci(right: List[int], n: int = 1000, seed: int = 17) -> Tuple[float, float]:
+    rng = random.Random(seed)
+    stats = sorted(sum(right[rng.randrange(len(right))] for _ in right) / len(right)
+                   for _ in range(n))
+    return stats[int(0.025 * (n - 1))], stats[int(0.975 * (n - 1))]
+
+
+def mcq_summarise(rows: List[Dict], n_total: int) -> Dict:
+    right = [r["right"] for r in rows]
+    out = {"n": len(rows), "skipped": n_total - len(rows), "rows": rows,
+           "accuracy": sum(right) / max(1, len(right))}
+    if right:
+        out["ci"] = list(_acc_ci(right))
+    lr = [r["letter_right"] for r in rows if "letter_right" in r]
+    if lr:
+        out["letter_accuracy"] = sum(lr) / len(lr)
+    return out
+
+
+def _autocast(device):
+    if device.type == "cuda" and torch.cuda.is_bf16_supported():
+        return lambda: torch.autocast("cuda", dtype=torch.bfloat16)
+    return lambda: torch.autocast(device.type, enabled=False)
+
+
+def load_run(run_dir: str):
+    """(cfg, weights) of a finished run: the checkpoint its final benchmark
+    used (results.json ``selected``), else best.pt, else last.pt."""
+    last = torch.load(os.path.join(run_dir, "last.pt"), map_location="cpu",
+                      weights_only=False)
+    cfg = V2Config.from_dict(last["cfg"])
+    chosen = "best.pt"
+    res = os.path.join(run_dir, "results.json")
+    if os.path.exists(res):
+        with open(res, encoding="utf-8") as f:
+            chosen = json.load(f).get("selected", {}).get("checkpoint", chosen)
+    path = os.path.join(run_dir, chosen)
+    if chosen == "last.pt" or not os.path.exists(path):
+        return cfg, last["model"], "last.pt"
+    return cfg, torch.load(path, map_location="cpu", weights_only=False)["model"], chosen
+
+
+def mcq_evaluate(model, tok, qs: Dict[str, List[Question]], device,
+                   max_len: int, batch_size: int, l2_off: bool, log=print) -> Dict:
+    autocast = _autocast(device)
+    out: Dict = {}
+    for name, questions in qs.items():
+        out[name] = score_questions(model, tok, questions, device, autocast,
+                                    max_len, batch_size)
+        msg = f"  {name}: {100 * out[name]['accuracy']:.1f}% right"
+        if model.addon is not None and l2_off:
+            with model.l2_off():
+                off = score_questions(model, tok, questions, device, autocast,
+                                      max_len, batch_size)
+            out[name]["l2_off"] = {k: v for k, v in off.items()}
+            msg += f" (L2 off {100 * off['accuracy']:.1f}%)"
+        log(msg + f" of {out[name]['n']}")
+    return out
+
+
+def mcq_main(argv: Optional[List[str]] = None) -> None:
+    ap = argparse.ArgumentParser(prog="python -m ekdant.gen_eval mcq",
+                                 description=MCQ_DOC,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("runs", nargs="*")
+    ap.add_argument("--compare", action="store_true",
+                    help="only print the table from existing mcq.json files")
+    ap.add_argument("--zero-shot", action="store_true",
+                    help="also score plain SmolLM2 (no fine-tuning) -> runs/zero_shot_smollm2")
+    ap.add_argument("--datasets", default=",".join(MCQ_DATASETS))
+    ap.add_argument("--limit", type=int, default=None,
+                    help="questions per dataset (default: all)")
+    ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--no-l2-off", action="store_true")
+    ap.add_argument("--gpu", default="auto")
+    ap.add_argument("--min-free-gb", type=float, default=10.0)
+    ap.add_argument("--seed", type=int, default=17)
+    args = ap.parse_args(argv)
+    if not args.compare:
+        from ekdant.train_gen import pick_device
+
+        names = [d for d in args.datasets.split(",") if d]
+        device = pick_device(args.gpu, args.min_free_gb)
+        qs = None
+        targets = list(args.runs)
+        if args.zero_shot:
+            targets.insert(0, None)
+        for run_dir in targets:
+            if run_dir is None:
+                cfg, state, chosen = V2Config(addon="none"), None, "pretrained"
+                run_dir = os.path.join("runs", "zero_shot_smollm2")
+                os.makedirs(run_dir, exist_ok=True)
+            else:
+                cfg, state, chosen = load_run(run_dir)
+            print(f"{run_dir} ({chosen}, addon={cfg.addon})", flush=True)
+            apply_hf_token(cfg.hf_token_file)
+            tok = load_tokenizer(cfg.backbone)
+            if qs is None:
+                qs = {n: load_questions(n, args.limit, args.seed) for n in names}
+            model = EkdantLM(cfg, load_backbone(cfg.backbone))
+            if state is not None:
+                model.load_state_dict(state)
+            model.to(device)
+            res = mcq_evaluate(model, tok, qs, device, cfg.max_seq_len,
+                                 args.batch_size, not args.no_l2_off)
+            res["checkpoint"] = chosen
+            with open(os.path.join(run_dir, "mcq.json"), "w", encoding="utf-8") as f:
+                json.dump(res, f)
+            del model
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+        if args.zero_shot:
+            args.runs.insert(0, os.path.join("runs", "zero_shot_smollm2"))
+    mcq_compare(args.runs)
+
+
+def mcq_compare(run_dirs: List[str]) -> None:
+    runs = []
+    for d in run_dirs:
+        with open(os.path.join(d, "mcq.json"), encoding="utf-8") as f:
+            runs.append((os.path.basename(d.rstrip("/\\")), json.load(f)))
+    names = [n for n in MCQ_DATASETS if any(n in r for _, r in runs)]
+    print("\n% right (95% CI); chance: "
+          + ", ".join(f"{n} {100 * MCQ_CHANCE[n]:.0f}%" for n in names))
+    print(f"{'run':24s}" + "".join(f"{n:>22s}" for n in names))
+    for name, r in runs:
+        cells = []
+        for n in names:
+            if n not in r:
+                cells.append(f"{'-':>22s}")
+                continue
+            a, ci = r[n]["accuracy"], r[n].get("ci", [0, 0])
+            cells.append(f"{100 * a:6.1f} [{100 * ci[0]:4.1f},{100 * ci[1]:5.1f}]".rjust(22))
+        print(f"{name:24s}" + "".join(cells))
+    extra = [(name, r) for name, r in runs if any("l2_off" in r.get(n, {}) for n in names)]
+    if extra:
+        print("\nwith L2 switched off:")
+        for name, r in extra:
+            print(f"{name:24s}" + "".join(
+                f"{100 * r[n]['l2_off']['accuracy']:22.1f}" if "l2_off" in r.get(n, {})
+                else f"{'-':>22s}" for n in names))
+    print("\nletter method (options listed A-D; never trained on, expect ~chance):")
+    for name, r in runs:
+        print(f"{name:24s}" + "".join(
+            f"{100 * r[n]['letter_accuracy']:22.1f}" if "letter_accuracy" in r.get(n, {})
+            else f"{'-':>22s}" for n in names))
+    ref_name, ref = runs[0]
+    for name, r in runs[1:]:
+        for n in names:
+            if n not in r or n not in ref:
+                continue
+            a = {row["q"]: row["right"] for row in ref[n]["rows"]}
+            b = {row["q"]: row["right"] for row in r[n]["rows"]}
+            keys = sorted(set(a) & set(b))
+            if not keys:
+                continue
+            ci = paired_bootstrap([a[k] for k in keys], [b[k] for k in keys],
+                                  [str(k) for k in keys])
+            verdict = "real difference" if ci["lo"] > 0 or ci["hi"] < 0 else "tie"
+            print(f"{name} - {ref_name} on {n}: {100 * ci['diff']:+.1f} points "
+                  f"95% CI [{100 * ci['lo']:+.1f}, {100 * ci['hi']:+.1f}] "
+                  f"({verdict}; positive = more right)")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) >= 4 and sys.argv[1] == "compare":
+    if len(sys.argv) >= 2 and sys.argv[1] == "mcq":
+        mcq_main(sys.argv[2:])
+    elif len(sys.argv) >= 4 and sys.argv[1] == "compare":
         compare(sys.argv[2:])
     else:
-        print("usage: python -m ekdant.gen_eval compare <run> <run> [...]")
+        print("usage: python -m ekdant.gen_eval compare <run> <run> [...]\n"
+              "       python -m ekdant.gen_eval mcq <run> [...] [--zero-shot]")
         raise SystemExit(2)
