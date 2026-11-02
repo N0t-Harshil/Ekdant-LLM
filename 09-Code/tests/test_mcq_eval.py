@@ -91,6 +91,8 @@ def two_runs(tiny, tmp_path, monkeypatch):
     monkeypatch.setattr(M, "load_tokenizer", G.load_tokenizer)
     monkeypatch.setattr(M, "load_questions",
                         lambda name, limit=None, seed=17: _qs()[name])
+    from test_train_gen import _quad
+    monkeypatch.setattr("ekdant.gen_data.load_medquad", lambda limit=None, seed=17: _quad())
     return tmp_path / "base", tmp_path / "l2"
 
 
@@ -226,6 +228,46 @@ def test_all_scores_every_finished_model_and_keeps_going(two_runs, tmp_path, cap
     assert "zero_shot_smollm2" in board and "(baseline)" not in board.split("Thinking")[1]
     M.mcq_main(argv)                                    # a second call keeps finished work
     assert "already scored - kept" in capsys.readouterr().out
+
+
+# ---- T48: every number in one run (perplexity on / off / thinking, facts)
+
+def test_one_run_collects_every_number(two_runs, tmp_path):
+    base, l2 = two_runs
+    md = tmp_path / "report.md"
+    M.mcq_main([str(base), str(l2), "--datasets", "pubmedqa", "--gpu", "cpu",
+                "--min-free-gb", "0", "--markdown", str(md), "--baseline", "base"])
+    for run in (base, l2):
+        m = json.loads((run / "mcq.json").read_text())
+        res = json.loads((run / "results.json").read_text())
+        # the benchmark split is rebuilt exactly: same perplexity as training saved
+        assert m["medquad_ppl"]["on"]["ppl"] == pytest.approx(
+            res["test"]["medquad_bench"]["ppl"], rel=1e-4)
+        assert m["params_total"] == res["cost"]["params_total"] and m["seed"] == 17
+    ml = json.loads((l2 / "mcq.json").read_text())["medquad_ppl"]
+    assert ml["off"]["ppl"] > 0 and {"trained", "debate x0", "steps 0"} <= set(ml["think"])
+    assert ml["off"]["ppl"] == pytest.approx(json.loads((l2 / "results.json").read_text())
+                                             ["test"]["l2_off"]["medquad_bench"]["ppl"], rel=1e-4)
+    mb = json.loads((base / "mcq.json").read_text())["medquad_ppl"]
+    assert "off" not in mb and "think" not in mb
+    report = md.read_text()
+    for section in ("### Leaderboard", "### Does the model depend on L2?",
+                    "### Thinking time: % right", "### Thinking time: MedQuAD perplexity",
+                    "### Model facts"):
+        assert section in report, section
+    facts = next(ln for ln in report.split("### Model facts")[1].splitlines() if "| l2 |" in ln)
+    assert "end, free" in facts and "M |" in facts
+
+
+def test_perplexity_pairs_only_runs_with_the_same_split(tmp_path):
+    base = _fake(tmp_path / "v_baseline", {"pubmedqa": [0, 1] * 5})
+    other = _fake(tmp_path / "v_s23", {"pubmedqa": [0, 1] * 5})
+    rows = {"row_nll": [1.0, 2.0], "row_tokens": [1, 1], "row_idx": [0, 1], "ppl": 4.0}
+    for d, seed in (("v_baseline", 17), ("v_s23", 23)):
+        m = json.loads((tmp_path / d / "mcq.json").read_text())
+        m["seed"], m["medquad_ppl"] = seed, {"on": rows, "row_group": {"0": "a", "1": "b"}}
+        (tmp_path / d / "mcq.json").write_text(json.dumps(m))
+    assert "other seed: different split" in M.mcq_leaderboard([base, other])
 
 
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)

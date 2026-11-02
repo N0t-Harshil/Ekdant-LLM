@@ -427,12 +427,19 @@ def _autocast(device):
     return lambda: torch.autocast(device.type, enabled=False)
 
 
-def load_run(run_dir: str):
-    """(cfg, weights) of a finished run: the checkpoint its final benchmark
-    used (results.json ``selected``), else best.pt, else last.pt."""
+def load_run(run_dir: str, with_args: bool = False):
+    """(cfg, weights, checkpoint name) of a finished run: the checkpoint its
+    final benchmark used (results.json ``selected``), else best.pt, else
+    last.pt.  ``with_args``: also the run's training settings (seed, limit)."""
     last = torch.load(os.path.join(run_dir, "last.pt"), map_location="cpu",
                       weights_only=False)
     cfg = V2Config.from_dict(last["cfg"])
+    if with_args:
+        return (*load_run_weights(run_dir, last, cfg), last.get("run_args", {}))
+    return load_run_weights(run_dir, last, cfg)
+
+
+def load_run_weights(run_dir: str, last: Dict, cfg: V2Config):
     chosen = "best.pt"
     res = os.path.join(run_dir, "results.json")
     if os.path.exists(res):
@@ -486,6 +493,49 @@ def mcq_evaluate(model, tok, qs: Dict[str, List[Question]], device,
     return out
 
 
+def bench_dataset(tok, cfg: V2Config, seed: int = 17, limit: Optional[int] = None):
+    """The MedQuAD benchmark half exactly as training built it (same seed,
+    same split), tokenised for ``cfg``; plus each row's question group."""
+    from ekdant.gen_data import GenDataset, load_medquad, question_key, split_by_question
+
+    _, _, bench = split_by_question(load_medquad(limit, seed), seed)
+    ds = GenDataset(bench, tok, cfg.max_seq_len, cfg.max_answer)
+    return ds, [question_key(e.question) for e in bench]
+
+
+def bench_nll(model, ds, pad: int, device, batch_size: int = 16) -> Dict:
+    """Reference-answer NLL on ``ds`` (rows kept for paired CIs), batched by
+    length; L2's internal diagnostics are averaged in ``addon``."""
+    from ekdant.gen_data import gen_collate
+
+    order = sorted(range(len(ds)), key=lambda i: len(ds[i]["input_ids"]))
+    loader = (gen_collate([ds[i] for i in order[s:s + batch_size]], pad)
+              for s in range(0, len(order), batch_size))
+    return answer_nll(model, loader, device, _autocast(device))
+
+
+def ppl_evaluate(model, ds, groups: List[str], pad: int, device, batch_size: int,
+                 l2_off: bool, think: bool, log=print) -> Dict:
+    """MedQuAD benchmark perplexity with L2 on, off, and with less / more
+    L2 thinking - the perplexity half of the one-run benchmark (T48)."""
+    out = {"on": bench_nll(model, ds, pad, device, batch_size)}
+    out["row_group"] = {str(i): groups[i] for i in out["on"]["row_idx"]}
+    msg = f"  medquad_bench ppl {out['on']['ppl']:.3f}"
+    if model.addon is not None and l2_off:
+        with model.l2_off():
+            out["off"] = bench_nll(model, ds, pad, device, batch_size)
+        msg += f" (L2 off {out['off']['ppl']:.3f})"
+    log(msg)
+    if model.addon is not None and think:
+        box = model.sandboxes()[0]
+        out["think"] = {"trained": f"debate x{box.debate_passes}, steps {box.steps}"}
+        for label, passes, steps in think_settings(box.steps):
+            with model.think(passes, steps):
+                out["think"][label] = bench_nll(model, ds, pad, device, batch_size)
+            log(f"    thinking {label}: ppl {out['think'][label]['ppl']:.3f}")
+    return out
+
+
 def finished_runs(runs_dir: str) -> List[str]:
     """Run folders whose training finished (last.pt and a final test in
     results.json); a broken or zero-shot folder is skipped."""
@@ -532,6 +582,8 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                     help="questions per dataset (default: all)")
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--no-l2-off", action="store_true")
+    ap.add_argument("--no-ppl", action="store_true",
+                    help="skip the MedQuAD perplexity part (L2 on / off / thinking)")
     ap.add_argument("--gpu", default="auto")
     ap.add_argument("--min-free-gb", type=float, default=10.0)
     ap.add_argument("--seed", type=int, default=17)
@@ -554,6 +606,8 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
 
         names = [d for d in args.datasets.split(",") if d]
         think = [d for d in args.think_datasets.split(",") if d]
+        think_ppl = ["medquad"]                    # perplexity thinking test: always
+        bench_cache: Dict = {}
         device = pick_device(args.gpu, args.min_free_gb)
         qs = None
         _log("models: " + ", ".join(os.path.basename(r) for r in runs))
@@ -565,9 +619,10 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
             try:
                 if run_dir == zs_dir:
                     cfg, state, chosen = V2Config(addon="none"), None, "pretrained"
+                    run_args: Dict = {}
                     os.makedirs(run_dir, exist_ok=True)
                 else:
-                    cfg, state, chosen = load_run(run_dir)
+                    cfg, state, chosen, run_args = load_run(run_dir, with_args=True)
                 _log(f"[{k}/{len(runs)}] {run_dir} ({chosen}, L2: {describe_l2(cfg)})")
                 apply_hf_token(cfg.hf_token_file)
                 tok = load_tokenizer(cfg.backbone)
@@ -581,6 +636,21 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                                    args.batch_size, not args.no_l2_off, think, _log)
                 res["checkpoint"] = chosen
                 res["l2"] = describe_l2(cfg)
+                res["seed"] = int(run_args.get("seed", 17))
+                res["params_total"] = sum(p.numel() for p in model.parameters())
+                res["params_l2"] = model.addon_params()
+                if not args.no_ppl:
+                    key = (res["seed"], run_args.get("limit"), cfg.backbone,
+                           cfg.max_seq_len, cfg.max_answer)
+                    if key not in bench_cache:
+                        bench_cache.clear()          # keep one tokenised copy
+                        bench_cache[key] = bench_dataset(tok, cfg, key[0], key[1])
+                    ds, groups = bench_cache[key]
+                    pad = tok.pad_token_id if tok.pad_token_id is not None \
+                        else tok.eos_token_id
+                    res["medquad_ppl"] = ppl_evaluate(
+                        model, ds, groups, pad, device, args.batch_size,
+                        not args.no_l2_off, "medquad" in think_ppl, _log)
                 with open(os.path.join(run_dir, "mcq.json"), "w", encoding="utf-8") as f:
                     json.dump(res, f)
                 del model
@@ -664,7 +734,8 @@ def mcq_leaderboard(run_dirs: List[str], baseline: Optional[str] = None) -> str:
     head = (["#", "Model", "L2"] + [MCQ_TITLE[n] for n in names]
             + ["Average", "vs baseline", "MedQuAD ppl (lower = better)", "ROUGE-L", "F1"])
     lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
-    bres = (base[2] or {}).get("test", {}).get("medquad_bench")
+    bres = (base[2] or {}).get("test", {}).get("medquad_bench") \
+        or base[1].get("medquad_ppl", {}).get("on")
     for i, (name, m, res) in enumerate(rows, 1):
         is_base = name == base_name
         cells = [str(i), f"**{name}** (baseline)" if is_base else name, m.get("l2", "?")]
@@ -685,15 +756,24 @@ def mcq_leaderboard(run_dirs: List[str], baseline: Optional[str] = None) -> str:
         else:
             ci = _paired_acc(base[1], m, names)
             cells.append(f"{100 * ci['diff']:+.1f} points{_star(ci)}" if ci else "-")
-        b = (res or {}).get("test", {}).get("medquad_bench")
+        b = (res or {}).get("test", {}).get("medquad_bench") \
+            or m.get("medquad_ppl", {}).get("on")
         if b is None:
             cells += ["-", "-", "-"]
         else:
             c = f"{b['ppl']:.3f}"
-            if bres is not None and not is_base and "row_nll" in b and "row_nll" in bres:
+            same_split = m.get("seed", 17) == base[1].get("seed", 17)
+            if not same_split and not is_base:
+                c += " (other seed: different split)"
+            if (bres is not None and not is_base and same_split
+                    and "row_nll" in b and "row_nll" in bres):
                 ra, rb = _rows(bres), _rows(b)
                 keys = sorted(set(ra) & set(rb))
-                grp = dict(zip(bres["row_idx"], bres.get("row_group", bres["row_idx"])))
+                if "row_group" in bres:
+                    grp = dict(zip(bres["row_idx"], bres["row_group"]))
+                else:
+                    rg = base[1].get("medquad_ppl", {}).get("row_group", {})
+                    grp = {k: rg.get(str(k), k) for k in ra}
                 ci = paired_bootstrap([ra[k][0] for k in keys], [rb[k][0] for k in keys],
                                       [str(grp[k]) for k in keys],
                                       weights=[ra[k][1] for k in keys])
@@ -731,7 +811,8 @@ def think_table(run_dirs: List[str]) -> str:
     for _, n, m in out:
         labels += [k for k in m[n]["think"] if k != "trained" and k not in labels]
     head = ["Model", "Test", "trained setting"] + labels + ["L2 off"]
-    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    lines = ["### Thinking time: % right", "",
+             "| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for name, n, m in out:
         ref = m[n]
         cells = [name, MCQ_TITLE[n],
@@ -754,12 +835,142 @@ def think_table(run_dirs: List[str]) -> str:
     return "\n".join(lines)
 
 
+def _load_both(d: str) -> Tuple[str, Dict, Optional[Dict]]:
+    with open(os.path.join(d, "mcq.json"), encoding="utf-8") as f:
+        m = json.load(f)
+    res = None
+    rp = os.path.join(d, "results.json")
+    if os.path.exists(rp):
+        with open(rp, encoding="utf-8") as f:
+            res = json.load(f)
+    return os.path.basename(d.rstrip("/\\")), m, res
+
+
+def _nll_ci(a: Dict, b: Dict, groups: Dict[str, str]) -> Optional[Dict]:
+    """Paired CI of the per-token NLL difference b - a (same benchmark rows)."""
+    ra, rb = _rows(a), _rows(b)
+    keys = sorted(set(ra) & set(rb))
+    if not keys:
+        return None
+    return paired_bootstrap([ra[k][0] for k in keys], [rb[k][0] for k in keys],
+                            [str(groups.get(str(k), k)) for k in keys],
+                            weights=[ra[k][1] for k in keys])
+
+
+def dependence_table(run_dirs: List[str]) -> str:
+    """Does the trained model depend on L2?  Everything with L2 on vs off."""
+    lines = []
+    for d in run_dirs:
+        name, m, _ = _load_both(d)
+        mp = m.get("medquad_ppl", {})
+        if "off" not in mp and not any("l2_off" in m.get(n, {}) for n in MCQ_DATASETS):
+            continue
+        cells = [name, m.get("l2", "?")]
+        if "off" in mp:
+            ci = _nll_ci(mp["on"], mp["off"], mp.get("row_group", {}))
+            cells.append(f"{mp['on']['ppl']:.3f} -> {mp['off']['ppl']:.3f}")
+            cells.append(f"{ci['diff']:+.4f} [{ci['lo']:+.4f}, {ci['hi']:+.4f}]{_star(ci)}"
+                         if ci else "-")
+        else:
+            cells += ["-", "-"]
+        for n in MCQ_DATASETS:
+            r = m.get(n, {})
+            if "l2_off" not in r:
+                cells.append("-")
+                continue
+            ci = _paired_acc({n: r}, {n: r["l2_off"]}, [n])
+            cells.append(f"{100 * r['accuracy']:.1f} -> {100 * r['l2_off']['accuracy']:.1f}"
+                         + (f" ({100 * ci['diff']:+.1f}{_star(ci)})" if ci else ""))
+        lines.append("| " + " | ".join(cells) + " |")
+    if not lines:
+        return ""
+    head = ["Model", "L2", "MedQuAD ppl: with L2 -> without",
+            "NLL rise without L2 [95% CI]"] + [f"{MCQ_TITLE[n]} % right: with -> without"
+                                             for n in MCQ_DATASETS]
+    return "\n".join(["### Does the model depend on L2? (L2 switched off after training)", "",
+                      "| " + " | ".join(head) + " |", "|" + "---|" * len(head)] + lines
+                     + ["", "Same trained model, every L2 site switched off (exactly the "
+                        "backbone). A positive NLL rise with * = the model needs L2 for its "
+                        "answers; a negative one = it does better without L2. (+x) = points "
+                        "of % right; * = real difference (paired 95% CI excludes 0)."])
+
+
+def think_ppl_table(run_dirs: List[str]) -> str:
+    """The thinking-time test on MedQuAD perplexity (T48)."""
+    out = []
+    for d in run_dirs:
+        name, m, _ = _load_both(d)
+        if "think" in m.get("medquad_ppl", {}):
+            out.append((name, m["medquad_ppl"]))
+    if not out:
+        return ""
+    labels: List[str] = []
+    for _, mp in out:
+        labels += [k for k in mp["think"] if k != "trained" and k not in labels]
+    head = ["Model", "trained setting"] + labels + ["L2 off"]
+    lines = ["### Thinking time: MedQuAD perplexity (lower = better)", "",
+             "| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for name, mp in out:
+        cells = [name, f"{mp['on']['ppl']:.3f} ({mp['think']['trained']})"]
+        for lab in labels + ["L2 off"]:
+            r = mp.get("off") if lab == "L2 off" else mp["think"].get(lab)
+            if not isinstance(r, dict):
+                cells.append("-")
+                continue
+            ci = _nll_ci(mp["on"], r, mp.get("row_group", {}))
+            cells.append(f"{r['ppl']:.3f} ({100 * (r['ppl'] / mp['on']['ppl'] - 1):+.1f}%"
+                         f"{_star(ci)})")
+        lines.append("| " + " | ".join(cells) + " |")
+    lines += ["", "(+x%) = perplexity change vs the trained setting; * = real "
+              "difference (paired 95% CI of the per-token NLL excludes 0)."]
+    return "\n".join(lines)
+
+
+def facts_table(run_dirs: List[str]) -> str:
+    """Size, cost, gate and L2's inner state of every model."""
+    head = ["Model", "L2", "Params", "L2 params", "Training time", "Final gate (mean size)",
+            "Brake events", "Rollbacks", "L2 spread ratio", "L2 anchor energy"]
+    lines = ["### Model facts", "", "| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for d in run_dirs:
+        name, m, res = _load_both(d)
+        cost = (res or {}).get("cost", {})
+        test = (res or {}).get("test", {})
+        diag = m.get("medquad_ppl", {}).get("on", {}).get("addon", {})
+        pt = cost.get("params_total", m.get("params_total"))
+        pl = cost.get("params_addon", m.get("params_l2"))
+        wall = cost.get("wall_clock_s")
+        cells = [name, m.get("l2", "?"),
+                 f"{pt / 1e6:.1f}M" if pt else "-",
+                 f"{pl / 1e6:.1f}M" if pl else "-",
+                 (f"{wall / 3600:.1f} h" if wall else "-"),
+                 f"{test['gate_magnitude']:.3f}" if test.get("gate_magnitude") else "-",
+                 str(cost["brake_events"]) if "brake_events" in cost else "-",
+                 str(cost["rollbacks"]) if "rollbacks" in cost else "-",
+                 f"{diag['spread_ratio']:.3g}" if "spread_ratio" in diag else "-",
+                 f"{diag['anchor_energy']:.3g}" if "anchor_energy" in diag else "-"]
+        lines.append("| " + " | ".join(cells) + " |")
+    lines += ["", "Training time = wall clock of the whole run (both phases). Spread "
+              "ratio = how far L2's 4 trajectories stay apart relative to the input "
+              "(about 0 = they agree on everything, no real debate); anchor energy = "
+              "their distance to the anchor after the descent. Both on the MedQuAD "
+              "benchmark, averaged."]
+    return "\n".join(lines)
+
+
+def full_report(run_dirs: List[str], baseline: Optional[str] = None) -> str:
+    """Every table of the one-run benchmark, ready for the paper."""
+    parts = ["## Benchmark of every model (T46-T48)", "",
+             "### Leaderboard", "", mcq_leaderboard(run_dirs, baseline)]
+    for part in (dependence_table(run_dirs), think_table(run_dirs),
+                 think_ppl_table(run_dirs), facts_table(run_dirs)):
+        if part:
+            parts += ["", part]
+    return "\n".join(parts)
+
+
 def mcq_compare(run_dirs: List[str], baseline: Optional[str] = None,
                 markdown: Optional[str] = None) -> None:
-    board = mcq_leaderboard(run_dirs, baseline)
-    think = think_table(run_dirs)
-    if think:
-        board += "\n\n" + think
+    board = full_report(run_dirs, baseline)
     print("\n" + board + "\n")
     if markdown:
         with open(markdown, "w", encoding="utf-8") as f:

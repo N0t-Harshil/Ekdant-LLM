@@ -100,7 +100,7 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3h. All finished models: % right, L2 off, thinking time — one command (T46, T47)
+## A3h. All finished models, every number for the paper — one command (T46–T48)
 
 Three tests, one model after another on one GPU, for **every finished run**
 in `runs/` plus plain SmolLM2 (no fine-tuning). Nothing is trained;
@@ -127,6 +127,12 @@ in `runs/` plus plain SmolLM2 (no fine-tuning). Nothing is trained;
    anchored-descent steps (trained: 8; same step size). If L2 reasons step
    by step, less thinking should cost accuracy and more may help; if
    nothing moves, L2 acts like an ordinary extra layer.
+4. **MedQuAD perplexity again, inside the same run (T48):** the benchmark
+   split is rebuilt exactly as training built it (the number matches
+   `results.json`), then scored with L2 on, off, and at every thinking
+   setting; L2's inner state is recorded too (how far its 4 trajectories
+   stay apart, their distance to the anchor). So the v25 runs, trained
+   before the L2-off test existed, get their L2-off numbers here.
 
 SmolLM2 has 135M parameters: expect MedMCQA and MedQA close to chance for
 every model (exam questions need knowledge a model this small mostly
@@ -144,10 +150,15 @@ tail -f mcq_all.log                            # "=== ALL DONE" at the end, then
   `FAILED <run>` for a checkpoint that cannot be loaded and goes on.
 - Stopped or crashed? Start the same command again: models already scored
   are kept (`--rescore` to redo them).
-- At the end it prints and saves **`leaderboard.md`**: the leaderboard
-  (rank, L2 placement, % right per test, average, points vs the baseline,
-  MedQuAD perplexity with % change, ROUGE-L, F1) and the thinking-time
-  table. `*` = real difference (paired 95 % CI excludes 0). The baseline is
+- At the end it prints and saves **`leaderboard.md`** with five tables:
+  1. **Leaderboard** — rank, L2 placement, % right per test, average,
+     points vs the baseline, MedQuAD perplexity (% change), ROUGE-L, F1;
+  2. **Does the model depend on L2?** — perplexity and % right with L2 on
+     vs off, NLL rise with its CI;
+  3. **Thinking time: % right** (PubMedQA);
+  4. **Thinking time: MedQuAD perplexity**;
+  5. **Model facts** — parameters, L2 parameters, training time, final gate,
+     brake events, rollbacks, L2 spread ratio and anchor energy. `*` = real difference (paired 95 % CI excludes 0). The baseline is
   the last run by name with `baseline` in it (`v25_baseline`);
   `--baseline <name>` to choose another.
 - Run time has not been measured on the pod; the mix models are the
@@ -754,7 +765,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,228) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,230) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1029,7 +1040,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 228 tests
+python -m pytest            # 230 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
