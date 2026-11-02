@@ -479,6 +479,11 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
     ap.add_argument("--gpu", default="auto")
     ap.add_argument("--min-free-gb", type=float, default=10.0)
     ap.add_argument("--seed", type=int, default=17)
+    ap.add_argument("--baseline", default=None,
+                    help="run name the leaderboard compares against "
+                         "(default: the first run with 'baseline' in its name)")
+    ap.add_argument("--markdown", default=None,
+                    help="also write the leaderboard to this markdown file")
     args = ap.parse_args(argv)
     if not args.compare:
         from ekdant.train_gen import pick_device
@@ -508,6 +513,7 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
             res = mcq_evaluate(model, tok, qs, device, cfg.max_seq_len,
                                  args.batch_size, not args.no_l2_off)
             res["checkpoint"] = chosen
+            res["l2"] = describe_l2(cfg)
             with open(os.path.join(run_dir, "mcq.json"), "w", encoding="utf-8") as f:
                 json.dump(res, f)
             del model
@@ -515,15 +521,141 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                 torch.cuda.empty_cache()
         if args.zero_shot:
             args.runs.insert(0, os.path.join("runs", "zero_shot_smollm2"))
-    mcq_compare(args.runs)
+    mcq_compare(args.runs, args.baseline, args.markdown)
 
 
-def mcq_compare(run_dirs: List[str]) -> None:
+MCQ_TITLE = {"medmcqa": "MedMCQA", "medqa": "MedQA", "pubmedqa": "PubMedQA"}
+
+
+def describe_l2(cfg: V2Config) -> str:
+    """Short label of where L2 sits and whether it is forced."""
+    if cfg.addon == "none":
+        return "-"
+    if cfg.addon_layers:
+        where = f"mix ({len(cfg.addon_layers) + int(cfg.addon_final)} sites)"
+    elif cfg.addon_layer >= 1:
+        where = f"after layer {cfg.addon_layer}"
+    else:
+        where = "end"
+    return f"{where}, {'forced' if cfg.gate_force else 'free'}"
+
+
+def _paired_acc(ref: Dict, run: Dict, names: Sequence[str]) -> Optional[Dict]:
+    """Paired bootstrap of the accuracy difference (run - ref), averaged over
+    ``names`` with equal weight per test (the leaderboard average)."""
+    a, b, g, w = [], [], [], []
+    for n in names:
+        if n not in ref or n not in run:
+            return None
+        ra = {row["q"]: row["right"] for row in ref[n]["rows"]}
+        rb = {row["q"]: row["right"] for row in run[n]["rows"]}
+        keys = sorted(set(ra) & set(rb))
+        if not keys:
+            return None
+        k = 1.0 / (len(keys) * len(names))
+        for q in keys:
+            a.append(ra[q] * k)
+            b.append(rb[q] * k)
+            g.append(f"{n}:{q}")
+            w.append(k)
+    return paired_bootstrap(a, b, g, weights=w)
+
+
+def _star(ci: Optional[Dict]) -> str:
+    return "*" if ci and (ci["lo"] > 0 or ci["hi"] < 0) else ""
+
+
+def mcq_leaderboard(run_dirs: List[str], baseline: Optional[str] = None) -> str:
+    """A model-card style leaderboard (markdown): % right per test, the
+    average, the gain over the baseline (* = paired 95 % CI excludes 0) and
+    the generative benchmark from results.json where the run has one."""
+    runs = []
+    for d in run_dirs:
+        with open(os.path.join(d, "mcq.json"), encoding="utf-8") as f:
+            m = json.load(f)
+        res = None
+        rp = os.path.join(d, "results.json")
+        if os.path.exists(rp):
+            with open(rp, encoding="utf-8") as f:
+                res = json.load(f)
+        runs.append((os.path.basename(d.rstrip("/\\")), m, res))
+    names = [n for n in MCQ_DATASETS if any(n in m for _, m, _ in runs)]
+    base_name = baseline or next((n for n, _, _ in runs if "baseline" in n), runs[0][0])
+    base = next(r for r in runs if r[0] == base_name)
+
+    def avg(m):
+        return (sum(m[n]["accuracy"] for n in names) / len(names)
+                if all(n in m for n in names) else None)
+
+    rows = sorted(runs, key=lambda r: -(avg(r[1]) if avg(r[1]) is not None else -1))
+    head = (["#", "Model", "L2"] + [MCQ_TITLE[n] for n in names]
+            + ["Average", "vs baseline", "MedQuAD ppl (lower = better)", "ROUGE-L", "F1"])
+    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    bres = base[2]["test"]["medquad_bench"] if base[2] and "test" in base[2] else None
+    for i, (name, m, res) in enumerate(rows, 1):
+        is_base = name == base_name
+        cells = [str(i), f"**{name}** (baseline)" if is_base else name, m.get("l2", "?")]
+        for n in names:
+            if n not in m:
+                cells.append("-")
+                continue
+            c = f"{100 * m[n]['accuracy']:.1f}"
+            if not is_base and n in base[1]:
+                ci = _paired_acc(base[1], m, [n])
+                if ci:
+                    c += f" ({100 * ci['diff']:+.1f}{_star(ci)})"
+            cells.append(c)
+        a = avg(m)
+        cells.append(f"**{100 * a:.1f}**" if a is not None else "-")
+        if is_base:
+            cells.append("-")
+        else:
+            ci = _paired_acc(base[1], m, names)
+            cells.append(f"{100 * ci['diff']:+.1f} points{_star(ci)}" if ci else "-")
+        b = res["test"]["medquad_bench"] if res and "test" in res else None
+        if b is None:
+            cells += ["-", "-", "-"]
+        else:
+            c = f"{b['ppl']:.3f}"
+            if bres is not None and not is_base and "row_nll" in b and "row_nll" in bres:
+                ra, rb = _rows(bres), _rows(b)
+                keys = sorted(set(ra) & set(rb))
+                grp = dict(zip(bres["row_idx"], bres.get("row_group", bres["row_idx"])))
+                ci = paired_bootstrap([ra[k][0] for k in keys], [rb[k][0] for k in keys],
+                                      [str(grp[k]) for k in keys],
+                                      weights=[ra[k][1] for k in keys])
+                c += f" ({100 * (b['ppl'] / bres['ppl'] - 1):+.1f}%{_star(ci)})"
+            cells.append(c)
+            cells.append(f"{100 * b['rouge_l']:.1f}" if "rouge_l" in b else "-")
+            cells.append(f"{100 * b['token_f1']:.1f}" if "token_f1" in b else "-")
+        lines.append("| " + " | ".join(cells) + " |")
+    n_q = {n: next((m[n]["n"] for _, m, _ in runs if n in m), 0) for n in names}
+    lines += ["",
+              "% of questions answered right ("
+              + ", ".join(f"{MCQ_TITLE[n]} {n_q[n]:,} questions, chance "
+                          f"{100 * MCQ_CHANCE[n]:.0f}%" for n in names)
+              + "). Average = mean of the tests. (+x) = points more than the "
+              f"baseline `{base_name}`; perplexity (+x%) = change vs the baseline. "
+              "* = real difference (paired 95% bootstrap CI excludes 0); "
+              "no * = within noise. ROUGE-L / F1 = word overlap of generated "
+              "answers with the reference (MedQuAD, %)."]
+    return "\n".join(lines)
+
+
+def mcq_compare(run_dirs: List[str], baseline: Optional[str] = None,
+                markdown: Optional[str] = None) -> None:
+    board = mcq_leaderboard(run_dirs, baseline)
+    print("\n" + board + "\n")
+    if markdown:
+        with open(markdown, "w", encoding="utf-8") as f:
+            f.write(board + "\n")
+        print(f"leaderboard written to {markdown}")
     runs = []
     for d in run_dirs:
         with open(os.path.join(d, "mcq.json"), encoding="utf-8") as f:
             runs.append((os.path.basename(d.rstrip("/\\")), json.load(f)))
     names = [n for n in MCQ_DATASETS if any(n in r for _, r in runs)]
+    print("details:")
     print("\n% right (95% CI); chance: "
           + ", ".join(f"{n} {100 * MCQ_CHANCE[n]:.0f}%" for n in names))
     print(f"{'run':24s}" + "".join(f"{n:>22s}" for n in names))

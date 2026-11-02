@@ -130,9 +130,17 @@ export CUDA_VISIBLE_DEVICES=3                  # any GPU with >= 10 GB free (not
 python -m ekdant.gen_eval mcq --zero-shot --limit 50 runs/v25_baseline   # quick check first
 nohup python -m ekdant.gen_eval mcq --zero-shot runs/v25_baseline runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced > mcq.log 2>&1 &
 tail -f mcq.log
-# the table again later, without re-scoring (first run = reference for the paired lines):
-python -m ekdant.gen_eval mcq --compare runs/v25_baseline runs/zero_shot_smollm2 runs/v25_end runs/v25_mix runs/v26_end_forced runs/v26_mix_forced
+# the leaderboard of every scored model, without re-scoring (also saved as leaderboard.md):
+python -m ekdant.gen_eval mcq --compare --markdown leaderboard.md $(ls runs/*/mcq.json | xargs -n1 dirname)
 ```
+
+The leaderboard (model-card style) has one row per model, ranked by the
+average % right: MedMCQA, MedQA, PubMedQA, the average, the gain over the
+baseline in points, and the generative benchmark from `results.json`
+(MedQuAD perplexity with its % change vs the baseline, ROUGE-L, F1). A `*`
+marks a real difference (paired 95 % CI excludes 0); no `*` = within noise.
+The baseline is the first run with `baseline` in its name (`--baseline
+<name>` to choose another).
 
 The first run downloads MedMCQA, MedQA and PubMedQA pqa_labeled if they are
 not cached. Run time has not been measured on the pod yet. The output is a
@@ -733,7 +741,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,221) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,223) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1008,7 +1016,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 221 tests
+python -m pytest            # 223 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

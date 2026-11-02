@@ -126,4 +126,43 @@ def test_compare_only_reads_existing_files(two_runs, capsys):
     assert "medmcqa" in text and "l2 - base on medmcqa" in text
 
 
+def _fake(dirpath, rights, l2="-"):
+    dirpath.mkdir()
+    m = {"l2": l2}
+    for name, rr in rights.items():
+        rows = [{"q": i, "pick": 0, "right": r} for i, r in enumerate(rr)]
+        m[name] = M.mcq_summarise(rows, len(rows))
+    (dirpath / "mcq.json").write_text(json.dumps(m))
+    return str(dirpath)
+
+
+def test_leaderboard_ranks_models_and_marks_real_gains(tmp_path):
+    base = _fake(tmp_path / "v_baseline", {"medmcqa": [0, 1] * 50, "pubmedqa": [0, 1] * 50})
+    good = _fake(tmp_path / "v_good", {"medmcqa": [1] * 100, "pubmedqa": [1] * 100},
+                 l2="end, free")
+    same = _fake(tmp_path / "v_same", {"medmcqa": [1, 0] * 50, "pubmedqa": [0, 1] * 50},
+                 l2="mix (9 sites), forced")
+    board = M.mcq_leaderboard([base, same, good])
+    lines = [ln for ln in board.splitlines() if ln.startswith("| ")]
+    assert lines[0].startswith("| # | Model | L2 | MedMCQA | PubMedQA | Average")
+    assert lines[1].startswith("| 1 | v_good | end, free | 100.0 (+50.0*) | 100.0 (+50.0*) | **100.0** | +50.0 points* |")
+    assert "**v_baseline** (baseline)" in board
+    same_row = next(ln for ln in lines if "v_same" in ln)
+    assert "+0.0 points |" in same_row and "*" not in same_row.split("|")[7]   # a tie: no star
+    assert "chance 25%" in board and "real difference" in board
+
+
+def test_leaderboard_includes_the_generative_benchmark(two_runs, tmp_path, capsys):
+    base, l2 = two_runs
+    md = tmp_path / "board.md"
+    M.mcq_main([str(base), str(l2), "--datasets", "medmcqa", "--gpu", "cpu",
+                "--min-free-gb", "0", "--no-l2-off", "--baseline", "base",
+                "--markdown", str(md)])
+    board = md.read_text()
+    row = next(ln for ln in board.splitlines() if ln.startswith("| ") and "| l2 |" in ln)
+    ppl = json.loads((l2 / "results.json").read_text())["test"]["medquad_bench"]["ppl"]
+    assert f"{ppl:.3f} (" in row and "end, free" in row
+    assert "(baseline)" in board and "| - |" in board
+
+
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)
