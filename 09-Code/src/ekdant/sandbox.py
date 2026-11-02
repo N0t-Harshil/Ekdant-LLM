@@ -10,7 +10,7 @@ Spec: 04-Model-DeepDive/26c_Internal_Sandbox_Build.md
 from __future__ import annotations
 
 import math
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -28,6 +28,9 @@ class SandboxOutput(NamedTuple):
     # per-token agreement of the K trajectories, in (0, 1]: 1 = they all
     # reached the same state (T50); detached - a signal, not a loss target
     confidence: Optional[torch.Tensor] = None
+    # [B,T,3] with the verifier (T51): agreement, top verifier weight, vote
+    # support - the detached inputs of the learned confidence
+    features: Optional[torch.Tensor] = None
 
 
 def masked_mean_bt(x: torch.Tensor,
@@ -65,17 +68,28 @@ def spread_gains(K: int, lo: float = 0.8, hi: float = 1.25,
 
 
 class DiverseInit(nn.Module):
-    """K distinct projections of hT: orthogonal weights, spread gains."""
+    """K distinct projections of hT: orthogonal weights, spread gains.
+
+    ``aligned`` (T51): trajectory k = hT + a small, different nudge
+    (identity + 0.25 x a random matrix, no bias), so every trajectory starts
+    in the model's own representation - same meaning, a different angle -
+    instead of a random projection the model would have to fight."""
 
     def __init__(self, dim: int, K: int, gain_lo: float = 0.8,
-                 gain_hi: float = 1.25):
+                 gain_hi: float = 1.25, aligned: bool = False,
+                 nudge: float = 0.25):
         super().__init__()
         self.K = K
         self.dim = dim
         w = mutual_orthogonal(K, dim) * math.sqrt(dim)
-        g = spread_gains(K, gain_lo, gain_hi)
-        self.weight = nn.Parameter(w * g.view(K, 1, 1))
-        self.bias = nn.Parameter(0.02 * torch.randn(K, dim))
+        if aligned:
+            eye = torch.eye(dim).expand(K, dim, dim)
+            self.weight = nn.Parameter(eye + nudge * w)
+            self.bias = nn.Parameter(torch.zeros(K, dim))
+        else:
+            g = spread_gains(K, gain_lo, gain_hi)
+            self.weight = nn.Parameter(w * g.view(K, 1, 1))
+            self.bias = nn.Parameter(0.02 * torch.randn(K, dim))
 
     def forward(self, hT: torch.Tensor) -> torch.Tensor:
         out = torch.einsum("kij,btj->kbti", self.weight, hT)
@@ -104,50 +118,64 @@ class CrossRead(nn.Module):
         return torch.einsum("kjbt,jbtd->kbtd", attn, v)
 
 
-class ContextRead(nn.Module):
-    """Each trajectory reads the earlier tokens of the text (T50): causal
-    multi-head attention over the sequence, the same weights for all K
-    trajectories, so each hypothesis looks at the question and context in
-    its own way.  The output projection starts at zero: an untrained
-    ContextRead changes nothing.  ``attn_mask`` [B, T] (1 = real token)
-    keeps padding out; every token always sees itself."""
+class TextMemory(NamedTuple):
+    """What L2 reads (T51): the model's own states of the tokens so far,
+    computed once per forward and shared by every trajectory and round."""
+    keys: torch.Tensor        # [B, H, Tk, dh]
+    values: torch.Tensor      # [B, H, Tk, dh] = the model's states, unchanged
+    allowed: torch.Tensor     # [B, 1, Tq, Tk] bool: causal + no padding
+    history: torch.Tensor     # [B, Tq, D] mean of the model's states so far
 
-    def __init__(self, dim: int, heads: int = 0):
+
+def read_mask(Tq: int, Tk: int, attn_mask: Optional[torch.Tensor],
+              B: int, device) -> torch.Tensor:
+    """[B,1,Tq,Tk]: query i (= key position Tk-Tq+i) sees keys j <= it that
+    are real tokens; it always sees itself (no empty row)."""
+    off = Tk - Tq
+    qi = torch.arange(Tq, device=device).view(Tq, 1) + off
+    kj = torch.arange(Tk, device=device).view(1, Tk)
+    m = (kj <= qi).unsqueeze(0).expand(B, Tq, Tk)
+    if attn_mask is not None:
+        m = m & attn_mask[:, -Tk:].bool().unsqueeze(1)
+    m = m | (kj == qi).unsqueeze(0)
+    return m.unsqueeze(1)
+
+
+class ContextRead(nn.Module):
+    """Each trajectory reads the text through the model's own states
+    (T50/T51).  Keys and values come from ``TextMemory`` (one projection of
+    the model's states per forward, values unchanged), so L2 reads in the
+    model's own meaning and costs one query projection per round; the K
+    trajectories are folded into the query length, so the text is never
+    copied K times.  ``alpha`` (per channel) starts at 0: an untrained read
+    changes nothing."""
+
+    def __init__(self, dim: int, heads: int):
         super().__init__()
-        heads = heads or max(1, dim // 64)
-        if dim % heads:
-            raise ValueError(f"sandbox_heads {heads} must divide dim {dim}")
         self.heads = heads
         self.norm = RMSNorm(dim)
-        self.qkv = nn.Linear(dim, 3 * dim, bias=False)
-        self.out = nn.Linear(dim, dim, bias=False)
-        nn.init.zeros_(self.out.weight)
+        self.q = nn.Linear(dim, dim, bias=False)
+        self.alpha = nn.Parameter(torch.zeros(dim))
 
-    def forward(self, traj: torch.Tensor,
-                attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, traj: torch.Tensor, mem: TextMemory) -> torch.Tensor:
         K, B, T, D = traj.shape
         H = self.heads
-        x = self.norm(traj).reshape(K * B, T, D)
-        q, k, v = self.qkv(x).view(K * B, T, 3, H, D // H).permute(2, 0, 3, 1, 4)
-        if attn_mask is None:
-            o = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-        else:
-            causal = torch.ones(T, T, dtype=torch.bool, device=traj.device).tril()
-            m = causal & attn_mask.bool().unsqueeze(1)                    # [B,T,T]
-            m = m | torch.eye(T, dtype=torch.bool, device=traj.device)
-            m = m.repeat(K, 1, 1).unsqueeze(1)                           # [K*B,1,T,T]
-            o = F.scaled_dot_product_attention(q, k, v, attn_mask=m)
-        o = o.transpose(1, 2).reshape(K, B, T, D)
-        return traj + self.out(o)
+        q = self.q(self.norm(traj))                                  # [K,B,T,D]
+        q = q.view(K, B, T, H, D // H).permute(1, 3, 0, 2, 4).reshape(B, H, K * T, D // H)
+        m = mem.allowed.repeat(1, 1, K, 1)                           # [B,1,K*T,Tk]
+        o = F.scaled_dot_product_attention(q, mem.keys.type_as(q),
+                                           mem.values.type_as(q), attn_mask=m)
+        o = o.view(B, H, K, T, D // H).permute(2, 0, 3, 1, 4).reshape(K, B, T, D)
+        return traj + self.alpha * o
 
 
 class DebateRound(nn.Module):
     """Repair gate lets a trajectory decline the crowd.  With ``context``
-    (T50) every trajectory first reads the earlier tokens."""
+    (T50) every trajectory first reads the text."""
 
     def __init__(self, dim: int, mlp_ratio: float = 2.0, gate_bias: float = -2.0,
                  norm_input: bool = False, context: bool = False,
-                 heads: int = 0):
+                 heads: int = 1):
         super().__init__()
         self.context = ContextRead(dim, heads) if context else None
         # Pre-norm (v2, T33): the round reads a fixed-size input, so weight
@@ -164,9 +192,9 @@ class DebateRound(nn.Module):
         nn.init.constant_(self.gate.bias, gate_bias)
 
     def forward(self, traj: torch.Tensor,
-                attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        if self.context is not None:
-            traj = self.context(traj, attn_mask)
+                mem: Optional[TextMemory] = None) -> torch.Tensor:
+        if self.context is not None and mem is not None:
+            traj = self.context(traj, mem)
         x = self.norm(traj)
         cross = self.read(x)
         gamma = torch.sigmoid(self.gate(torch.cat([x, cross], dim=-1)))
@@ -174,13 +202,19 @@ class DebateRound(nn.Module):
 
 
 class AnchoredDescent(nn.Module):
-    """Gate-scaled preconditioned descent toward an external anchor."""
+    """Gate-scaled preconditioned descent toward an external anchor.
+    ``aligned`` (T51): the anchor starts as the model's own state (identity),
+    so the descent pulls every trajectory back towards what the model
+    means; before, it was a random rotation of it."""
 
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, aligned: bool = False):
         super().__init__()
         self.anchor = nn.Linear(dim, dim, bias=False)
         self.gate = nn.Linear(2 * dim, dim)
-        nn.init.orthogonal_(self.anchor.weight)
+        if aligned:
+            nn.init.eye_(self.anchor.weight)
+        else:
+            nn.init.orthogonal_(self.anchor.weight)
         nn.init.zeros_(self.gate.bias)
 
     @staticmethod
@@ -203,6 +237,49 @@ class AnchoredDescent(nn.Module):
         return traj, a_t, energy, retention
 
 
+class Verifier(nn.Module):
+    """Scores each trajectory per token (T51):
+    (1) its own quality, (2) how well it fits what was read / generated so far
+    (the history of the model's states), (3) the vote - how many of the other
+    trajectories agree with it (odd K gives a clear majority).
+    (1) and (2) start at zero; the vote starts on (weight 1)."""
+
+    def __init__(self, dim: int):
+        super().__init__()
+        self.norm = RMSNorm(dim)
+        self.own = nn.Linear(dim, 1)
+        self.fit = nn.Linear(dim, dim, bias=False)
+        self.vote = nn.Parameter(torch.ones(()))
+        nn.init.zeros_(self.own.weight)
+        nn.init.zeros_(self.own.bias)
+        nn.init.zeros_(self.fit.weight)
+
+    @staticmethod
+    def support(traj: torch.Tensor) -> torch.Tensor:
+        """[K,B,T]: mean over the other trajectories of exp(-distance^2 /
+        size^2) - 1 = all others agree with this one."""
+        K = traj.shape[0]
+        if K == 1:
+            return torch.ones(traj.shape[:-1], device=traj.device, dtype=traj.dtype)
+        t = traj.float()
+        size = t.mean(0).pow(2).sum(-1).clamp_min(1e-6)               # [B,T]
+        d = (t.unsqueeze(0) - t.unsqueeze(1)).pow(2).sum(-1) / size   # [K,K,B,T]
+        s = torch.exp(-d).sum(1) - 1.0                                # drop self
+        return s / (K - 1)
+
+    def forward(self, traj: torch.Tensor,
+                history: Optional[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """(weights [K,B,T] summing to 1 over K, support [K,B,T])."""
+        x = self.norm(traj)
+        s = self.own(x).squeeze(-1).float()
+        if history is not None:
+            h = history.unsqueeze(0).type_as(x)
+            s = s + (self.fit(x) * h).sum(-1).float() / math.sqrt(x.shape[-1])
+        sup = self.support(traj)
+        s = s + self.vote.float() * sup
+        return s.softmax(dim=0), sup.detach()
+
+
 class Sandbox(nn.Module):
     """K trajectories: init -> debate x R -> anchored descent x S -> consensus."""
 
@@ -222,12 +299,16 @@ class Sandbox(nn.Module):
         context: bool = False,
         heads: int = 0,
         confidence: bool = False,
+        aligned: bool = False,
     ):
         super().__init__()
         if readout not in ("mean", "lowest_energy"):
             raise ValueError(f"readout must be mean|lowest_energy, got {readout}")
         if eta is None:
             eta = 0.5 / steps if steps > 0 else 0.0
+        heads = heads or max(1, dim // 64)
+        if context and dim % heads:
+            raise ValueError(f"sandbox_heads {heads} must divide dim {dim}")
         self.dim = dim
         self.K = K
         self.rounds = rounds
@@ -238,42 +319,66 @@ class Sandbox(nn.Module):
         self.eta = eta
         self.rho_min = rho_min
         self.readout = readout
-        self.init_proj = DiverseInit(dim, K, gain_lo, gain_hi)
+        self.heads = heads
+        self.init_proj = DiverseInit(dim, K, gain_lo, gain_hi, aligned=aligned)
         self.debate = nn.ModuleList(
             [DebateRound(dim, mlp_ratio=mlp_ratio, norm_input=norm_inputs,
                          context=context, heads=heads)
              for _ in range(rounds)])
-        self.descent = AnchoredDescent(dim)
-        # Confidence-weighted readout (T50): a verifier scores each
-        # trajectory per token and the consensus trusts the better ones.
-        # Zero-init = equal weights = the plain mean.
-        self.verifier = None
-        if confidence:
-            self.verifier = nn.Sequential(RMSNorm(dim), nn.Linear(dim, 1))
-            nn.init.zeros_(self.verifier[1].weight)
-            nn.init.zeros_(self.verifier[1].bias)
+        self.descent = AnchoredDescent(dim, aligned=aligned)
+        # The text L2 reads (T51): the model's states, normalised; keys are
+        # one projection of them per forward, values are the states as is.
+        self.mem_norm = RMSNorm(dim) if context else None
+        self.mem_key = nn.Linear(dim, dim, bias=False) if context else None
+        # Confidence-weighted readout (T50/T51): see Verifier.
+        self.verifier = Verifier(dim) if confidence else None
+
+    def memory(self, ctx: torch.Tensor, Tq: int,
+               attn_mask: Optional[torch.Tensor]) -> TextMemory:
+        """ctx [B,Tk,D]: the model's states of every token so far (the last
+        Tq are the ones being processed now)."""
+        B, Tk, D = ctx.shape
+        H = self.heads
+        n = self.mem_norm(ctx)
+        k = self.mem_key(n).view(B, Tk, H, D // H).transpose(1, 2)
+        v = n.view(B, Tk, H, D // H).transpose(1, 2)
+        allowed = read_mask(Tq, Tk, attn_mask, B, ctx.device)
+        w = (attn_mask[:, -Tk:].to(n.dtype) if attn_mask is not None
+             else torch.ones(B, Tk, dtype=n.dtype, device=n.device)).unsqueeze(-1)
+        hist = (n * w).cumsum(1) / w.cumsum(1).clamp_min(1.0)
+        return TextMemory(k, v, allowed, hist[:, Tk - Tq:])
 
     def forward(self, hT: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
-                attn_mask: Optional[torch.Tensor] = None) -> SandboxOutput:
+                attn_mask: Optional[torch.Tensor] = None,
+                ctx: Optional[torch.Tensor] = None) -> SandboxOutput:
         """hT [B,T,H]; mask [B,T] (1 = token the loss trains) only affects
         the diagnostics / spread floor, never the consensus; attn_mask
-        [B,T] (1 = real token) keeps padding out of the context read."""
+        [B,Tk] (1 = real token) keeps padding out of the text read; ctx
+        [B,Tk,H] = the model's states of all tokens so far (default hT;
+        longer during cached generation)."""
+        mem = None
+        if self.mem_key is not None:
+            mem = self.memory(hT if ctx is None else ctx, hT.shape[1], attn_mask)
         traj = self.init_proj(hT)
         for _ in range(self.debate_passes):
             for layer in self.debate:
-                traj = layer(traj, attn_mask)
+                traj = layer(traj, mem)
         traj, a_t, energy, retention = self.descent(
             traj, hT, self.steps, self.eta, mask
         )
         aux = self._aux(traj, hT, a_t, energy, retention, mask)
         if self.verifier is not None:
-            w = self.verifier(traj).squeeze(-1).float().softmax(dim=0)   # [K,B,T]
+            w, sup = self.verifier(traj, mem.history if mem is not None else None)
             consensus = (w.unsqueeze(-1).type_as(traj) * traj).sum(0)
             conf = self._confidence(traj, consensus, w)
+            top = w.detach().max(dim=0).values
+            vote = (w.detach() * sup).sum(0)
             aux["confidence"] = masked_mean_bt(conf, mask)
-            aux["verifier_top_weight"] = masked_mean_bt(w.detach().max(dim=0).values, mask)
-            return SandboxOutput(consensus, traj, aux, conf)
+            aux["verifier_top_weight"] = masked_mean_bt(top, mask)
+            aux["vote_support"] = masked_mean_bt(vote, mask)
+            feats = torch.stack([conf, top.float(), vote.float()], dim=-1)
+            return SandboxOutput(consensus, traj, aux, conf, feats)
         if self.readout == "lowest_energy":
             # Per-position pick (thesis: argmin_k ||T_k - a_t||).  Choosing
             # one trajectory from batch/sequence-averaged energy let future
@@ -322,9 +427,11 @@ class Sandbox(nn.Module):
                          attn_mask: Optional[torch.Tensor] = None
                          ) -> List[torch.Tensor]:
         states = []
+        mem = (self.memory(hT, hT.shape[1], attn_mask)
+               if self.mem_key is not None else None)
         traj = self.init_proj(hT)
         states.append(traj)
         for layer in self.debate:
-            traj = layer(traj, attn_mask)
+            traj = layer(traj, mem)
             states.append(traj)
         return states

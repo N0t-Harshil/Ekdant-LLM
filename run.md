@@ -100,40 +100,36 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3j. L2 v3: L2 reads the text and knows how sure it is (T50) — new
+## A3j. L2 v3: L2 thinks in the model's meaning, reads the text, votes and knows how sure it is (T50, T51) — new
 
-**What was missing in L2 (found 2026-11-02, T50).** Three gaps between
-the design idea ("a sandbox inside the LLM that reasons and is confident
-like a human") and the v2 code:
+**Gaps found in L2 (2026-11-02).**
 
-1. **L2 saw one token at a time.** The debate (`CrossRead`) mixes the K
-   trajectories *at the same position only*; nothing in L2 looked at the
-   other tokens. So L2 could not read the question or the abstract — every
-   bit of reading was done by SmolLM2, and L2 was a per-token refinement
-   (a fancy MLP), not a place where hypotheses are tested against the text.
-2. **No confidence.** The K trajectories were averaged; how much they
-   agreed was thrown away, so the model never knew whether its "thoughts"
-   agreed.
-3. **One gate for every token.** The gate is one number per channel, the
-   same for easy and hard tokens: L2 could not count more where it helps.
-
-(The anchored descent stays as it was: it pulls the trajectories towards a
-learned anchor of the token's state; with very many steps they collapse onto
-it, which is what the thinking-time test shows at 32 steps.)
+1. **L2 saw one token at a time** (T50). The debate mixes the trajectories
+   at the same position only; L2 never read the question or the abstract.
+2. **L2 thought in a different meaning than the model** (T51). Each
+   trajectory started as a *random projection* of the model's state, and the
+   descent pulled them towards a *random rotation* of it; L2's output was
+   then normalised to size 1 while the model's state has its own size. So L2
+   and the model really worked in different spaces, and the gate had to
+   fight that.
+3. **No confidence, and nothing taught it to mean "I am right"** (T50, T51).
+   The trajectories were averaged; their agreement was thrown away.
+4. **One gate for every token** (T50): L2 could not count more where it helps.
+5. **4 trajectories**: an even number allows a 2-2 split.
 
 **The v3 L2** (`configs/v3_sandbox_end.json` = `v2_sandbox_final.json` plus
-three switches; all off = the old L2, so every old run loads unchanged):
+the switches below; all off = the old L2, every old run loads unchanged):
 
-| switch | what it adds |
+| switch | what it does |
 |---|---|
-| `sandbox_context` | in each of the 4 debate rounds every trajectory first **reads the earlier tokens** (causal attention, 9 heads), then debates with the others: 4 hypotheses, each re-reading the question and context its own way |
-| `sandbox_confidence` | a **verifier** scores each trajectory per token and the consensus trusts the better ones; the trajectories' **agreement** becomes a per-token **confidence** (1 = all agree); a **per-token gate** uses L2's output and that confidence, so L2 counts more where it helps and where it is sure |
+| `sandbox_aligned` | every trajectory **starts at the model's own state** plus a small, different nudge (same meaning, a different angle); the descent **pulls back towards the model's own state**; L2's output has **the model's size** at that token — L2 and the model no longer fight |
+| `sandbox_context` | L2 **reads the text with the model**: in each debate round every trajectory looks at the earlier tokens *through the model's own states* (values = the model's states unchanged; one key projection per forward, shared by every trajectory and round) — cheap, same meaning, and cached with the model's KV cache, so generation stays fast |
+| `n_sandbox: 5` | an **odd number** of trajectories: a vote always has a majority (even numbers are refused with confidence on) |
+| `sandbox_confidence` | a **verifier** scores every trajectory at every token by (1) its own quality, (2) how well it **fits what was read / generated so far** (the history of the model's states), (3) **the vote** — how many others agree with it; the answer trusts the winners. A **confidence head** learns to predict *"is the model's next token right?"* (trained with its inputs detached, `lambda_conf` 0.1, so it never changes what the language model learns); a **per-token gate** uses L2's output and that confidence |
 
-Every new part starts at zero: at step 0 the v3 model gives exactly the
-backbone's output (checked on the real SmolLM2), like v2. Size: L2 24.9M
-parameters (v2: 19.6M; model 159.4M). Generation re-runs the whole sequence
-each new token (L2 has no KV cache of its own): ROUGE/F1 take longer. Train
-time on the A100 not measured yet.
+At step 0 the v3 model gives exactly the backbone's output (checked on the
+real SmolLM2). Size: L2 21.9M parameters (v2 19.6M; first v3 draft 24.9M).
+Train time on the A100 not measured yet.
 
 Same v22 recipe, seed 17, so it compares directly with the existing
 `v22_baseline` and `v22_end`:
@@ -154,8 +150,9 @@ python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leade
 tail -f v3_end.log
 ```
 
-The log shows `confidence` and `token_gate` with the other L2 numbers. Bring
-back `leaderboard_v3.md`, `mcq_v3.log` and `v3_end.log`.
+The log shows `confidence`, `learned_confidence`, `vote_support` and
+`token_gate` with the other L2 numbers. Bring back `leaderboard_v3.md`,
+`mcq_v3.log` and `v3_end.log`.
 
 ## A3i. Second seed of the best model: v22 recipe, seed 23 — **run this next**
 
@@ -866,7 +863,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,244) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,248) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1141,7 +1138,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 244 tests
+python -m pytest            # 248 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

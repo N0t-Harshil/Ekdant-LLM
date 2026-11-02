@@ -235,20 +235,32 @@ class GatedAddOn(nn.Module):
     def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final",
                  sandbox: Optional[Sandbox] = None, gate_cap: float = 0.0,
                  checkpoint: bool = False, force: bool = False,
-                 token_gate: bool = False):
+                 token_gate: bool = False, aligned: bool = False):
         super().__init__()
         if mode not in ("final", "mid"):
             raise ValueError(f"mode must be final|mid, got {mode!r}")
         self.mode = mode
-        # Per-token gate (T50): the gate is scaled per token by
-        # 2*sigmoid(u . L2_output + v * confidence), so L2 can count more
-        # where it helps and where its trajectories agree.  Zero-init = 1 =
-        # the plain per-channel gate.
+        # ``aligned`` (T51): L2's output is brought to the size of the
+        # model's own state at that token, so it speaks at the model's scale
+        self.aligned = aligned
+        # Learned confidence + per-token gate (T50/T51).  The confidence
+        # head reads L2's agreement signals (detached) and is trained to
+        # predict whether the model's next token is right (``_conf_loss``);
+        # the per-token gate scales the gate by 2*sigmoid(u . L2_output +
+        # v * confidence), so L2 counts more where it helps and where it is
+        # sure.  Both zero-init: confidence 0.5, gate factor 1.
         self.token_gate = None
+        self.conf_head = None
         if token_gate:
+            self.conf_head = nn.Linear(dim + 3, 1)
             self.token_gate = nn.Linear(dim + 1, 1)
-            nn.init.zeros_(self.token_gate.weight)
-            nn.init.zeros_(self.token_gate.bias)
+            for lin in (self.conf_head, self.token_gate):
+                nn.init.zeros_(lin.weight)
+                nn.init.zeros_(lin.bias)
+        # set each forward: the confidence logits [B,T] (for the confidence
+        # loss) and the states L2 read (the generation cache, T51)
+        self.last_conf_logit: Optional[torch.Tensor] = None
+        self.last_ctx: Optional[torch.Tensor] = None
         # ``gate`` is the raw parameter; with ``gate_cap`` > 0 the effective
         # gate is cap * tanh(gate / cap): 0 at init, slope 1 there, and never
         # beyond the cap however hard training pushes (T37).
@@ -273,27 +285,43 @@ class GatedAddOn(nn.Module):
             self.in_norm = RMSNorm(dim)
 
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None,
-                attn_mask: Optional[torch.Tensor] = None
+                attn_mask: Optional[torch.Tensor] = None,
+                past_ctx: Optional[torch.Tensor] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        self.last_conf_logit = None
         if not self.enabled:
+            self.last_ctx = None
             return h, {}
         x = self.in_norm(h) if self.mode == "mid" else h
+        # what L2 reads: the model's states of every token so far
+        ctx = x if past_ctx is None else torch.cat([past_ctx.type_as(x), x], dim=1)
+        self.last_ctx = ctx.detach()
         g = self.effective_gate()
         if self.checkpoint and torch.is_grad_enabled():
             # recompute L2 in the backward pass instead of storing its
             # activations: identical numbers, far less memory (T40)
             out = torch.utils.checkpoint.checkpoint(
-                self.sandbox, x, mask, attn_mask, use_reentrant=False)
+                self.sandbox, x, mask, attn_mask, ctx, use_reentrant=False)
         else:
-            out = self.sandbox(x, mask=mask, attn_mask=attn_mask)
+            out = self.sandbox(x, mask=mask, attn_mask=attn_mask, ctx=ctx)
         aux = dict(out.aux)
         # L2's internal size, which the output norm hides from the loss;
         # logged so drift is visible during training (T34)
         aux["consensus_rms"] = masked_mean_bt(
             out.consensus.detach().float().pow(2).mean(-1), mask).sqrt()
         y = self.out_norm(out.consensus)
+        if self.aligned:
+            # the model's scale at this token (end: the state itself; mid:
+            # the normalised input L2 read)
+            ref = h if self.mode == "final" else x
+            y = y * ref.float().pow(2).mean(-1, keepdim=True).sqrt().detach().type_as(y)
         if self.token_gate is not None:
-            conf = out.confidence.type_as(y).unsqueeze(-1)            # [B,T,1]
+            feats = out.features if out.features is not None else \
+                out.confidence.unsqueeze(-1).expand(*out.confidence.shape, 3)
+            logit = self.conf_head(torch.cat([y.detach(), feats.type_as(y)], dim=-1)).squeeze(-1)
+            self.last_conf_logit = logit
+            conf = torch.sigmoid(logit).detach().unsqueeze(-1)       # [B,T,1]
+            aux["learned_confidence"] = masked_mean_bt(conf.float().squeeze(-1), mask)
             f = 2.0 * torch.sigmoid(self.token_gate(torch.cat([y, conf], dim=-1)))
             g = g * f                                                 # [B,T,dim]
             if self.force and self.gate_floor > 0:
@@ -344,20 +372,21 @@ class MultiAddOn(nn.Module):
     def __init__(self, dim: int, sandbox_kwargs: Dict, n_sites: int,
                  shared: bool = True, gate_cap: float = 0.0,
                  final: bool = False, checkpoint: bool = False,
-                 force: bool = False, token_gate: bool = False):
+                 force: bool = False, token_gate: bool = False,
+                 aligned: bool = False):
         super().__init__()
         one = Sandbox(dim, **sandbox_kwargs) if shared else None
         self.sites = nn.ModuleList(
             [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one,
                         gate_cap=gate_cap, checkpoint=checkpoint, force=force,
-                        token_gate=token_gate)
+                        token_gate=token_gate, aligned=aligned)
              for _ in range(n_sites)])
         # ``final`` (the "mix", T40): the same L2 once more after the final
         # norm, i.e. the inner sites plus the end placement
         self.final_site = (GatedAddOn(dim, sandbox_kwargs, mode="final",
                                       sandbox=one, gate_cap=gate_cap,
                                       checkpoint=checkpoint, force=force,
-                                      token_gate=token_gate)
+                                      token_gate=token_gate, aligned=aligned)
                            if final else None)
 
     def _all(self) -> list:
@@ -428,6 +457,15 @@ class V2Config:
     sandbox_context: bool = False
     sandbox_heads: int = 0
     sandbox_confidence: bool = False
+    # T51: sandbox_aligned - the trajectories start at the model's own state
+    # (plus a small different nudge), the descent anchor is the model's own
+    # state, and L2's output has the model's scale: L2 thinks in the model's
+    # meaning instead of a random projection of it.  lambda_conf - weight of
+    # the confidence loss (the confidence head learns to predict whether the
+    # next token is right; its inputs are detached, so it never changes
+    # what the language model learns).
+    sandbox_aligned: bool = False
+    lambda_conf: float = 0.1
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
@@ -437,6 +475,9 @@ class V2Config:
         if self.addon_final and not self.addon_layers:
             raise ValueError("addon_final needs addon_layers (use addon_layer=-1 "
                              "for the end placement alone)")
+        if self.sandbox_confidence and self.n_sandbox % 2 == 0:
+            raise ValueError("sandbox_confidence votes between trajectories: "
+                             f"n_sandbox must be odd (no ties), got {self.n_sandbox}")
         if list(self.addon_layers) != sorted(set(self.addon_layers)):
             raise ValueError(f"addon_layers must be increasing and unique, "
                              f"got {self.addon_layers}")
@@ -455,7 +496,8 @@ class V2Config:
                     mlp_ratio=self.sandbox_mlp_ratio,
                     norm_inputs=self.sandbox_prenorm,
                     context=self.sandbox_context, heads=self.sandbox_heads,
-                    confidence=self.sandbox_confidence)
+                    confidence=self.sandbox_confidence,
+                    aligned=self.sandbox_aligned)
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -465,13 +507,23 @@ class V2Config:
         return cls(**d).validate()
 
 
+class L2Cache:
+    """KV cache of a model whose L2 reads the text (T51): the backbone's own
+    cache plus, per L2 site, the model's states of the tokens so far."""
+
+    def __init__(self, backbone, ctx: list):
+        self.backbone = backbone
+        self.ctx = ctx
+
+
 class EkdantLM(nn.Module):
     """backbone -> last hidden state -> gated add-on -> backbone lm_head.
 
     The v2 add-on mixes the K trajectories within one token position only,
     so incremental decoding with the backbone's KV cache is exact; with
-    ``sandbox_context`` (T50) L2 also reads earlier tokens and generation
-    recomputes the sequence (``needs_full_context``)."""
+    ``sandbox_context`` (T50/T51) L2 also reads the model's states of the
+    earlier tokens, which are cached alongside (``L2Cache``), so cached
+    decoding stays exact."""
 
     def __init__(self, cfg: V2Config, lm: nn.Module):
         super().__init__()
@@ -495,27 +547,31 @@ class EkdantLM(nn.Module):
                                         final=cfg.addon_final,
                                         checkpoint=cfg.sandbox_checkpoint,
                                         force=cfg.gate_force,
-                                        token_gate=cfg.sandbox_confidence)
+                                        token_gate=cfg.sandbox_confidence,
+                                        aligned=cfg.sandbox_aligned)
                 self._sites = list(self.addon.sites)
             else:
                 self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
                                         mode="mid" if sites else "final",
                                         gate_cap=cfg.gate_cap,
                                         force=cfg.gate_force,
-                                        token_gate=cfg.sandbox_confidence)
+                                        token_gate=cfg.sandbox_confidence,
+                                        aligned=cfg.sandbox_aligned)
                 self._sites = [self.addon] if sites else []
             for i, k in enumerate(sites):
                 lm.model.layers[k - 1].register_forward_hook(
                     functools.partial(self._site_hook, i))
-        self._ctx: Dict = {"mask": None, "attn": None, "aux": []}
-        # T50: an L2 that reads earlier tokens has no KV cache of its own,
-        # so generation recomputes the whole sequence each step
-        self.needs_full_context = cfg.addon == "sandbox" and cfg.sandbox_context
+        self._ctx: Dict = {"mask": None, "attn": None, "aux": [], "l2_past": None}
+        # T51: L2 reads the model's own states, which are cached with the
+        # backbone's (``L2Cache``), so generation keeps the KV cache
+        self.needs_full_context = False
 
     def _site_hook(self, i, module, args, output):
         """Replace decoder layer k's output by site i's gated L2 refinement."""
         h = output[0] if isinstance(output, tuple) else output
-        new, aux = self._sites[i](h, self._ctx["mask"], self._ctx["attn"])
+        past = self._ctx["l2_past"]
+        new, aux = self._sites[i](h, self._ctx["mask"], self._ctx["attn"],
+                                  past[i] if past is not None else None)
         self._ctx["aux"].append(aux)
         return (new,) + tuple(output[1:]) if isinstance(output, tuple) else new
 
@@ -531,10 +587,11 @@ class EkdantLM(nn.Module):
             dmask = F.pad((labels[:, 1:] != -100).long(), (0, 1))
         else:
             dmask = attention_mask if past_key_values is None else None
-        if self.needs_full_context and past_key_values is not None:
-            raise ValueError("L2 with sandbox_context reads earlier tokens: "
-                             "run the whole sequence, not a KV-cache step")
-        self._ctx = {"mask": dmask, "attn": attention_mask, "aux": []}
+        l2_past = None
+        if isinstance(past_key_values, L2Cache):
+            l2_past, past_key_values = past_key_values.ctx, past_key_values.backbone
+        self._ctx = {"mask": dmask, "attn": attention_mask, "aux": [],
+                     "l2_past": l2_past}
         out = self.lm.model(input_ids=input_ids, attention_mask=attention_mask,
                             past_key_values=past_key_values,
                             use_cache=use_cache, position_ids=position_ids)
@@ -542,12 +599,15 @@ class EkdantLM(nn.Module):
         aux: Dict = {}
         per_site: list = []
         if self.addon is not None and self.addon.mode == "final":
-            h, aux = self.addon(h, dmask, attention_mask)
+            h, aux = self.addon(h, dmask, attention_mask,
+                                l2_past[0] if l2_past is not None else None)
             per_site = [aux]
         elif self.addon is not None:
             per_site = list(self._ctx["aux"])
             if getattr(self.addon, "final_site", None) is not None:
-                h, aux_end = self.addon.final_site(h, dmask, attention_mask)
+                h, aux_end = self.addon.final_site(
+                    h, dmask, attention_mask,
+                    l2_past[-1] if l2_past is not None else None)
                 per_site.append(aux_end)
             # one entry per site: diagnostics averaged over the sites
             keys = set.intersection(*(set(a) for a in per_site)) if per_site else set()
@@ -564,9 +624,40 @@ class EkdantLM(nn.Module):
                 # the spread floor applies at every site
                 loss = loss + self.cfg.lambda_sbx * torch.stack(
                     [F.relu(self.cfg.rho_min - r).pow(2).mean() for r in rhos]).mean()
+            if self.cfg.sandbox_confidence and self.cfg.lambda_conf > 0:
+                loss = loss + self.cfg.lambda_conf * self._conf_loss(logits, labels)
         if use_cache:
             aux["past_key_values"] = out.past_key_values
+            if self.cfg.addon == "sandbox" and self.cfg.sandbox_context:
+                aux["past_key_values"] = L2Cache(
+                    out.past_key_values, [s.last_ctx for s in self._all_sites()])
         return ModelOutput(logits=logits, loss=loss, aux=aux)
+
+    def _all_sites(self) -> list:
+        """Every GatedAddOn in forward order (mid sites, then the end)."""
+        if self.addon is None:
+            return []
+        if isinstance(self.addon, MultiAddOn):
+            return self.addon._all()
+        return [self.addon]
+
+    def _conf_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """T51: binary cross-entropy of the confidence head against "is the
+        model's next token right" (argmax == label) on the trained positions,
+        averaged over the L2 sites.  The head's inputs are detached, so this
+        loss trains only the head."""
+        right = (logits[:, :-1].argmax(-1) == labels[:, 1:]).float().detach()
+        keep = (labels[:, 1:] != -100).float()
+        losses = []
+        for s in self._all_sites():
+            if s.last_conf_logit is None:
+                continue
+            z = s.last_conf_logit[:, :-1].float()
+            bce = F.binary_cross_entropy_with_logits(z, right, reduction="none")
+            losses.append((bce * keep).sum() / keep.sum().clamp_min(1.0))
+        if not losses:
+            return logits.new_zeros(()).float()
+        return torch.stack(losses).mean()
 
     def addon_params(self) -> int:
         return count_parameters(self.addon) if self.addon is not None else 0

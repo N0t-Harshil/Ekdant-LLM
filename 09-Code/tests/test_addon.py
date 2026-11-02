@@ -51,8 +51,8 @@ def test_addon_contribution_bounded_when_sandbox_output_explodes():
         addon.gate.fill_(0.5)
     real = addon.sandbox.forward
 
-    def exploding(x, mask=None, attn_mask=None):
-        o = real(x, mask=mask, attn_mask=attn_mask)
+    def exploding(x, mask=None, attn_mask=None, ctx=None):
+        o = real(x, mask=mask, attn_mask=attn_mask, ctx=ctx)
         return o._replace(consensus=o.consensus * 1e6)
 
     addon.sandbox.forward = exploding

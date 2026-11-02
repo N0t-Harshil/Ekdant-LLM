@@ -1,7 +1,7 @@
 {
   "backbone": "HuggingFaceTB/SmolLM2-135M",
   "addon": "sandbox",
-  "n_sandbox": 4,
+  "n_sandbox": 5,
   "debate_rounds": 4,
   "sandbox_mlp_ratio": 4.0,
   "sandbox_prenorm": true,
@@ -21,5 +21,7 @@
   "sandbox_checkpoint": false,
   "sandbox_context": true,
   "sandbox_heads": 0,
-  "sandbox_confidence": true
+  "sandbox_confidence": true,
+  "sandbox_aligned": true,
+  "lambda_conf": 0.1
 }
