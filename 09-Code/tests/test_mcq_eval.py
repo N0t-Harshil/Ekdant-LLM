@@ -270,4 +270,25 @@ def test_perplexity_pairs_only_runs_with_the_same_split(tmp_path):
     assert "other seed: different split" in M.mcq_leaderboard([base, other])
 
 
+def test_restart_rescores_files_from_an_older_version(two_runs, tmp_path, capsys):
+    # the first pod run wrote mcq.json without perplexity / thinking numbers;
+    # a restart must score those models again instead of "kept" for all
+    base, l2 = two_runs
+    old = {"medmcqa": {"accuracy": 0.5, "rows": []}, "l2": "-"}
+    (base / "mcq.json").write_text(json.dumps(old))
+    (l2 / "mcq.json").write_text("{broken")
+    argv = ["--all", "--runs-dir", str(tmp_path), "--datasets", "medmcqa",
+            "--gpu", "cpu", "--min-free-gb", "0", "--markdown", str(tmp_path / "b.md")]
+    M.mcq_main(argv)
+    text = capsys.readouterr().out
+    assert "older version" in text and "unreadable" in text
+    for run in (base, l2):
+        m = json.loads((run / "mcq.json").read_text())
+        assert m["version"] == M.MCQ_VERSION and "medquad_ppl" in m
+    M.mcq_main(argv)
+    assert capsys.readouterr().out.count("already scored - kept") == 3
+    M.mcq_main(argv[:4] + ["medmcqa,pubmedqa"] + argv[5:])     # a test added later
+    assert "some tests missing" in capsys.readouterr().out
+
+
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)

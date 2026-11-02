@@ -283,6 +283,9 @@ CLI:
 """
 
 MCQ_DATASETS = ("medmcqa", "medqa", "pubmedqa")
+# mcq.json format: 1 = % right (T46), 2 = + thinking time (T47), 3 = + MedQuAD
+# perplexity on / off / thinking, facts (T48).  An older file is scored again.
+MCQ_VERSION = 3
 MCQ_CHANCE = {"medmcqa": 0.25, "medqa": 0.25, "pubmedqa": 1 / 3}
 PUBMED_OPTIONS = ["yes", "no", "maybe"]
 
@@ -556,6 +559,24 @@ def finished_runs(runs_dir: str) -> List[str]:
     return out
 
 
+def _score_state(run_dir: str, names: Sequence[str]) -> str:
+    """'complete' if ``run_dir`` already has an up-to-date mcq.json with every
+    requested test, 'missing' if it has none, else why it is scored again."""
+    path = os.path.join(run_dir, "mcq.json")
+    if not os.path.exists(path):
+        return "missing"
+    try:
+        with open(path, encoding="utf-8") as f:
+            m = json.load(f)
+    except (OSError, ValueError):
+        return "unreadable mcq.json"
+    if m.get("version", 1) < MCQ_VERSION:
+        return "scored with an older version (no perplexity / thinking numbers)"
+    if any(n not in m for n in names):
+        return "some tests missing"
+    return "complete"
+
+
 def _log(msg: str) -> None:
     print(msg, flush=True)
 
@@ -612,10 +633,13 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
         qs = None
         _log("models: " + ", ".join(os.path.basename(r) for r in runs))
         for k, run_dir in enumerate(runs, 1):
-            if (args.all and not args.rescore
-                    and os.path.exists(os.path.join(run_dir, "mcq.json"))):
-                _log(f"[{k}/{len(runs)}] {run_dir}: already scored - kept")
-                continue
+            if args.all and not args.rescore:
+                state_ = _score_state(run_dir, names)
+                if state_ == "complete":
+                    _log(f"[{k}/{len(runs)}] {run_dir}: already scored - kept")
+                    continue
+                if state_ != "missing":
+                    _log(f"[{k}/{len(runs)}] {run_dir}: {state_} - scoring again")
             try:
                 if run_dir == zs_dir:
                     cfg, state, chosen = V2Config(addon="none"), None, "pretrained"
@@ -636,6 +660,7 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                                    args.batch_size, not args.no_l2_off, think, _log)
                 res["checkpoint"] = chosen
                 res["l2"] = describe_l2(cfg)
+                res["version"] = MCQ_VERSION
                 res["seed"] = int(run_args.get("seed", 17))
                 res["params_total"] = sum(p.numel() for p in model.parameters())
                 res["params_l2"] = model.addon_params()
