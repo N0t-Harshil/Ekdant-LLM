@@ -52,13 +52,17 @@ def test_aligned_l2_starts_in_the_models_meaning():
     cos = torch.nn.functional.cosine_similarity
     t_new = new.init_proj(h)
     t_old = old.init_proj(h)
-    assert cos(t_new, h.unsqueeze(0), dim=-1).mean() > 0.9
+    assert cos(t_new, h.unsqueeze(0), dim=-1).mean() > 0.8
     assert cos(t_old, h.unsqueeze(0), dim=-1).abs().mean() < 0.3
-    assert torch.allclose(new.descent.anchor(h), h)
+    assert torch.allclose(new.descent.anchor_of(h), h)
     # the trajectories still differ (the spread floor needs them apart)
     rho = new(h).aux["spread_ratio"]
     assert float(rho) > 0.01
     assert cos(new(h).consensus, h, dim=-1).mean() > 0.8
+    # stored as a delta: weight decay (towards 0) pulls towards the model's state
+    with torch.no_grad():
+        new.init_proj.weight.zero_()
+    assert torch.allclose(new.init_proj(h), h.unsqueeze(0).expand(5, *h.shape))
 
 
 def test_l2_reads_the_text_causally_through_the_models_states():
@@ -123,6 +127,33 @@ def test_vote_and_history_shape_the_readout():
     fits = torch.stack([hist, -hist, torch.zeros_like(hist) + 0.01])
     w, _ = v(fits, hist)
     assert int(w[:, 0, 0].argmax()) == 0
+
+
+def test_vote_support_matches_the_direct_formula():
+    traj = torch.randn(5, B, T, DIM)
+    t = traj.float()
+    size = t.mean(0).pow(2).sum(-1)
+    d = (t.unsqueeze(0) - t.unsqueeze(1)).pow(2).sum(-1) / size
+    want = (torch.exp(-d).sum(1) - 1.0) / 4
+    assert torch.allclose(Verifier.support(traj), want, atol=1e-4)
+
+
+def test_per_token_gate_never_exceeds_the_cap():
+    m = _lm(gate_cap=1.0)
+    torch.nn.init.constant_(m.addon.gate, 5.0)      # capped gate ~1.0
+    with torch.no_grad():
+        m.addon.token_gate.bias.fill_(20.0)         # factor -> 2
+    a = m.addon
+    h = torch.randn(1, T, 32)
+    with torch.no_grad():
+        out, _ = a(h)
+        s = a.sandbox(h, ctx=h)
+        y = a.out_norm(s.consensus) * h.pow(2).mean(-1, keepdim=True).sqrt()
+    # out = h + g_tok * (y - h): g_tok is the ratio, and it stays <= the cap
+    d = y - h
+    big = d.abs() > 1e-2
+    ratio = (out - h)[big] / d[big]
+    assert float(ratio.max()) <= 1.0 + 1e-4 and float(ratio.min()) > 0.9
 
 
 def _lm(v3: bool = True, **kw):
@@ -219,6 +250,8 @@ def test_v3_run_end_to_end(tiny, tmp_path):
     t = r["test"]
     assert t["medquad_bench"]["ppl"] > 0 and "rouge_l" in t["medquad_bench"]
     assert t["l2_off"]["medquad_bench"]["ppl"] > 0
+    diag = t["medquad_bench"]["addon"]
+    assert {"confidence", "learned_confidence", "vote_support", "token_gate"} <= set(diag)
 
 
 def test_shipped_v3_config():

@@ -324,6 +324,10 @@ class GatedAddOn(nn.Module):
             aux["learned_confidence"] = masked_mean_bt(conf.float().squeeze(-1), mask)
             f = 2.0 * torch.sigmoid(self.token_gate(torch.cat([y, conf], dim=-1)))
             g = g * f                                                 # [B,T,dim]
+            if self.gate_cap > 0:
+                # the per-token factor may not push the gate past its cap
+                # (at the end, g > 1 would overshoot past L2's output)
+                g = self.gate_cap * torch.tanh(g / self.gate_cap)
             if self.force and self.gate_floor > 0:
                 # forced L2: the per-token gate never goes below the floor
                 g = g + (g.clamp(min=self.gate_floor) - g).detach()

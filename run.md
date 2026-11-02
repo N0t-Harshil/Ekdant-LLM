@@ -128,8 +128,16 @@ the switches below; all off = the old L2, every old run loads unchanged):
 | `sandbox_confidence` | a **verifier** scores every trajectory at every token by (1) its own quality, (2) how well it **fits what was read / generated so far** (the history of the model's states), (3) **the vote** — how many others agree with it; the answer trusts the winners. A **confidence head** learns to predict *"is the model's next token right?"* (trained with its inputs detached, `lambda_conf` 0.1, so it never changes what the language model learns); a **per-token gate** uses L2's output and that confidence |
 
 At step 0 the v3 model gives exactly the backbone's output (checked on the
-real SmolLM2). Size: L2 21.9M parameters (v2 19.6M; first v3 draft 24.9M).
-Train time on the A100 not measured yet.
+real SmolLM2). At the start the 5 trajectories agree ~88 % (spread ratio
+0.061, just above the 0.05 floor) — close to the model's meaning, but a real
+debate. Size: L2 21.9M parameters (v2 19.6M; first v3 draft 24.9M). Train
+time and GPU memory on the A100 not measured yet: L2 reads the text in each
+of its 4 rounds, so it needs more memory than v2 (22.8 GB) — the command asks
+for 40 GB free.
+
+The training `loss=` in the log includes the confidence loss (0.1 x ~0.69 at
+the start), so it reads a little higher than the baseline's; the benchmark
+perplexity is computed from the predictions alone and is not affected.
 
 Same v22 recipe, seed 17, so it compares directly with the existing
 `v22_baseline` and `v22_end`:
@@ -137,9 +145,9 @@ Same v22 recipe, seed 17, so it compares directly with the existing
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
 python -m pytest -q                          # all tests must pass
-nvidia-smi                                   # one GPU with >= 30 GB free (not GPU 0, not the seed-23 GPU)
+nvidia-smi                                   # one GPU with >= 40 GB free (not GPU 0, not the seed-23 GPU)
 export CUDA_VISIBLE_DEVICES=2                # <- the GPU you picked
-FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
 
 nohup bash -c "
 python -m ekdant.train $FLAGS --variant sandbox --config configs/v3_sandbox_end.json --out runs/v3_end > v3_end.log 2>&1;
@@ -150,8 +158,12 @@ python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leade
 tail -f v3_end.log
 ```
 
-The log shows `confidence`, `learned_confidence`, `vote_support` and
-`token_gate` with the other L2 numbers. Bring back `leaderboard_v3.md`,
+Every log line shows `conf=` (the learned confidence: starts at 0.500 and
+should move once it learns which tokens are right), `vote=` (how much the
+trajectories agree) and `tgate=` (the per-token gate factor, starts at 1.000);
+`results.json` keeps them under `addon`. If it runs out of memory, re-run
+with `--batch-size 4 --grad-accum 8` (still 32 sequences) and say so next to
+the result. Bring back `leaderboard_v3.md`,
 `mcq_v3.log` and `v3_end.log`.
 
 ## A3i. Second seed of the best model: v22 recipe, seed 23 — **run this next**
@@ -863,7 +875,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,248) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,250) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1138,7 +1150,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 248 tests
+python -m pytest            # 250 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

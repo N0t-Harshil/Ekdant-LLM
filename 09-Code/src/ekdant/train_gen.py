@@ -531,6 +531,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             model.train()
             opt.zero_grad(set_to_none=True)
             t0, loss_ema, group_bad, l2_rms = time.time(), None, False, None
+            l2_conf = None
             for bi in range(skip, nb):
                 # T44 warm-up: SmolLM2 frozen, only L2 learns
                 warm = si == 0 and opt_step < args.l2_warmup
@@ -547,6 +548,10 @@ def main(argv: Optional[List[str]] = None) -> None:
                 loss = out.loss
                 if "consensus_rms" in out.aux:
                     l2_rms = float(out.aux["consensus_rms"])
+                if "learned_confidence" in out.aux:      # L2 v3 (T51)
+                    l2_conf = (float(out.aux["learned_confidence"]),
+                               float(out.aux["vote_support"]),
+                               float(out.aux["token_gate"]))
                 tokens_seen += int(mask.sum())
                 lv = loss.item()
                 # T32 guard: a non-finite loss or gradient never reaches the
@@ -631,7 +636,9 @@ def main(argv: Optional[List[str]] = None) -> None:
                             f"gnorm={gn_backbone:.2f}/{gn_addon:.2f} "
                             f"|g|={model.addon.gate_magnitude() if model.addon else 0:.4f} "
                             + (f"l2={l2_rms:.3g} brake={brake.factor:.2f} "
-                               if l2_rms is not None else "") +
+                               if l2_rms is not None else "")
+                            + ("conf={:.3f} vote={:.3f} tgate={:.3f} ".format(*l2_conf)
+                               if l2_conf is not None else "") +
                             f"eta={fmt_duration((nb - bi - 1) / max(rate, 1e-9))}")
                 if si == 0 and bi + 1 in eval_at:
                     r = score("pubmedqa_held")

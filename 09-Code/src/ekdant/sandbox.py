@@ -70,21 +70,23 @@ def spread_gains(K: int, lo: float = 0.8, hi: float = 1.25,
 class DiverseInit(nn.Module):
     """K distinct projections of hT: orthogonal weights, spread gains.
 
-    ``aligned`` (T51): trajectory k = hT + a small, different nudge
-    (identity + 0.25 x a random matrix, no bias), so every trajectory starts
-    in the model's own representation - same meaning, a different angle -
-    instead of a random projection the model would have to fight."""
+    ``aligned`` (T51): trajectory k = hT + delta_k(hT), delta_k starting as
+    ``nudge`` x a random matrix, no bias - every trajectory starts in the
+    model's own representation (same meaning, a different angle) instead of
+    a random projection the model would have to fight.  Stored as the
+    delta, so weight decay pulls towards the model's state, not towards 0.
+    ``nudge`` 0.6 gives a spread ratio near the floor (0.05) on SmolLM2."""
 
     def __init__(self, dim: int, K: int, gain_lo: float = 0.8,
                  gain_hi: float = 1.25, aligned: bool = False,
-                 nudge: float = 0.25):
+                 nudge: float = 0.6):
         super().__init__()
         self.K = K
         self.dim = dim
+        self.aligned = aligned
         w = mutual_orthogonal(K, dim) * math.sqrt(dim)
         if aligned:
-            eye = torch.eye(dim).expand(K, dim, dim)
-            self.weight = nn.Parameter(eye + nudge * w)
+            self.weight = nn.Parameter(nudge * w)
             self.bias = nn.Parameter(torch.zeros(K, dim))
         else:
             g = spread_gains(K, gain_lo, gain_hi)
@@ -93,6 +95,8 @@ class DiverseInit(nn.Module):
 
     def forward(self, hT: torch.Tensor) -> torch.Tensor:
         out = torch.einsum("kij,btj->kbti", self.weight, hT)
+        if self.aligned:
+            out = out + hT.unsqueeze(0)
         return out + self.bias.view(self.K, 1, 1, self.dim)
 
 
@@ -203,19 +207,24 @@ class DebateRound(nn.Module):
 
 class AnchoredDescent(nn.Module):
     """Gate-scaled preconditioned descent toward an external anchor.
-    ``aligned`` (T51): the anchor starts as the model's own state (identity),
-    so the descent pulls every trajectory back towards what the model
-    means; before, it was a random rotation of it."""
+    ``aligned`` (T51): the anchor is the model's own state plus a learned
+    correction that starts at 0, so the descent pulls every trajectory back
+    towards what the model means; before, it was a random rotation of it."""
 
     def __init__(self, dim: int, aligned: bool = False):
         super().__init__()
+        self.aligned = aligned
         self.anchor = nn.Linear(dim, dim, bias=False)
         self.gate = nn.Linear(2 * dim, dim)
         if aligned:
-            nn.init.eye_(self.anchor.weight)
+            nn.init.zeros_(self.anchor.weight)
         else:
             nn.init.orthogonal_(self.anchor.weight)
         nn.init.zeros_(self.gate.bias)
+
+    def anchor_of(self, hT: torch.Tensor) -> torch.Tensor:
+        a = self.anchor(hT)
+        return hT + a if self.aligned else a
 
     @staticmethod
     def _dev_from_consensus(traj: torch.Tensor,
@@ -225,7 +234,7 @@ class AnchoredDescent(nn.Module):
 
     def forward(self, traj, hT, steps, eta, mask=None):
         """Returns (traj, a_t, per-token energy [K,B,T], retention [K])."""
-        a_t = self.anchor(hT)
+        a_t = self.anchor_of(hT)
         target = a_t.unsqueeze(0).expand_as(traj)
         dev0 = self._dev_from_consensus(traj, mask)
         for _ in range(steps):
@@ -263,7 +272,9 @@ class Verifier(nn.Module):
             return torch.ones(traj.shape[:-1], device=traj.device, dtype=traj.dtype)
         t = traj.float()
         size = t.mean(0).pow(2).sum(-1).clamp_min(1e-6)               # [B,T]
-        d = (t.unsqueeze(0) - t.unsqueeze(1)).pow(2).sum(-1) / size   # [K,K,B,T]
+        sq = t.pow(2).sum(-1)                                         # [K,B,T]
+        gram = torch.einsum("kbtd,jbtd->kjbt", t, t)                  # [K,K,B,T]
+        d = (sq.unsqueeze(1) + sq.unsqueeze(0) - 2 * gram).clamp_min(0) / size
         s = torch.exp(-d).sum(1) - 1.0                                # drop self
         return s / (K - 1)
 

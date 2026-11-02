@@ -31,7 +31,10 @@ from ekdant.backbone import _offline_first, apply_hf_token, load_backbone, load_
 from ekdant.data import LETTERS, load_examples
 from ekdant.model import EkdantLM, V2Config
 
-DIAG_KEYS = ("anchor_energy", "trajectory_variance", "spread_ratio")
+DIAG_KEYS = ("anchor_energy", "trajectory_variance", "spread_ratio",
+             # L2 v3 (T50/T51); absent for older L2s
+             "confidence", "learned_confidence", "vote_support",
+             "verifier_top_weight", "token_gate")
 
 
 @torch.no_grad()
