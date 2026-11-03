@@ -717,6 +717,85 @@ How to read it:
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
 
+## A7f. Benchmark of every model: % right, L2 off, thinking time (2026-11-02)
+
+Every finished model scored by `python -m ekdant.gen_eval mcq --all`
+(T46–T49) on the same multiple-choice questions: MedMCQA validation (4,170,
+chance 25 %), MedQA-USMLE test (1,273, chance 25 %), PubMedQA pqa_labeled
+(1,000, yes / no / maybe, chance 33 %). Answer = the option with the highest
+mean log-probability per token. `*` = paired 95 % bootstrap CI excludes 0.
+Seed 17 for every run, one run per model. Sources: `leaderboard.md`,
+`leaderboard_v22.md`, `mcq_all.log`, `mcq_all2.log` (the forced v26 models
+re-scored with their gate floor after T49).
+
+**MedMCQA and MedQA sit at chance for every model** (25–28 %), plain SmolLM2
+included: a 135M model lacks the exam knowledge. **PubMedQA** (the answer is
+in the abstract) is the test that separates the models; plain SmolLM2 51.7 %.
+
+**v22 recipe (1 PubMedQA + 3 MedQuAD epochs) vs `v22_baseline`:**
+
+| model | L2 | MedMCQA | MedQA | PubMedQA | average | MedQuAD ppl | ROUGE-L | F1 | PubMedQA with L2 off |
+|---|---|---|---|---|---|---|---|---|---|
+| `v22_baseline` | — | 27.2 | 25.6 | 58.9 | 37.2 | 3.783 | 31.4 | 37.9 | — |
+| **`v22_end`** | end, free | 27.2 | 25.9 | **60.4** (+1.5) | **37.8** (+0.6) | **3.776** (−0.2 %\*) | **32.0** | **38.5** | 54.1 (−6.3\*) |
+| `v22_mid` | after layer 20 | 27.3 | 26.0 | 59.8 (+0.9) | 37.7 (+0.5\*) | 3.782 (−0.0 %\*) | 31.5 | 37.9 | 59.2 (−0.6) |
+| `v22_multi` | layers 10/20/30 | 27.4 | 25.8 | 59.3 (+0.4) | 37.5 (+0.2) | 3.779 (−0.1 %\*) | 31.7 | 38.2 | 58.3 (−1.0) |
+
+- **Best model: `v22_end`.** Against its baseline: PubMedQA +1.5 points
+  (+2.5 % relative), average +0.6 points (+1.6 %), perplexity −0.2 % (real),
+  ROUGE-L +1.9 %, F1 +1.6 %; cost +19.6M parameters (+14.6 %), +0.2 h.
+  **The accuracy gain is within noise** on 1,000 questions; four same-recipe
+  baseline runs gave PubMedQA 58.9–59.7.
+- **`v22_end` depends on L2:** L2 off −6.3 points\*, debate skipped −7.2\*
+  — below its own baseline, so the backbone handed part of the job to L2.
+- `v22_mid`'s real +0.5 average does not come from L2 at answer time: L2 off
+  changes almost nothing (ppl 3.781, PubMedQA 59.2).
+
+**v25 recipe (3 + 5 epochs) vs `v25_baseline`; v26 = forced L2 (re-scored, T49):**
+
+| model | L2 | MedMCQA | MedQA | PubMedQA | average | MedQuAD ppl | PubMedQA with L2 off |
+|---|---|---|---|---|---|---|---|
+| `v25_baseline` | — | 27.5 | 25.4 | **57.1** | **36.7** | 3.925 | — |
+| `v25_end` | end, free | 27.4 | 26.1 | 54.9 | 36.1 | 3.921 | 55.3 |
+| `v25_mix` | mix (9 sites), free | 27.8 | 26.1 | 54.4 | 36.1 | 3.918 | 54.2 |
+| `v26_end_forced` | end, forced (floor 0.5) | 26.8 | 26.0 | 50.9 | 34.6 | 4.026 | 51.8 |
+| `v26_mix_forced` | mix, forced (floor 0.4) | 27.5 | 25.9 | 48.1 | 33.8 | 4.066 | 33.8 |
+
+- **The longer recipe overfits every model:** PubMedQA held-out perplexity
+  is best after epoch 1 and worse after epochs 2–3; baseline 58.9 → 57.1 %,
+  benchmark ppl 3.78 → 3.93. It hurt the L2 models more (end −5.5 points vs
+  baseline −1.8). Use the v22 recipe for new runs.
+- **Forcing L2 made answers worse** (−6 to −9 PubMedQA points vs
+  `v25_baseline`), although it made the model depend on L2 (`v26_mix_forced`
+  with L2 off: 33.8 %, chance).
+
+**Thinking time (PubMedQA % right; same trained model, more / fewer
+anchored-descent steps, trained 8):**
+
+| model | 0 | 4 | **8** | 16 | 32 |
+|---|---|---|---|---|---|
+| `v25_end` | 53.1\* | 53.7\* | 54.9 | 55.5 | 57.7\* |
+| `v25_mix` | 52.7\* | 53.5\* | 54.4 | 56.2\* | 57.1\* |
+| `v22_end` | 60.3 | 60.5 | 60.4 | 60.0 | 58.0\* |
+| `v26_end_forced` | 57.9 | 55.5 | 50.9 | 43.0 | 33.9 |
+| `v26_mix_forced` | 61.2 | 55.0 | 48.1 | 35.1 | 25.7 |
+
+- `v25_end` / `v25_mix`: fewer steps cost accuracy and more steps help —
+  the pattern expected from step-by-step refinement; at 32 steps they reach
+  the baseline's level (57.1), not above it. One seed, six settings per model
+  (multiple comparisons).
+- `v22_end`: flat, 32 steps hurt; the debate is what matters (debate skipped
+  −7.2\*).
+- Forced models: the opposite — the descent hurts them. `v26_mix_forced`
+  with 0 steps (61.2 %) is the highest PubMedQA score of any setting, but the
+  setting was picked after seeing the test, so it is **not** a result; it
+  would need choosing on validation data first.
+
+**Verdict.** L2 gives a small real perplexity gain and the best accuracy
+(`v22_end`), and the best model clearly depends on L2, but no accuracy gain
+is significant yet. Next: the seed-23 repeat of `v22_baseline` / `v22_end`
+(A3i) and L2 v3 (A3j), which fixes the gaps found in L2 (T50–T52).
+
 ## A7a. Paired results (2026-10-24, the thesis numbers)
 
 Both arms with the A3 flags, seed 17, one A100 each (`v2_baseline-part3.log`,

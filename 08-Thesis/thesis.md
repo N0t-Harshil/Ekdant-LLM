@@ -178,6 +178,17 @@ T follows the standard decoder block (Vaswani et al. 2017) in pre-norm form (Xio
 
 The CI excludes 0 (lower NLL in 12 of 15 question types, each by < 0.02 ppl), but the gain is 0.06 % of perplexity; ROUGE-L / F1 sit inside the spread of three same-seed baseline runs (0.3127–0.3155 / 0.3770–0.3797). The gate stayed almost closed (|g| = 0.0054 after 7,227 steps): the network used L2 very little. Seed-to-seed variation is untested. Reported as a tie (C24 framing).
 
+**Benchmark of every model (2026-11-02, T46–T49; details `run.md` A7f).** Multiple-choice accuracy (option likelihood) on MedMCQA validation (4,170), MedQA test (1,273) and PubMedQA pqa_labeled (1,000), plus MedQuAD perplexity, L2-off and thinking-time tests, seed 17, one run per model. MedMCQA and MedQA stay at chance for every model (25–28 %); PubMedQA separates them (plain SmolLM2 51.7 %).
+
+| v22 recipe (1 + 3 epochs) | PubMedQA | average | MedQuAD ppl | ROUGE-L / F1 | PubMedQA, L2 off |
+|---|---|---|---|---|---|
+| Baseline | 58.9 | 37.2 | 3.783 | 31.4 / 37.9 | — |
+| L2 at the end (best) | **60.4** (+1.5) | **37.8** (+0.6) | **3.776** (−0.2 %\*) | **32.0 / 38.5** | 54.1 (−6.3\*) |
+| L2 after layer 20 | 59.8 (+0.9) | 37.7 (+0.5\*) | 3.782 | 31.5 / 37.9 | 59.2 (−0.6) |
+| L2 at layers 10/20/30 | 59.3 (+0.4) | 37.5 (+0.2) | 3.779 | 31.7 / 38.2 | 58.3 (−1.0) |
+
+\* = paired 95 % CI excludes 0. The best model improves on its baseline in every measure (PubMedQA +2.5 % relative, perplexity −0.2 %, significant), depends on L2 (−6.3 points without it; skipping the debate −7.2), but its accuracy gain is within noise on 1,000 questions (four same-recipe baselines: 58.9–59.7). The longer v25 recipe (3 + 5 epochs) overfits every model (baseline PubMedQA 57.1 %, L2 models 54.4–54.9 %); forcing L2 open (v26) made answers worse (48.1–50.9 %) while making the model depend on L2. Thinking time: for the v25 L2 models accuracy rises with more anchored-descent steps (8 → 32 steps: 54.9 → 57.7 % and 54.4 → 57.1 %, significant; fewer steps cost accuracy), the pattern expected from step-by-step refinement, reaching but not passing the baseline; v22_end is flat; the forced models show the opposite. One seed, several settings — exploratory. Review of L2 after these results found that it saw one token at a time, worked in a different space than the backbone, and had no confidence signal; v3 addresses these (Ch.3, T50–T52); seed-23 repeat and v3 runs pending.
+
 **Earlier note — design of the evaluation:** zero-shot / phase-1 / final reference-answer perplexity on the MedQuAD benchmark half (with per-question-type breakdown), paired-bootstrap 95 % CI of each arm vs the baseline (a difference counts only if the CI excludes 0), ROUGE-L / token F1 on 1,000 generated answers, PubMedQA held-out retention, `|g|`, cost. A CPU smoke run with the real backbone completed (pipeline check, not a result).
 
 **Completed (pipeline-scale pilot, not a thesis result):** full 3-epoch A/B on a T4, one seed, jointly trained (predates the sequential protocol; MedQA stage ≈ 638 steps so it sits at chance).
