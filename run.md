@@ -100,7 +100,7 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3l. L2 v3c: L2 learns to think twice, and the confidence test (T54) — **run this next**
+## A3l. L2 v3c: L2 learns to think twice, and the confidence test (T54) — done, results in A7i
 
 **Why (from A7h):** v3b makes the model depend on L2 more than ever and its
 confidence is real (AUROC 0.81 on two seeds), but it answers no better than
@@ -112,7 +112,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 267 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 268 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -123,7 +123,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 267 passed
+python -m pytest -q                          # 268 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -823,6 +823,74 @@ How to read it:
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
 
+## A7i. L2 v3c and the confidence test, two seeds (2026-11-05)
+
+Sources: `leaderboard_v3c_s17.md`, `leaderboard_v3c_s23.md`,
+`mcq_rescore.log` (v22, v3b and both baselines re-scored with the confidence
+test; it also gives the valid v3b seed-23 score), `mcq_v3c_s17.log`,
+`mcq_v3c_s23.log`, `v3c_end.log`, `v3c_s23_end.log`. `*` = paired 95 % CI
+excludes 0; (+x) = vs the baseline of the same seed.
+
+**% right and perplexity:**
+
+| | baseline | v22 | v3b | v3c |
+|---|---|---|---|---|
+| Seed 17 average | 37.2 | **37.8** (+0.6) | 37.7 (+0.5) | **37.8** (+0.5) |
+| Seed 17 PubMedQA | 58.9 | **60.4** (+1.5) | 59.9 (+1.0) | 60.0 (+1.1) |
+| Seed 23 average | 36.8 | **37.9** (+1.1\*) | **37.9** (+1.1\*) | 37.8 (+1.0\*) |
+| Seed 23 PubMedQA | 56.5 | **59.7** (+3.2\*) | 59.6 (+3.1\*) | 59.2 (+2.7\*) |
+| Two-seed mean, average / PubMedQA | 37.0 / 57.7 | 37.85 / 60.05 | 37.8 / 59.75 | 37.8 / 59.6 |
+| Seed 17 MedQuAD ppl | 3.783 | 3.776 (−0.2 %\*) | **3.765** (−0.5 %\*) | 3.766 (−0.5 %\*) |
+| Seed 23 MedQuAD ppl | 3.796 | 3.790 (−0.2 %\*) | **3.778** (−0.5 %\*) | 3.779 (−0.5 %\*) |
+| PubMedQA with L2 off, seed 17 / 23 | — | −6.3\* / −6.5\* | −12.5\* / −10.2\* | −12.4\* / −11.2\* |
+| training time, seed 17 / 23 | 1.3 / 1.1 h | 1.5 / 1.5 h | 1.8 / 2.2 h | 2.1 / 3.5 h |
+
+MedMCQA and MedQA stay at 25.6–27.5 % for every model (chance 25 %). The
+corrected v3b seed-23 score (re-scored from the finished checkpoint) is
+PubMedQA 59.6 %, ppl 3.778; the old row (49.3 %, ppl 9.190) is replaced.
+
+**Thinking time (PubMedQA, vs the trained setting):**
+
+| | debate x0 | debate x1 | debate x2 | debate x3 | steps 0 | steps 4 | steps 32 |
+|---|---|---|---|---|---|---|---|
+| v3b, seed 17 / 23 (trained x1) | −12.9\* / −10.1\* | trained | −6.5\* / −2.6\* | — | +0.8 / −0.1 | +0.0 / +0.3 | −9.0\* / −5.6\* |
+| v3c, seed 17 / 23 (trained x2) | −11.7\* / −10.1\* | +0.4 / −0.7 | trained | −0.2 / **+1.0\*** | −0.2 / +0.0 | +0.7 / +0.8 | −12.6\* / −5.0\* |
+
+**Does the model know when it is right?** AUROC: 0.5 = no idea, 1 = perfect.
+Sure / unsure = % right on the half of the questions the signal is surest /
+least sure about.
+
+| | own probability | L2 confidence |
+|---|---|---|
+| next word (MedQuAD), v3b seed 17 / 23 | **0.906 / 0.906** | 0.814 / 0.818 |
+| next word (MedQuAD), v3c seed 17 / 23 | **0.906 / 0.906** | 0.809 / 0.813 |
+| PubMedQA AUROC, v3c seed 17 / 23 | **0.617 / 0.597** | 0.528 / 0.523 |
+| PubMedQA sure / unsure half, v3c seed 17 | **68.2 / 51.8** | 61.6 / 58.4 |
+| PubMedQA sure / unsure half, v3c seed 23 | **64.2 / 54.2** | 61.2 / 57.2 |
+| MedMCQA / MedQA AUROC, v3c seed 17 | 0.509 / 0.451 | 0.509 / 0.492 |
+
+The own probability of the baselines and v22 is the same kind of signal
+(PubMedQA AUROC 0.563–0.602, next word 0.905–0.906).
+
+**Reading:**
+
+1. **L2 helps over training the model alone:** every L2 model beats its
+   baseline; on seed 23 significantly (+1.0 to +1.1\* average, +2.7 to
+   +3.2\* PubMedQA), on seed 17 in the same direction within noise. Perplexity
+   is lower on both seeds for every L2 model (\*).
+2. **The v3 parts do not answer better than v22:** v22, v3b and v3c are
+   within 0.1–0.4 points of each other on both seeds. v3b/v3c lower the
+   perplexity more than v22 (−0.5 % vs −0.2 % against the baseline, both
+   seeds); v3 vs v22 directly was not tested.
+3. **Training two passes (v3c) removed the penalty of a second pass**
+   (v3b −6.5\* / −2.6\*, v3c harmless) **but brought no gain:** one pass
+   instead of two changes nothing (+0.4 / −0.7, noise).
+4. **L2's confidence does not beat the model's own probability** (next word
+   0.81 vs 0.906; PubMedQA 0.52–0.53 vs 0.60–0.62). On MedMCQA / MedQA
+   neither signal knows (about 0.5).
+5. **The model relies on L2 more with v3** (PubMedQA −10 to −12.5\* with L2
+   off vs about −6.4\* for v22), without answering better.
+
 ## A7h. L2 v3b on two seeds (2026-11-05)
 
 Sources: `leaderboard_v3b_s17.md`, `mcq_v3b.log`, `v3b_end.log`,
@@ -1440,7 +1508,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 267 tests
+python -m pytest            # 268 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

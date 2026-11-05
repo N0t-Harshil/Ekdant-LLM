@@ -714,7 +714,7 @@ class EkdantLM(nn.Module):
     @contextlib.contextmanager
     def think(self, passes: Optional[int] = None, steps: Optional[int] = None):
         """More (or less) L2 thinking at test time, no retraining (T47):
-        ``passes`` = times the debate stack runs (trained: 1), ``steps`` =
+        ``passes`` = times the debate stack runs (trained: 1, v3c: 2), ``steps`` =
         anchored-descent steps (trained: S, same step size eta).  Restored
         afterwards."""
         boxes = self.sandboxes()

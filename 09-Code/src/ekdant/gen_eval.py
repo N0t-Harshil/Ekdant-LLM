@@ -981,7 +981,8 @@ def think_table(run_dirs: List[str]) -> str:
                          if ci else f"{100 * r['accuracy']:.1f}")
         lines.append("| " + " | ".join(cells) + " |")
     lines += ["", "Thinking-time test: the same trained model answers with L2's "
-              "debate run 0 or 2 times (trained: 1) and with fewer or more "
+              "debate run more or fewer times than trained (the trained "
+              "setting column shows how many) and with fewer or more "
               "anchored-descent steps (same step size), no retraining. (+x) = "
               "points vs the trained setting; * = real difference (paired 95% "
               "CI excludes 0). If L2 reasons step by step, less thinking should "

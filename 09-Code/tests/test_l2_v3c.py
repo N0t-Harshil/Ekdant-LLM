@@ -140,6 +140,19 @@ def test_know_table_and_rescore_of_old_files(tmp_path):
     assert "confidence test (T54)" in M._score_state(str(d), ["pubmedqa"])
 
 
+def test_think_table_caption_does_not_claim_one_trained_pass(tmp_path):
+    d = tmp_path / "v3c_end"
+    d.mkdir()
+    m = {"version": M.MCQ_VERSION, "l2": "end",
+         "pubmedqa": {"accuracy": 0.6, "rows": [],
+                      "think": {"trained": "debate x2, steps 8",
+                                "debate x1": {"accuracy": 0.6, "rows": []}}}}
+    (d / "mcq.json").write_text(json.dumps(m))
+    t = M.think_table([str(d)])
+    assert "60.0 (debate x2, steps 8)" in t
+    assert "trained: 1" not in t and "0 or 2 times" not in t
+
+
 def test_shipped_v3c_config():
     path = pathlib.Path(__file__).resolve().parents[1] / "configs" / "v3c_sandbox_end.json"
     cfg = V2Config.from_dict(json.loads(path.read_text()))
