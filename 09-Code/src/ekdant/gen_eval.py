@@ -339,9 +339,10 @@ CLI:
 MCQ_DATASETS = ("medmcqa", "medqa", "pubmedqa")
 # mcq.json format: 1 = % right (T46), 2 = + thinking time (T47), 3 = + MedQuAD
 # perplexity on / off / thinking, facts (T48), 4 = forced runs scored with
-# their trained gate floor (T49).  An older file is scored again (a version-3
+# their trained gate floor (T49), 5 = + the confidence test (T54), 6 = + the
+# explanation benchmark (T56).  An older file is scored again (a version-3
 # file only for a forced run).
-MCQ_VERSION = 5
+MCQ_VERSION = 6
 MCQ_CHANCE = {"medmcqa": 0.25, "medqa": 0.25, "pubmedqa": 1 / 3}
 PUBMED_OPTIONS = ["yes", "no", "maybe"]
 
@@ -650,6 +651,131 @@ def ppl_evaluate(model, ds, groups: List[str], pad: int, device, batch_size: int
     return out
 
 
+# --- the second benchmark: the model writes the explanation (T56) ----------
+# medmcqa_explain  MedMCQA validation: the question with its four options ->
+#                  "<right option>. <the expert's explanation>" (out of
+#                  domain: never trained on)
+# pubmedqa_explain PubMedQA pqa_labeled: question + abstract -> the authors'
+#                  conclusion (the format of phase 1, but these 1,000
+#                  expert-labelled questions are never trained on)
+EXPLAIN_SETS = ("medmcqa_explain", "pubmedqa_explain")
+EXPLAIN_TITLE = {"medmcqa_explain": "MedMCQA explanation",
+                 "pubmedqa_explain": "PubMedQA conclusion"}
+
+
+def _clean(s) -> str:
+    return " ".join(str(s or "").split())
+
+
+def explain_examples(name: str, limit: Optional[int] = 1000, seed: int = 17):
+    """(GenExamples, metas): for MedMCQA each meta is (options, right index)
+    so a generated explanation can be checked for naming the right answer."""
+    from datasets import load_dataset
+    from ekdant.gen_data import GenExample
+
+    out = []
+    if name == "medmcqa_explain":
+        ds = _offline_first(lambda: load_dataset("openlifescienceai/medmcqa",
+                                                 split="validation"))
+        for r in ds:
+            opts = [_clean(r[k]) for k in ("opa", "opb", "opc", "opd")]
+            exp, cop = _clean(r.get("exp")), r.get("cop")
+            if cop not in (0, 1, 2, 3) or len(exp) < 60 or not all(opts):
+                continue
+            q = (f"{_clean(r['question'])}\nOptions: {opts[0]}; {opts[1]}; "
+                 f"{opts[2]}; {opts[3]}\nExplain the answer.")
+            out.append((GenExample(q, f"{opts[cop]}. {exp}"), (opts, cop)))
+    elif name == "pubmedqa_explain":
+        ds = _offline_first(lambda: load_dataset("qiaojin/PubMedQA", "pqa_labeled",
+                                                 split="train"))
+        for r in ds:
+            ans = _clean(r["long_answer"])
+            if ans:
+                out.append((GenExample(_clean(r["question"]), ans,
+                                       context=" ".join(r["context"]["contexts"])), None))
+    else:
+        raise ValueError(f"unknown explanation set {name!r}")
+    if limit is not None and limit < len(out):
+        out = random.Random(seed).sample(out, limit)
+    return [e for e, _ in out], [m for _, m in out]
+
+
+def names_answer(pred: str, options: Sequence[str], right: int) -> int:
+    """1 if the generated text names the right option first: it contains the
+    right option's words (in order, contiguous) earlier than any other
+    option; an option that is part of a longer one counts for the longer."""
+    words = normalise_text(pred)
+
+    def first(opt: str) -> Optional[int]:
+        o = normalise_text(opt)
+        if not o:
+            return None
+        for i in range(len(words) - len(o) + 1):
+            if words[i:i + len(o)] == o:
+                return i
+        return None
+
+    pos = [(first(o), -len(normalise_text(o)), k) for k, o in enumerate(options)]
+    found = sorted(p for p in pos if p[0] is not None)
+    return int(bool(found) and found[0][2] == right)
+
+
+def explain_datasets(tok, cfg: V2Config, limit: Optional[int] = 1000, seed: int = 17,
+                     max_answer: int = 256) -> Dict:
+    from ekdant.gen_data import GenDataset
+
+    out = {}
+    for name in EXPLAIN_SETS:
+        ex, metas = explain_examples(name, limit, seed)
+        out[name] = (GenDataset(ex, tok, cfg.max_seq_len, max_answer), metas)
+    return out
+
+
+def explain_evaluate(model, tok, sets: Dict, device, batch_size: int, l2_off: bool,
+                     n_gen: int = 200, max_new: int = 128, log=print) -> Dict:
+    """Per set: the reference explanation's perplexity (L2 on / off; rows kept
+    for paired CIs) and, on the first ``n_gen`` rows, a greedy generation
+    scored against the reference (ROUGE-L, token F1) and, for MedMCQA,
+    whether it names the right answer."""
+    pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    out: Dict = {}
+    for name, (ds, metas) in sets.items():
+        r = {"on": bench_nll(model, ds, pad, device, batch_size)}
+        msg = f"  {name}: ppl {r['on']['ppl']:.3f}"
+        if model.addon is not None and l2_off:
+            with model.l2_off():
+                r["off"] = bench_nll(model, ds, pad, device, batch_size)
+            msg += f" (L2 off {r['off']['ppl']:.3f})"
+        rows = list(range(min(n_gen, len(ds))))
+        outs = generate_greedy(model, [ds.prompt_ids(i) for i in rows], max_new, device,
+                               tok.eos_token_id, pad, batch_size, _autocast(device))
+        preds = [tok.decode(o, skip_special_tokens=True).strip() for o in outs]
+        gen_rows = []
+        for i, p in zip(rows, preds):
+            ref = ds.example(i).answer
+            row = {"i": i, "rouge_l": rouge_l(p, ref), "token_f1": token_f1(p, ref)}
+            meta = metas[ds.rows[i][2]]
+            if meta is not None:
+                row["named"] = names_answer(p, meta[0], meta[1])
+            gen_rows.append(row)
+        n = max(1, len(gen_rows))
+        g = {"rows": gen_rows, "n": len(gen_rows),
+             "rouge_l": sum(x["rouge_l"] for x in gen_rows) / n,
+             "token_f1": sum(x["token_f1"] for x in gen_rows) / n,
+             "examples": [{"question": ds.example(i).question[:300], "model": p[:500],
+                           "reference": ds.example(i).answer[:500]}
+                          for i, p in zip(rows[:3], preds[:3])]}
+        if any("named" in x for x in gen_rows):
+            g["named_right"] = sum(x.get("named", 0) for x in gen_rows) / n
+        r["gen"] = g
+        msg += f", ROUGE-L {100 * g['rouge_l']:.1f}, F1 {100 * g['token_f1']:.1f}"
+        if "named_right" in g:
+            msg += f", names the right answer {100 * g['named_right']:.1f}%"
+        log(msg + f" ({len(ds)} rows, {g['n']} generated)")
+        out[name] = r
+    return out
+
+
 def finished_runs(runs_dir: str) -> List[str]:
     """Run folders whose training finished (last.pt and a final test in
     results.json); a broken or zero-shot folder is skipped."""
@@ -690,6 +816,8 @@ def _score_state(run_dir: str, names: Sequence[str]) -> str:
         return "scored without its forced gate floor (T49)"
     if v < 5:
         return "scored without the confidence test (T54)"
+    if v < 6:
+        return "scored without the explanation benchmark (T56)"
     if any(n not in m for n in names):
         return "some tests missing"
     return "complete"
@@ -731,6 +859,16 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                          "(default: the last run by name with 'baseline' in it)")
     ap.add_argument("--markdown", default=None,
                     help="also write the tables to this markdown file")
+    ap.add_argument("--no-explain", action="store_true",
+                    help="skip the explanation benchmark (T56)")
+    ap.add_argument("--explain-only", action="store_true",
+                    help="add the explanation benchmark to runs already scored "
+                         "(their mcq.json keeps every other number)")
+    ap.add_argument("--explain-limit", type=int, default=1000,
+                    help="rows per explanation set (perplexity)")
+    ap.add_argument("--explain-gen", type=int, default=200,
+                    help="rows per explanation set that are also generated")
+    ap.add_argument("--explain-max-new", type=int, default=128)
     args = ap.parse_args(argv)
     zs_dir = os.path.join(args.runs_dir, "zero_shot_smollm2")
     runs = list(args.runs)
@@ -747,6 +885,7 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
         think = [d for d in args.think_datasets.split(",") if d]
         think_ppl = ["medquad"]                    # perplexity thinking test: always
         bench_cache: Dict = {}
+        explain_cache: Dict = {}
         device = pick_device(args.gpu, args.min_free_gb)
         qs = None
         _log("models: " + ", ".join(os.path.basename(r) for r in runs))
@@ -768,7 +907,7 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                 _log(f"[{k}/{len(runs)}] {run_dir} ({chosen}, L2: {describe_l2(cfg)})")
                 apply_hf_token(cfg.hf_token_file)
                 tok = load_tokenizer(cfg.backbone)
-                if qs is None:
+                if qs is None and not args.explain_only:
                     qs = {n: load_questions(n, args.limit, args.seed) for n in names}
                 model = EkdantLM(cfg, load_backbone(cfg.backbone))
                 if state is not None:
@@ -778,8 +917,15 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                     model.addon.set_gate_floor(floor)    # forced runs (T49)
                     _log(f"  gate floor {floor:.3f} (as in training)")
                 model.to(device)
-                res = mcq_evaluate(model, tok, qs, device, cfg.max_seq_len,
-                                   args.batch_size, not args.no_l2_off, think, _log)
+                if args.explain_only:
+                    with open(os.path.join(run_dir, "mcq.json"), encoding="utf-8") as f:
+                        res = json.load(f)
+                    if res.get("version", 1) < 5:
+                        raise ValueError(f"{run_dir}: mcq.json is version {res.get('version')}; "
+                                         "score it fully first (without --explain-only)")
+                else:
+                    res = mcq_evaluate(model, tok, qs, device, cfg.max_seq_len,
+                                       args.batch_size, not args.no_l2_off, think, _log)
                 res["checkpoint"] = chosen
                 res["l2"] = describe_l2(cfg)
                 res["version"] = MCQ_VERSION
@@ -787,7 +933,15 @@ def mcq_main(argv: Optional[List[str]] = None) -> None:
                 res["seed"] = int(run_args.get("seed", 17))
                 res["params_total"] = sum(p.numel() for p in model.parameters())
                 res["params_l2"] = model.addon_params()
-                if not args.no_ppl:
+                if not args.no_explain:
+                    ekey = (cfg.backbone, cfg.max_seq_len)
+                    if ekey not in explain_cache:
+                        explain_cache.clear()
+                        explain_cache[ekey] = explain_datasets(tok, cfg, args.explain_limit)
+                    res["explain"] = explain_evaluate(
+                        model, tok, explain_cache[ekey], device, args.batch_size,
+                        not args.no_l2_off, args.explain_gen, args.explain_max_new, _log)
+                if not args.no_ppl and not args.explain_only:
                     key = (res["seed"], run_args.get("limit"), cfg.backbone,
                            cfg.max_seq_len, cfg.max_answer)
                     if key not in bench_cache:
@@ -1172,7 +1326,8 @@ def full_report(run_dirs: List[str], baseline: Optional[str] = None) -> str:
     """Every table of the one-run benchmark, ready for the paper."""
     parts = ["## Benchmark of every model (T46-T48)", "",
              "### Leaderboard", "", mcq_leaderboard(run_dirs, baseline)]
-    for part in (dependence_table(run_dirs), think_table(run_dirs),
+    for part in (explain_table(run_dirs, baseline), dependence_table(run_dirs),
+                 think_table(run_dirs),
                  think_ppl_table(run_dirs), know_table(run_dirs),
                  facts_table(run_dirs)):
         if part:
@@ -1282,6 +1437,96 @@ def _pooled_nll(pairs: List[Tuple[Dict, Dict]]) -> Optional[Dict]:
     return paired_bootstrap(a, b, g, weights=w)
 
 
+def _pool(pairs: List[Tuple[Dict, Dict]], get, per_seed: bool) -> Optional[Dict]:
+    """Paired bootstrap of (model - baseline), the mean over the seed pairs of
+    each pair's weighted mean difference.  ``get(m)`` -> {row: (value,
+    weight)} or None; ``per_seed`` = the rows differ between seeds."""
+    a, b, g, w = [], [], [], []
+    for p, (base, model) in enumerate(pairs):
+        ra, rb = get(base), get(model)
+        if not ra or not rb:
+            return None
+        keys = sorted(set(ra) & set(rb))
+        if not keys:
+            return None
+        c = 1.0 / (len(pairs) * sum(ra[k][1] for k in keys))
+        for k in keys:
+            a.append(ra[k][0] * c)
+            b.append(rb[k][0] * c)
+            g.append(f"{p}:{k}" if per_seed else str(k))
+            w.append(ra[k][1] * c)
+    return paired_bootstrap(a, b, g, weights=w)
+
+
+def _explain_nll(name: str):
+    def get(m):
+        r = m.get("explain", {}).get(name)
+        return _rows(r["on"]) if r else None
+    return get
+
+
+def _explain_gen(name: str, key: str):
+    def get(m):
+        r = m.get("explain", {}).get(name)
+        if not r or not any(key in x for x in r["gen"]["rows"]):
+            return None
+        return {x["i"]: (x[key], 1.0) for x in r["gen"]["rows"] if key in x}
+    return get
+
+
+def explain_table(run_dirs: List[str], baseline: Optional[str] = None) -> str:
+    """The explanation benchmark (T56): how well each model writes the
+    explanation / conclusion, vs the baseline (* = paired 95 % CI excludes 0)."""
+    runs = [(n, m) for n, m, _ in map(_load_both, run_dirs) if "explain" in m]
+    if not runs:
+        return ""
+    base_name = baseline or next((n for n, _ in sorted(runs, key=lambda r: r[0])[::-1]
+                                  if "baseline" in n), runs[0][0])
+    base = next((m for n, m in runs if n == base_name), None)
+    lines = []
+    for name, m in runs:
+        for s in EXPLAIN_SETS:
+            r = m["explain"].get(s)
+            if not r:
+                continue
+            b = None if (base is None or name == base_name) else base.get("explain", {}).get(s)
+            ppl = f"{r['on']['ppl']:.3f}"
+            if b:
+                ci = _nll_ci(b["on"], r["on"], {})
+                if ci:
+                    ppl += f" ({100 * (math.exp(ci['diff']) - 1):+.1f}%{_star(ci)})"
+            cells = [f"**{name}** (baseline)" if name == base_name else name,
+                     EXPLAIN_TITLE[s], ppl,
+                     f"{r['off']['ppl']:.3f}" if "off" in r else "-"]
+            for mean_key, row_key in (("rouge_l", "rouge_l"), ("token_f1", "token_f1"),
+                                      ("named_right", "named")):
+                g = r["gen"]
+                if mean_key not in g:
+                    cells.append("-")
+                    continue
+                c = f"{100 * g[mean_key]:.1f}"
+                if b:
+                    ci = _pool([(base, m)], _explain_gen(s, row_key), False)
+                    if ci:
+                        c += f" ({100 * ci['diff']:+.1f}{_star(ci)})"
+                cells.append(c)
+            lines.append("| " + " | ".join(cells) + " |")
+    head = ["Model", "Task", "Reference ppl (lower = better)", "ppl with L2 off",
+            "ROUGE-L", "F1", "Names the right answer %"]
+    return "\n".join(
+        ["### Can the model explain? Written answers (T56)", "",
+         "| " + " | ".join(head) + " |", "|" + "---|" * len(head)] + lines
+        + ["", "The model writes the answer itself. MedMCQA explanation: the question "
+           "and its four options -> the right option and the expert's explanation "
+           "(never trained on). PubMedQA conclusion: question + abstract -> the "
+           "authors' conclusion (1,000 expert-labelled questions, never trained on). "
+           "Reference ppl = how well the model predicts the reference text (lower = "
+           "better; (+x%) vs the baseline). ROUGE-L / F1 = word overlap of its own "
+           "greedy answer with the reference (%). Names the right answer = its own "
+           "explanation names the right option before any other (%). * = paired 95% "
+           "CI excludes 0."])
+
+
 def gain_report(baselines: List[str], models: List[Tuple[str, List[str]]]) -> str:
     """How much better is each model than the baseline, over all seeds?
 
@@ -1338,6 +1583,37 @@ def gain_report(baselines: List[str], models: List[Tuple[str, List[str]]]) -> st
                 f"{100 * (math.exp(nl['diff']) - 1):+.2f} % [{100 * (math.exp(nl['lo']) - 1):+.2f}, "
                 f"{100 * (math.exp(nl['hi']) - 1):+.2f}]{_star(nl)}",
                 "-", "-", " / ".join(per)]) + " |")
+        # the explanation benchmark (T56): the same rows in every seed
+        for s in EXPLAIN_SETS:
+            get = _explain_nll(s)
+            if not all(get(x) for p in pairs for x in p):
+                continue
+            ci = _pool(pairs, get, False)
+            per = [(lambda c: f"{100 * (math.exp(c['diff']) - 1):+.1f} %{_star(c)}" if c else "-")(
+                _pool([p], get, False)) for p in pairs]
+            pb = sum(b["explain"][s]["on"]["ppl"] for b in base) / len(base)
+            pm = sum(r["explain"][s]["on"]["ppl"] for r in runs) / len(runs)
+            lines.append("| " + " | ".join([
+                name, f"{EXPLAIN_TITLE[s]} ppl (lower = better)", f"{pb:.3f}", f"{pm:.3f}",
+                f"{100 * (math.exp(ci['diff']) - 1):+.2f} % [{100 * (math.exp(ci['lo']) - 1):+.2f}, "
+                f"{100 * (math.exp(ci['hi']) - 1):+.2f}]{_star(ci)}", "-", "-",
+                " / ".join(per)]) + " |")
+            for key, row_key, label in (("named_right", "named", "names the right answer"),
+                                        ("rouge_l", "rouge_l", "ROUGE-L")):
+                gget = _explain_gen(s, row_key)
+                if not all(gget(x) for p in pairs for x in p):
+                    continue
+                ci = _pool(pairs, gget, False)
+                vb = sum(b["explain"][s]["gen"][key] for b in base) / len(base)
+                vm = sum(r["explain"][s]["gen"][key] for r in runs) / len(runs)
+                per = [(lambda c: f"{100 * c['diff']:+.1f}{_star(c)}" if c else "-")(
+                    _pool([p], gget, False)) for p in pairs]
+                lines.append("| " + " | ".join([
+                    name, f"{EXPLAIN_TITLE[s]}: {label}", f"{100 * vb:.1f}", f"{100 * vm:.1f}",
+                    f"{100 * ci['diff']:+.2f} [{100 * ci['lo']:+.2f}, {100 * ci['hi']:+.2f}]{_star(ci)}",
+                    f"{100 * ci['diff'] / max(vb, 1e-12):+.1f} %",
+                    f"{100 * ci['diff'] / max(1 - vb, 1e-12):+.1f} %" if key == "named_right" else "-",
+                    " / ".join(per)]) + " |")
     head = ["Model", "Test", "Baseline % right", "Model % right",
             "Gain, points [95% CI]", "Relative gain", "Baseline's errors fixed",
             "Gain per seed (" + " / ".join(str(s) for s in seeds) + ")"]
@@ -1351,8 +1627,10 @@ def gain_report(baselines: List[str], models: List[Tuple[str, List[str]]]) -> st
            "baseline's % right (+5 % = five percent more right answers). "
            "Baseline's errors fixed = gain / the baseline's % wrong. Perplexity: "
            "change of the per-token NLL as a % change of perplexity, CI over the "
-           "benchmark questions of every seed. Chance: MedMCQA and MedQA 25 %, "
-           "PubMedQA 33 %."])
+           "benchmark questions of every seed. Explanation rows (T56): the model "
+           "writes the explanation itself; ppl of the reference explanation, and "
+           "the % of its own explanations that name the right answer / ROUGE-L "
+           "with the reference. Chance: MedMCQA and MedQA 25 %, PubMedQA 33 %."])
 
 
 GAIN_DOC = """How much better than the baseline, all seeds together.

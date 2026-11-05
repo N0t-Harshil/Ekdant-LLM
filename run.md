@@ -100,7 +100,81 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3m. L2 v3d: v3 with v22's free views, and the gain report (T55) — **run this next**
+## A3n. L2 v4: L2 inside the model, sized to it, reading more - and a second benchmark where the model writes the explanation (T56) — **run this next** (instead of A3m)
+
+**Why:** every L2 so far gave the same result (A7i). Three limits of the L2
+design, and what v4 changes:
+
+| limit | v4 (`configs/v4_sandbox_mix.json`) |
+|---|---|
+| L2 sat at the very end: its output only nudged the next-word scores, no layer could build on it | the same L2 runs **twice: after layer 15 of 30** (15 later layers use its result) **and at the end** (one set of weights) |
+| inside the network L2's output was sized to its normalised input (rms ~1) against a stream of rms ~100, so it could hardly change anything (v2.2: gate 0.005) | `sandbox_stream_scale`: its output is sized to the stream, so a gate of 0.05 changes 5 % of what the later layers read |
+| L2 read only the states the model already had at its own depth | `sandbox_read_layers` [8, 22]: L2's memory of every word also holds what the model knew about it at layers 8 and 22 (each read with the model's own norm there), information the last layers have compressed away; learned weights that start at 0 |
+
+v4 = v3d (v22's free views, A3m) + these three. Step 0 = the backbone on
+SmolLM2 (checked); cached generation is exact; L2 21.9M params (shared).
+Each training step runs L2 twice, so a run takes longer than v3b's 1.8 h.
+
+**The second benchmark (T56): can the model explain?** The model writes
+the answer itself:
+
+| set | the model gets | it must write | never trained on |
+|---|---|---|---|
+| MedMCQA explanation | the question and its four options | the right option and the expert's explanation | yes |
+| PubMedQA conclusion | question + abstract | the authors' conclusion | yes (pqa_labeled) |
+
+Measured: the reference text's perplexity (L2 on and off, paired CI vs the
+baseline), ROUGE-L and F1 of its own greedy answer (200 per set), and for
+MedMCQA the % of its explanations that **name the right answer**. Part of
+every `mcq` run now (`--no-explain` skips it); `--explain-only` adds it to
+models already scored. It appears in the leaderboard ("Can the model
+explain?") and in the `gain` report.
+
+**1. Start (each command once):**
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # 291 passed
+ps aux | grep "ekdant" | grep -v grep        # must print nothing
+nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+python -m ekdant.train $FLAGS --variant sandbox --config configs/v4_sandbox_mix.json --out runs/v4_mix > v4_mix.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v4_mix > mcq_v4_s17.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 --variant sandbox --config configs/v4_sandbox_mix.json --out runs/v4_s23_mix > v4_s23_mix.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v4_s23_mix > mcq_v4_s23.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.gen_eval mcq --explain-only runs/v22_baseline runs/v22_end \
+    runs/v3b_end runs/v3c_end runs/v22s23_baseline runs/v22s23_end runs/v3b_s23_end runs/v3c_s23_end \
+    > mcq_explain_old.log 2>&1 &
+```
+
+The third command gives the finished models the explanation benchmark
+(their other numbers are kept).
+
+**2. When `ps aux | grep ekdant | grep -v grep` prints nothing:**
+
+```bash
+python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
+    --model v22 runs/v22_end runs/v22s23_end \
+    --model v3b runs/v3b_end runs/v3b_s23_end \
+    --model v4 runs/v4_mix runs/v4_s23_mix --markdown gain_v4.md
+python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end \
+    --model v4 runs/v4_mix runs/v4_s23_mix --markdown gain_v4_vs_v22.md
+python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v4_s17.md runs/v22_baseline runs/v22_end runs/v3b_end runs/v4_mix > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v4_s23.md runs/v22s23_baseline runs/v22s23_end runs/v3b_s23_end runs/v4_s23_mix > /dev/null
+```
+
+Bring back `gain_v4.md`, `gain_v4_vs_v22.md`, both leaderboards,
+`mcq_explain_old.log`, `mcq_v4_s17.log`, `mcq_v4_s23.log`, `v4_mix.log`,
+`v4_s23_mix.log`.
+
+**Decision:** v4 is better than v22 if `gain_v4_vs_v22.md` shows a starred
+gain (the 95 % CI above 0) on PubMedQA, the average or the explanation
+benchmark; if not, we go back to v22 / v3b. A3m (v3d alone) is optional: it
+only tells whether the free views alone matter.
+
+## A3m. L2 v3d: v3 with v22's free views, and the gain report (T55) — optional (A3n first)
 
 **Why (from A7i):** v22, v3b and v3c answer equally well; v3's extra parts
 gave no gain. The clearest difference to v22 is how far L2's trajectories
@@ -123,7 +197,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 277 passed
+python -m pytest -q                          # 291 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -179,7 +253,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 277 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 291 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -190,7 +264,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 277 passed
+python -m pytest -q                          # 291 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -1575,7 +1649,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 277 tests
+python -m pytest            # 291 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

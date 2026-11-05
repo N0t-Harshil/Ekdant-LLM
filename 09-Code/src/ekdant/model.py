@@ -237,7 +237,8 @@ class GatedAddOn(nn.Module):
                  sandbox: Optional[Sandbox] = None, gate_cap: float = 0.0,
                  checkpoint: bool = False, force: bool = False,
                  token_gate: bool = False, aligned: bool = False,
-                 token_gate_min: float = 0.0):
+                 token_gate_min: float = 0.0, stream_scale: bool = False,
+                 n_read: int = 0):
         super().__init__()
         if mode not in ("final", "mid"):
             raise ValueError(f"mode must be final|mid, got {mode!r}")
@@ -284,6 +285,11 @@ class GatedAddOn(nn.Module):
         # g = floor + (1 - floor) * capped_gate, so floor 0 = the plain gate.
         self.gate_floor = 0.0
         self.gate = nn.Parameter(torch.zeros(dim))
+        # T56: a mid site's output sized to the residual stream (as forced)
+        self.stream_scale = stream_scale
+        # T56: per-channel weights of the earlier depths L2's memory reads
+        # (zero-init: an untrained read is the plain v3 memory)
+        self.read_w = nn.Parameter(torch.zeros(n_read, dim)) if n_read else None
         # ``sandbox`` given = one L2 shared by several sites (v2.2, spec §14)
         self.sandbox = sandbox if sandbox is not None else Sandbox(dim, **sandbox_kwargs)
         self.out_norm = RMSNorm(dim)
@@ -294,15 +300,24 @@ class GatedAddOn(nn.Module):
 
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None,
                 attn_mask: Optional[torch.Tensor] = None,
-                past_ctx: Optional[torch.Tensor] = None
+                past_ctx: Optional[torch.Tensor] = None,
+                deep: Optional[list] = None
                 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         self.last_conf_logit = None
         if not self.enabled:
             self.last_ctx = None
             return h, {}
         x = self.in_norm(h) if self.mode == "mid" else h
+        now = x
+        if self.read_w is not None and deep:
+            # T56: what the model knew about each word at earlier depths,
+            # brought to the size of x and mixed in per channel
+            size = x.float().pow(2).mean(-1, keepdim=True).sqrt()
+            for w, d in zip(self.read_w, deep):
+                r = (size / d.float().pow(2).mean(-1, keepdim=True).sqrt().clamp_min(1e-6))
+                now = now + w.type_as(x) * (d.float() * r.detach()).type_as(x)
         # what L2 reads: the model's states of every token so far
-        ctx = x if past_ctx is None else torch.cat([past_ctx.type_as(x), x], dim=1)
+        ctx = now if past_ctx is None else torch.cat([past_ctx.type_as(x), now], dim=1)
         self.last_ctx = ctx.detach()
         g = self.effective_gate()
         # drawn here, outside the checkpoint, so the recompute in the
@@ -347,7 +362,7 @@ class GatedAddOn(nn.Module):
             aux["token_gate"] = masked_mean_bt(f.detach().float().squeeze(-1), mask)
         if self.mode == "mid":
             add = y
-            if self.force:
+            if self.force or self.stream_scale:
                 # sized to the stream: g = 0.5 adds half the stream's rms
                 add = add * h.float().pow(2).mean(-1, keepdim=True).sqrt().detach().type_as(h)
             return h + g * add, aux
@@ -390,22 +405,28 @@ class MultiAddOn(nn.Module):
                  shared: bool = True, gate_cap: float = 0.0,
                  final: bool = False, checkpoint: bool = False,
                  force: bool = False, token_gate: bool = False,
-                 aligned: bool = False, token_gate_min: float = 0.0):
+                 aligned: bool = False, token_gate_min: float = 0.0,
+                 stream_scale: bool = False, n_reads: Optional[list] = None):
         super().__init__()
         one = Sandbox(dim, **sandbox_kwargs) if shared else None
+        # T56: n_reads = how many earlier depths each site reads (mid sites,
+        # then the end)
+        n_reads = list(n_reads) if n_reads else [0] * (n_sites + int(final))
         self.sites = nn.ModuleList(
             [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one,
                         gate_cap=gate_cap, checkpoint=checkpoint, force=force,
                         token_gate=token_gate, aligned=aligned,
-                        token_gate_min=token_gate_min)
-             for _ in range(n_sites)])
+                        token_gate_min=token_gate_min, stream_scale=stream_scale,
+                        n_read=n_reads[i])
+             for i in range(n_sites)])
         # ``final`` (the "mix", T40): the same L2 once more after the final
         # norm, i.e. the inner sites plus the end placement
         self.final_site = (GatedAddOn(dim, sandbox_kwargs, mode="final",
                                       sandbox=one, gate_cap=gate_cap,
                                       checkpoint=checkpoint, force=force,
                                       token_gate=token_gate, aligned=aligned,
-                                      token_gate_min=token_gate_min)
+                                      token_gate_min=token_gate_min,
+                                      n_read=n_reads[-1])
                            if final else None)
 
     def _all(self) -> list:
@@ -504,8 +525,30 @@ class V2Config:
     # L2 is robust to more thinking; v3's sit at the spread floor (0.05), so
     # its 5 trajectories act almost as one.  Needs sandbox_aligned.
     sandbox_free_views: bool = False
+    # T56: L2 without its two limits.  sandbox_stream_scale - at a site inside
+    # the network L2's output is sized to the residual stream (as forced L2,
+    # T42), so a gate of 0.05 changes 5 % of what the later layers read; before,
+    # it was sized to the normalised input (rms ~1 against a stream of rms
+    # ~100) and could hardly change anything (v2.2: gate 0.005).
+    # sandbox_read_layers - L2's text memory also holds what the model knew
+    # about every word at these earlier depths (each read with the norm the
+    # model itself uses there), information the last layers have compressed
+    # away; mixed in by learned per-channel weights that start at 0.  Each
+    # site reads the listed layers below it.
+    sandbox_stream_scale: bool = False
+    sandbox_read_layers: list = field(default_factory=list)
 
     def validate(self) -> "V2Config":
+        reads = list(self.sandbox_read_layers)
+        if reads != sorted(set(reads)) or any(int(l) < 1 for l in reads):
+            raise ValueError(f"sandbox_read_layers must be increasing, unique and >= 1, got {reads}")
+        if reads and not self.sandbox_context:
+            raise ValueError("sandbox_read_layers extends L2's text read: needs sandbox_context")
+        if set(reads) & set(self.sites()):
+            raise ValueError(f"sandbox_read_layers {reads} must not be L2 sites {self.sites()}")
+        if self.sandbox_stream_scale and not self.sites():
+            raise ValueError("sandbox_stream_scale sizes L2 inside the network: needs "
+                             "addon_layer or addon_layers")
         if self.sandbox_free_views and not self.sandbox_aligned:
             raise ValueError("sandbox_free_views changes the v3 (sandbox_aligned) L2; "
                              "without sandbox_aligned the views are already free")
@@ -586,7 +629,15 @@ class EkdantLM(nn.Module):
         if any(not 1 <= k <= n_layers for k in sites):
             raise ValueError(f"addon_layers must lie in 1..{n_layers}, got {sites}")
         self._sites: list = []
+        reads = [int(l) for l in cfg.sandbox_read_layers]
+        if any(l >= n_layers for l in reads):
+            raise ValueError(f"sandbox_read_layers must lie in 1..{n_layers - 1}, got {reads}")
+        # T56: the earlier depths each site reads (mid sites in order, then
+        # the end, which reads every listed layer)
+        ends = list(sites) + ([n_layers + 1] if (cfg.addon_final or not sites) else [])
+        self._site_reads = [[l for l in reads if l < k] for k in ends]
         if cfg.addon == "sandbox":
+            n_reads = [len(r) for r in self._site_reads]
             if cfg.addon_layers:
                 self.addon = MultiAddOn(dim, cfg.sandbox_kwargs(), len(sites),
                                         shared=cfg.addon_shared,
@@ -596,7 +647,9 @@ class EkdantLM(nn.Module):
                                         force=cfg.gate_force,
                                         token_gate=cfg.sandbox_confidence,
                                         aligned=cfg.sandbox_aligned,
-                                        token_gate_min=cfg.token_gate_min)
+                                        token_gate_min=cfg.token_gate_min,
+                                        stream_scale=cfg.sandbox_stream_scale,
+                                        n_reads=n_reads)
                 self._sites = list(self.addon.sites)
             else:
                 self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
@@ -605,22 +658,42 @@ class EkdantLM(nn.Module):
                                         force=cfg.gate_force,
                                         token_gate=cfg.sandbox_confidence,
                                         aligned=cfg.sandbox_aligned,
-                                        token_gate_min=cfg.token_gate_min)
+                                        token_gate_min=cfg.token_gate_min,
+                                        stream_scale=cfg.sandbox_stream_scale,
+                                        n_read=n_reads[0])
                 self._sites = [self.addon] if sites else []
+            # capture hooks first: a read layer is never a site (validate)
+            for l in reads:
+                lm.model.layers[l - 1].register_forward_hook(
+                    functools.partial(self._read_hook, l))
             for i, k in enumerate(sites):
                 lm.model.layers[k - 1].register_forward_hook(
                     functools.partial(self._site_hook, i))
-        self._ctx: Dict = {"mask": None, "attn": None, "aux": [], "l2_past": None}
+        self._ctx: Dict = {"mask": None, "attn": None, "aux": [], "l2_past": None,
+                           "deep": {}}
         # T51: L2 reads the model's own states, which are cached with the
         # backbone's (``L2Cache``), so generation keeps the KV cache
         self.needs_full_context = False
+
+    def _read_hook(self, l, module, args, output):
+        """T56: keep layer l's output, read with the norm the model itself
+        applies before layer l+1, for the L2 sites above it."""
+        h = output[0] if isinstance(output, tuple) else output
+        self._ctx["deep"][l] = self.lm.model.layers[l].input_layernorm(h)
+
+    def _deep(self, i: int) -> Dict:
+        """Keyword ``deep`` for site i (empty when it reads no earlier depth,
+        so a site without T56 is called exactly as before)."""
+        reads = self._site_reads[i] if i < len(self._site_reads) else []
+        return {"deep": [self._ctx["deep"][l] for l in reads]} if reads else {}
 
     def _site_hook(self, i, module, args, output):
         """Replace decoder layer k's output by site i's gated L2 refinement."""
         h = output[0] if isinstance(output, tuple) else output
         past = self._ctx["l2_past"]
         new, aux = self._sites[i](h, self._ctx["mask"], self._ctx["attn"],
-                                  past[i] if past is not None else None)
+                                  past[i] if past is not None else None,
+                                  **self._deep(i))
         self._ctx["aux"].append(aux)
         return (new,) + tuple(output[1:]) if isinstance(output, tuple) else new
 
@@ -640,7 +713,7 @@ class EkdantLM(nn.Module):
         if isinstance(past_key_values, L2Cache):
             l2_past, past_key_values = past_key_values.ctx, past_key_values.backbone
         self._ctx = {"mask": dmask, "attn": attention_mask, "aux": [],
-                     "l2_past": l2_past}
+                     "l2_past": l2_past, "deep": {}}
         out = self.lm.model(input_ids=input_ids, attention_mask=attention_mask,
                             past_key_values=past_key_values,
                             use_cache=use_cache, position_ids=position_ids)
@@ -649,14 +722,16 @@ class EkdantLM(nn.Module):
         per_site: list = []
         if self.addon is not None and self.addon.mode == "final":
             h, aux = self.addon(h, dmask, attention_mask,
-                                l2_past[0] if l2_past is not None else None)
+                                l2_past[0] if l2_past is not None else None,
+                                **self._deep(0))
             per_site = [aux]
         elif self.addon is not None:
             per_site = list(self._ctx["aux"])
             if getattr(self.addon, "final_site", None) is not None:
                 h, aux_end = self.addon.final_site(
                     h, dmask, attention_mask,
-                    l2_past[-1] if l2_past is not None else None)
+                    l2_past[-1] if l2_past is not None else None,
+                    **self._deep(len(self._sites)))
                 per_site.append(aux_end)
             # one entry per site: diagnostics averaged over the sites
             keys = set.intersection(*(set(a) for a in per_site)) if per_site else set()
