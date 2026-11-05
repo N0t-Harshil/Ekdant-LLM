@@ -134,7 +134,7 @@ explain?") and in the `gain` report.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 291 passed
+python -m pytest -q                          # 289 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -197,7 +197,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 291 passed
+python -m pytest -q                          # 289 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -253,7 +253,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 291 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 289 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -264,7 +264,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 291 passed
+python -m pytest -q                          # 289 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -1649,7 +1649,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 291 tests
+python -m pytest            # 289 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
