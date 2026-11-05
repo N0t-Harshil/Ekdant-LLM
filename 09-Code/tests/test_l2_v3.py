@@ -264,4 +264,81 @@ def test_shipped_v3_config():
     assert all(getattr(cfg, k) == v for k, v in same.items())
 
 
+# ---- T53: fixes from the v3_end run
+
+def test_trajectories_ask_the_text_different_questions():
+    box = _wake(_box(diverse_read=True))
+    h = torch.randn(1, T, DIM)
+    same = h.unsqueeze(0).expand(5, 1, T, DIM).contiguous()     # identical trajectories
+    mem = box.memory(h, T, None)
+    read = box.debate[0].context(same, mem) - same
+    assert not torch.allclose(read[0], read[1], atol=1e-4)     # they read different things
+    plain = _wake(_box())
+    read2 = plain.debate[0].context(same, plain.memory(h, T, None)) - same
+    assert torch.allclose(read2[0], read2[1], atol=1e-6)       # without it: the same read
+
+
+def test_per_token_gate_cannot_switch_l2_off():
+    m = _lm(token_gate_min=0.5)
+    a = m.addon
+    torch.nn.init.constant_(a.gate, 0.3)
+    h = torch.randn(1, T, 32)
+    with torch.no_grad():
+        base, _ = a(h)                               # factor 1 at init
+        a.token_gate.bias.fill_(-30.0)               # pushed fully closed
+        low, _ = a(h)
+        assert float(low[0].sub(h).abs().sum()) > 0
+        ratio = (low - h).abs().sum() / (base - h).abs().sum()
+        assert 0.45 < float(ratio) < 0.55            # floor 0.5 of the open gate
+    with pytest.raises(ValueError):
+        V2Config(addon="sandbox", token_gate_min=1.0).validate()
+
+
+def test_brake_relearns_normal_at_a_new_stage():
+    from ekdant.train_gen import GateBrake
+    b = GateBrake(spike=3.0, warmup=5)
+    for _ in range(30):
+        b.update(0.1, 1.0)
+    assert b.update(0.8, 1.0)                        # 8x: a burst in the same stage
+    b2 = GateBrake(spike=3.0, warmup=5)
+    for _ in range(30):
+        b2.update(0.1, 1.0)
+    b2.rewarm()
+    assert not b2.update(0.8, 1.0)                   # new stage: new normal, no burst
+    assert b2.events == 0
+
+
+def test_auroc_and_calibration():
+    from ekdant.gen_eval import auroc, calibration
+    assert auroc(torch.tensor([0.1, 0.4, 0.35, 0.8]), torch.tensor([0, 0, 1, 1])) == 0.75
+    assert auroc(torch.tensor([0.5] * 4), torch.tensor([0, 1, 0, 1])) == 0.5
+    c = calibration(torch.tensor([0.9, 0.8, 0.2, 0.1]), torch.tensor([1, 1, 0, 0]))
+    assert c["auroc"] == 1.0 and c["conf_right"] > c["conf_wrong"] and c["accuracy"] == 0.5
+
+
+def test_benchmark_records_confidence_calibration_for_v3_only(tiny, tmp_path):
+    import ekdant.train_gen as G
+    from test_train_gen import _args
+    cfg = json.loads(pathlib.Path(tiny).read_text())
+    for name, extra in (("v3", {**V3, "sandbox_diverse_read": True, "token_gate_min": 0.5}),
+                        ("v2", {})):
+        c = dict(cfg, **extra)
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(c))
+        G.main(_args(str(path), tmp_path / name))
+    v3 = json.loads((tmp_path / "v3" / "results.json").read_text())["test"]["medquad_bench"]
+    v2 = json.loads((tmp_path / "v2" / "results.json").read_text())["test"]["medquad_bench"]
+    assert {"auroc", "conf_right", "conf_wrong", "brier"} <= set(v3["confidence"])
+    assert "confidence" not in v2
+
+
+def test_shipped_v3b_config():
+    path = pathlib.Path(__file__).resolve().parents[1] / "configs" / "v3b_sandbox_end.json"
+    cfg = V2Config.from_dict(json.loads(path.read_text()))
+    assert cfg.sandbox_diverse_read and cfg.token_gate_min == 0.5 and cfg.n_sandbox == 5
+    v3 = json.loads((path.parent / "v3_sandbox_end.json").read_text())
+    new = json.loads(path.read_text())
+    assert {k for k in new if new[k] != v3.get(k)} == {"sandbox_diverse_read", "token_gate_min"}
+
+
 from test_train_gen import tiny  # noqa: E402,F401  (shared fixture)

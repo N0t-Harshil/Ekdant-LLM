@@ -37,6 +37,39 @@ DIAG_KEYS = ("anchor_energy", "trajectory_variance", "spread_ratio",
              "verifier_top_weight", "token_gate")
 
 
+def auroc(scores: torch.Tensor, positive: torch.Tensor) -> float:
+    """Area under the ROC curve: the chance that a random positive scores
+    above a random negative (ties count half); 0.5 = no signal."""
+    scores, positive = scores.double().flatten(), positive.bool().flatten()
+    n_pos, n_neg = int(positive.sum()), int((~positive).sum())
+    if n_pos == 0 or n_neg == 0:
+        return float("nan")
+    _, inv, counts = torch.unique(scores, return_inverse=True, return_counts=True)
+    end = counts.cumsum(0).double()
+    r = ((end - counts.double() + 1.0 + end) / 2.0)[inv]   # average rank of ties
+    return float((r[positive].sum() - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
+
+
+def _conf_logits(model) -> Optional[torch.Tensor]:
+    """The learned confidence logits [B,T] of the last forward (mean over
+    the L2 sites), or None for a model without them (T53)."""
+    sites = model._all_sites() if hasattr(model, "_all_sites") else []
+    zs = [s.last_conf_logit for s in sites if getattr(s, "last_conf_logit", None) is not None]
+    return torch.stack([z.float() for z in zs]).mean(0) if zs else None
+
+
+def calibration(conf: torch.Tensor, right: torch.Tensor) -> Dict[str, float]:
+    """Does the learned confidence know when the model is right (T53)?
+    AUROC (0.5 = no idea, 1 = perfect), mean confidence on right vs wrong
+    tokens, and the Brier score."""
+    conf, right = conf.double(), right.double()
+    return {"auroc": auroc(conf, right.bool()),
+            "conf_right": float(conf[right.bool()].mean()) if right.any() else float("nan"),
+            "conf_wrong": float(conf[~right.bool()].mean()) if (~right.bool()).any() else float("nan"),
+            "accuracy": float(right.mean()), "brier": float((conf - right).pow(2).mean()),
+            "tokens": int(right.numel())}
+
+
 @torch.no_grad()
 def answer_nll(model, loader, device, autocast) -> Dict:
     """Token-weighted mean NLL over answer tokens (labels != -100), plus
@@ -46,6 +79,8 @@ def answer_nll(model, loader, device, autocast) -> Dict:
     row_tok: List[int] = []
     row_idx: List[int] = []
     diag: Dict[str, float] = {}
+    confs: List[torch.Tensor] = []
+    rights: List[torch.Tensor] = []
     for batch in loader:
         ids = batch["input_ids"].to(device)
         mask = batch["attention_mask"].to(device)
@@ -55,6 +90,10 @@ def answer_nll(model, loader, device, autocast) -> Dict:
         logp = F.log_softmax(out.logits[:, :-1].float(), dim=-1)
         tgt = labels[:, 1:]
         valid = tgt != -100
+        z = _conf_logits(model)
+        if z is not None:
+            confs.append(torch.sigmoid(z[:, :-1])[valid].cpu())
+            rights.append((logp.argmax(-1) == tgt)[valid].cpu())
         tok_nll = -logp.gather(-1, tgt.clamp_min(0).unsqueeze(-1)).squeeze(-1)
         tok_nll = tok_nll * valid
         row_nll += tok_nll.sum(-1).tolist()
@@ -70,6 +109,8 @@ def answer_nll(model, loader, device, autocast) -> Dict:
          "row_nll": row_nll, "row_tokens": row_tok, "row_idx": row_idx}
     if diag:
         r["addon"] = {k: v / max(1, len(row_idx)) for k, v in diag.items()}
+    if confs:
+        r["confidence"] = calibration(torch.cat(confs), torch.cat(rights))
     return r
 
 
@@ -994,7 +1035,8 @@ def think_ppl_table(run_dirs: List[str]) -> str:
 def facts_table(run_dirs: List[str]) -> str:
     """Size, cost, gate and L2's inner state of every model."""
     head = ["Model", "L2", "Params", "L2 params", "Training time", "Final gate (mean size)",
-            "Brake events", "Rollbacks", "L2 spread ratio", "L2 anchor energy"]
+            "Brake events", "Rollbacks", "L2 spread ratio", "L2 anchor energy",
+            "Confidence AUROC"]
     lines = ["### Model facts", "", "| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for d in run_dirs:
         name, m, res = _load_both(d)
@@ -1013,12 +1055,17 @@ def facts_table(run_dirs: List[str]) -> str:
                  str(cost["rollbacks"]) if "rollbacks" in cost else "-",
                  f"{diag['spread_ratio']:.3g}" if "spread_ratio" in diag else "-",
                  f"{diag['anchor_energy']:.3g}" if "anchor_energy" in diag else "-"]
+        cal = test.get("medquad_bench", {}).get("confidence", {})
+        cells.append(f"{cal['auroc']:.3f}" if cal.get("auroc") == cal.get("auroc")
+                     and "auroc" in cal else "-")
         lines.append("| " + " | ".join(cells) + " |")
     lines += ["", "Training time = wall clock of the whole run (both phases). Spread "
               "ratio = how far L2's 4 trajectories stay apart relative to the input "
               "(about 0 = they agree on everything, no real debate); anchor energy = "
               "their distance to the anchor after the descent. Both on the MedQuAD "
-              "benchmark, averaged."]
+              "benchmark, averaged. Confidence AUROC (L2 v3) = how well L2's learned "
+              "confidence tells the model's right next tokens from its wrong ones "
+              "(0.5 = no idea, 1 = perfect)."]
     return "\n".join(lines)
 
 

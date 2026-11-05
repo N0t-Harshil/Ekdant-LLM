@@ -160,7 +160,9 @@ def test_rollback_limit_falls_back_to_the_brake(tiny, tmp_path, monkeypatch):
                                    "--gate-force", "--gate-floor-start", "0",
                                    "--gate-floor-steps", "4", "--max-rollbacks", "2"]))
     r = json.loads((out / "results.json").read_text())
-    assert r["cost"]["rollbacks"] == 4             # 2 per stage (each stage starts a new snapshot), not hundreds
+    # 2 in stage 1 (the limit), not hundreds; stage 2 re-learns what is
+    # normal (T53 rewarm), and the steady 1e3x level is then no burst
+    assert r["cost"]["rollbacks"] == 2
     assert min(r["test"]["gate_per_site"]) >= 0.4 - 1e-6
 
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)

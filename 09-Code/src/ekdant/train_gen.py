@@ -147,6 +147,12 @@ class GateBrake:
         self.factor = min(1.0, self.factor * self.recover)
         return False
 
+    def rewarm(self) -> None:
+        """A new stage (other data) changes L2's normal gradient size: learn
+        it again before judging bursts (T53: v3_end braked at step 1 of the
+        MedQuAD stage).  The LR factor and the event count are kept."""
+        self.ema, self.seen = None, 0
+
     def state_dict(self) -> Dict:
         return {"factor": self.factor, "ema": self.ema, "seen": self.seen,
                 "events": self.events}
@@ -528,6 +534,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             batches = _batches(ds, args.batch_size,
                                torch.randperm(len(ds), generator=g).tolist())
             skip = st_done if (si, epoch) == (st_stage, st_epoch) else 0
+            if si > 0 and epoch == 0 and skip == 0:
+                brake.rewarm()
             model.train()
             opt.zero_grad(set_to_none=True)
             t0, loss_ema, group_bad, l2_rms = time.time(), None, False, None
@@ -733,6 +741,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                        if device.type == "cuda" else 0.0}
     log(f"[test medquad_bench] ppl={b['ppl']:.3f} rouge_l={b['rouge_l']:.4f} "
         f"token_f1={b['token_f1']:.4f} n={b['n']} generated={b['gen_n']}")
+    if "confidence" in b:
+        c = b["confidence"]
+        log(f"[test confidence] AUROC={c['auroc']:.3f} (0.5 = no idea) - "
+            f"mean confidence {c['conf_right']:.3f} on right next tokens vs "
+            f"{c['conf_wrong']:.3f} on wrong ones (accuracy {c['accuracy']:.3f})")
     log(f"[test pubmedqa_held] ppl={p['ppl']:.3f} rouge_l={p['rouge_l']:.4f} "
         f"token_f1={p['token_f1']:.4f}")
     write()

@@ -13,6 +13,7 @@ Spec: 02-Architecture/03_Codebase_Map.md, 04-Model-DeepDive/26c
 from __future__ import annotations
 
 import contextlib
+import math
 import functools
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Optional, Tuple
@@ -235,7 +236,8 @@ class GatedAddOn(nn.Module):
     def __init__(self, dim: int, sandbox_kwargs: Dict, mode: str = "final",
                  sandbox: Optional[Sandbox] = None, gate_cap: float = 0.0,
                  checkpoint: bool = False, force: bool = False,
-                 token_gate: bool = False, aligned: bool = False):
+                 token_gate: bool = False, aligned: bool = False,
+                 token_gate_min: float = 0.0):
         super().__init__()
         if mode not in ("final", "mid"):
             raise ValueError(f"mode must be final|mid, got {mode!r}")
@@ -251,6 +253,12 @@ class GatedAddOn(nn.Module):
         # sure.  Both zero-init: confidence 0.5, gate factor 1.
         self.token_gate = None
         self.conf_head = None
+        # T53: the factor lies in (token_gate_min, 2) and is 1 at init; with
+        # 0 it is 2*sigmoid (v3_end: it fell to 0.03 during PubMedQA, i.e.
+        # the per-token gate switched L2 off for the reasoning phase)
+        self.token_gate_min = token_gate_min
+        p = (1.0 - token_gate_min) / (2.0 - token_gate_min)
+        self._tg_shift = math.log(p / (1.0 - p))
         if token_gate:
             self.conf_head = nn.Linear(dim + 3, 1)
             self.token_gate = nn.Linear(dim + 1, 1)
@@ -322,7 +330,9 @@ class GatedAddOn(nn.Module):
             self.last_conf_logit = logit
             conf = torch.sigmoid(logit).detach().unsqueeze(-1)       # [B,T,1]
             aux["learned_confidence"] = masked_mean_bt(conf.float().squeeze(-1), mask)
-            f = 2.0 * torch.sigmoid(self.token_gate(torch.cat([y, conf], dim=-1)))
+            lo = self.token_gate_min
+            f = lo + (2.0 - lo) * torch.sigmoid(
+                self.token_gate(torch.cat([y, conf], dim=-1)) + self._tg_shift)
             g = g * f                                                 # [B,T,dim]
             if self.gate_cap > 0:
                 # the per-token factor may not push the gate past its cap
@@ -377,20 +387,22 @@ class MultiAddOn(nn.Module):
                  shared: bool = True, gate_cap: float = 0.0,
                  final: bool = False, checkpoint: bool = False,
                  force: bool = False, token_gate: bool = False,
-                 aligned: bool = False):
+                 aligned: bool = False, token_gate_min: float = 0.0):
         super().__init__()
         one = Sandbox(dim, **sandbox_kwargs) if shared else None
         self.sites = nn.ModuleList(
             [GatedAddOn(dim, sandbox_kwargs, mode="mid", sandbox=one,
                         gate_cap=gate_cap, checkpoint=checkpoint, force=force,
-                        token_gate=token_gate, aligned=aligned)
+                        token_gate=token_gate, aligned=aligned,
+                        token_gate_min=token_gate_min)
              for _ in range(n_sites)])
         # ``final`` (the "mix", T40): the same L2 once more after the final
         # norm, i.e. the inner sites plus the end placement
         self.final_site = (GatedAddOn(dim, sandbox_kwargs, mode="final",
                                       sandbox=one, gate_cap=gate_cap,
                                       checkpoint=checkpoint, force=force,
-                                      token_gate=token_gate, aligned=aligned)
+                                      token_gate=token_gate, aligned=aligned,
+                                      token_gate_min=token_gate_min)
                            if final else None)
 
     def _all(self) -> list:
@@ -470,6 +482,12 @@ class V2Config:
     # what the language model learns).
     sandbox_aligned: bool = False
     lambda_conf: float = 0.1
+    # T53: sandbox_diverse_read - each trajectory reads the text with its own
+    # query offset (they ask different questions, so the debate does not
+    # collapse); token_gate_min - the per-token gate factor never goes below
+    # this, so L2 cannot be switched off token by token (0 = the T50 gate).
+    sandbox_diverse_read: bool = False
+    token_gate_min: float = 0.0
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
@@ -479,6 +497,8 @@ class V2Config:
         if self.addon_final and not self.addon_layers:
             raise ValueError("addon_final needs addon_layers (use addon_layer=-1 "
                              "for the end placement alone)")
+        if not 0.0 <= self.token_gate_min < 1.0:
+            raise ValueError(f"token_gate_min must be in [0, 1), got {self.token_gate_min}")
         if self.sandbox_confidence and self.n_sandbox % 2 == 0:
             raise ValueError("sandbox_confidence votes between trajectories: "
                              f"n_sandbox must be odd (no ties), got {self.n_sandbox}")
@@ -501,7 +521,8 @@ class V2Config:
                     norm_inputs=self.sandbox_prenorm,
                     context=self.sandbox_context, heads=self.sandbox_heads,
                     confidence=self.sandbox_confidence,
-                    aligned=self.sandbox_aligned)
+                    aligned=self.sandbox_aligned,
+                    diverse_read=self.sandbox_diverse_read)
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -552,7 +573,8 @@ class EkdantLM(nn.Module):
                                         checkpoint=cfg.sandbox_checkpoint,
                                         force=cfg.gate_force,
                                         token_gate=cfg.sandbox_confidence,
-                                        aligned=cfg.sandbox_aligned)
+                                        aligned=cfg.sandbox_aligned,
+                                        token_gate_min=cfg.token_gate_min)
                 self._sites = list(self.addon.sites)
             else:
                 self.addon = GatedAddOn(dim, cfg.sandbox_kwargs(),
@@ -560,7 +582,8 @@ class EkdantLM(nn.Module):
                                         gate_cap=cfg.gate_cap,
                                         force=cfg.gate_force,
                                         token_gate=cfg.sandbox_confidence,
-                                        aligned=cfg.sandbox_aligned)
+                                        aligned=cfg.sandbox_aligned,
+                                        token_gate_min=cfg.token_gate_min)
                 self._sites = [self.addon] if sites else []
             for i, k in enumerate(sites):
                 lm.model.layers[k - 1].register_forward_hook(

@@ -152,19 +152,28 @@ class ContextRead(nn.Module):
     model's own meaning and costs one query projection per round; the K
     trajectories are folded into the query length, so the text is never
     copied K times.  ``alpha`` (per channel) starts at 0: an untrained read
-    changes nothing."""
+    changes nothing.
 
-    def __init__(self, dim: int, heads: int):
+    ``diverse`` (T53): each trajectory adds its own learned query offset, so
+    the K trajectories ask the text different questions - without it they
+    start almost equal (aligned) and read the same thing, and the debate
+    collapses into agreement (v3_end: spread at the floor, vote 0.69 -> 0.83)."""
+
+    def __init__(self, dim: int, heads: int, K: int = 1, diverse: bool = False):
         super().__init__()
         self.heads = heads
         self.norm = RMSNorm(dim)
         self.q = nn.Linear(dim, dim, bias=False)
         self.alpha = nn.Parameter(torch.zeros(dim))
+        self.q_offset = (nn.Parameter(0.5 * torch.randn(K, dim))
+                         if diverse and K > 1 else None)
 
     def forward(self, traj: torch.Tensor, mem: TextMemory) -> torch.Tensor:
         K, B, T, D = traj.shape
         H = self.heads
         q = self.q(self.norm(traj))                                  # [K,B,T,D]
+        if self.q_offset is not None:
+            q = q + self.q_offset.view(K, 1, 1, D).type_as(q)
         q = q.view(K, B, T, H, D // H).permute(1, 3, 0, 2, 4).reshape(B, H, K * T, D // H)
         m = mem.allowed.repeat(1, 1, K, 1)                           # [B,1,K*T,Tk]
         o = F.scaled_dot_product_attention(q, mem.keys.type_as(q),
@@ -179,9 +188,9 @@ class DebateRound(nn.Module):
 
     def __init__(self, dim: int, mlp_ratio: float = 2.0, gate_bias: float = -2.0,
                  norm_input: bool = False, context: bool = False,
-                 heads: int = 1):
+                 heads: int = 1, K: int = 1, diverse: bool = False):
         super().__init__()
-        self.context = ContextRead(dim, heads) if context else None
+        self.context = ContextRead(dim, heads, K, diverse) if context else None
         # Pre-norm (v2, T33): the round reads a fixed-size input, so weight
         # growth cannot compound across rounds. Off for v1 (unchanged).
         self.norm = RMSNorm(dim) if norm_input else nn.Identity()
@@ -311,6 +320,7 @@ class Sandbox(nn.Module):
         heads: int = 0,
         confidence: bool = False,
         aligned: bool = False,
+        diverse_read: bool = False,
     ):
         super().__init__()
         if readout not in ("mean", "lowest_energy"):
@@ -334,7 +344,7 @@ class Sandbox(nn.Module):
         self.init_proj = DiverseInit(dim, K, gain_lo, gain_hi, aligned=aligned)
         self.debate = nn.ModuleList(
             [DebateRound(dim, mlp_ratio=mlp_ratio, norm_input=norm_inputs,
-                         context=context, heads=heads)
+                         context=context, heads=heads, K=K, diverse=diverse_read)
              for _ in range(rounds)])
         self.descent = AnchoredDescent(dim, aligned=aligned)
         # The text L2 reads (T51): the model's states, normalised; keys are

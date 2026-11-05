@@ -100,7 +100,51 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3j. L2 v3: L2 thinks in the model's meaning, reads the text, votes and knows how sure it is (T50, T51) — new
+## A3k. L2 v3b: the fixes from the v3 run (T53) — **run this next**
+
+`configs/v3b_sandbox_end.json` = `v3_sandbox_end.json` plus two switches
+(the v3 config is kept unchanged, so `v3_end` stays reproducible):
+
+| switch | fixes |
+|---|---|
+| `sandbox_diverse_read: true` | each of the 5 trajectories reads the text with its **own query offset** — they ask the text different questions, so the debate does not collapse into agreement (A7g point 2) |
+| `token_gate_min: 0.5` | the per-token gate factor stays in (0.5, 2), 1 at the start — it can shift L2's weight between tokens but **cannot switch L2 off** (A7g point 1; it fell to 0.03) |
+
+For every run (not only v3b): the brake re-learns L2's normal gradient size
+when a stage starts, so new data is no false burst (point 3); and every v3
+run now reports **confidence AUROC** — does L2's confidence tell the model's
+right next tokens from its wrong ones (0.5 = no idea, 1 = perfect) — in the
+log (`[test confidence]`), in `results.json` and in the model-facts table
+(point 4).
+
+Checked on the real SmolLM2: step 0 = the backbone exactly; L2 21.94M
+parameters. Two seeds, so the result can be compared with both baselines:
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # all tests must pass
+nvidia-smi                                   # one GPU with >= 40 GB free (not GPU 0)
+export CUDA_VISIBLE_DEVICES=2                # <- the GPU you picked
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
+
+nohup bash -c "
+python -m ekdant.train $FLAGS --variant sandbox --config configs/v3b_sandbox_end.json --out runs/v3b_end > v3b_end.log 2>&1;
+python -m ekdant.train $FLAGS --seed 23 --variant sandbox --config configs/v3b_sandbox_end.json --out runs/v3b_s23_end > v3b_s23_end.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v3b_end runs/v3b_s23_end > mcq_v3b.log 2>&1;
+python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v3b_s17.md runs/v22_baseline runs/v22_end runs/v3_end runs/v3b_end > /dev/null 2>&1;
+python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v3b_s23.md runs/v22s23_baseline runs/v22s23_end runs/v3b_s23_end > /dev/null 2>&1
+" > v3b_all.log 2>&1 &
+
+tail -f v3b_end.log
+```
+
+About 4 h (2 × ~1.9 h plus the benchmark). Watch `tgate=` (should no longer
+fall towards 0 in PubMedQA; it cannot go below 0.5) and `vote=` (should stay
+lower than v3's 0.83). Bring back the two leaderboards, `mcq_v3b.log` and
+both training logs. The second compare also gives the seed-23 CI for
+`v22s23_end`.
+
+## A3j. L2 v3: L2 thinks in the model's meaning, reads the text, votes and knows how sure it is (T50, T51) — done, results in A7g
 
 **Gaps found in L2 (2026-11-02).**
 
@@ -166,7 +210,7 @@ with `--batch-size 4 --grad-accum 8` (still 32 sequences) and say so next to
 the result. Bring back `leaderboard_v3.md`,
 `mcq_v3.log` and `v3_end.log`.
 
-## A3i. Second seed of the best model: v22 recipe, seed 23 — **run this next**
+## A3i. Second seed of the best model: v22 recipe, seed 23 — done, results in A7g
 
 The first full benchmark (2026-11-02, A3h) made `v22_end` the best model:
 PubMedQA 60.4 % vs 58.9 % for `v22_baseline` (+1.5 points, within noise on
@@ -717,6 +761,59 @@ How to read it:
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
 
+## A7g. Seed-23 repeat and L2 v3 (2026-11-05)
+
+Sources: `mcq_all3.log` (seed 23), `leaderboard_v3.md`, `mcq_v3.log`,
+`v3_end.log`. v22 recipe (1 PubMedQA + 3 MedQuAD epochs), one run each.
+`*` = paired 95 % CI excludes 0.
+
+**Seed 23 (another data split) — the L2 gain repeats:**
+
+| | seed 17 | seed 23 | mean |
+|---|---|---|---|
+| baseline, PubMedQA % right | 58.9 | 56.5 | 57.7 |
+| **L2 at the end**, PubMedQA % right | **60.4** | **59.7** | **60.05** (+2.35, +4.1 % relative) |
+| baseline, MedQuAD ppl | 3.783 | 3.796 | |
+| **L2 at the end**, MedQuAD ppl | **3.776** | **3.790** | |
+| PubMedQA with L2 off | 54.1 (−6.3\*) | 53.2 (−6.5\*) | |
+| debate skipped | −7.2\* | −5.2\* | |
+
+All three end-placement runs of this recipe (59.6, 60.4, 59.7) are at or
+above the best of the five same-recipe baselines (56.5–59.7). The seed-23
+pair's own CI has not been computed yet (`mcq --compare --baseline
+v22s23_baseline runs/v22s23_baseline runs/v22s23_end`).
+
+**L2 v3 (`v3_end`, `configs/v3_sandbox_end.json`, seed 17) vs `v22_baseline` / `v22_end`:**
+
+| | baseline | v22_end | v3_end |
+|---|---|---|---|
+| PubMedQA % right | 58.9 | **60.4** | 58.3 (−0.6, noise) |
+| MedQuAD ppl | 3.783 | 3.776 (−0.2 %\*) | **3.764 (−0.5 %\*)** — best of all models |
+| ROUGE-L / F1 | 31.4 / 37.9 | 32.0 / 38.5 | 31.5 / 37.8 |
+| PubMedQA with L2 off | — | 54.1 (−6.3\*) | **47.0 (−11.3\*)** |
+| debate skipped | — | −7.2\* | **−14.5\*** |
+| descent 16 / 32 steps | — | −0.4 / −2.4\* | −3.1\* / −10.3\* |
+| L2 params, training time | —, 1.3 h | 19.6M, 1.5 h | 21.9M, 1.9 h |
+
+- v3 made L2 central (without it the model is below plain SmolLM2: 47.0 vs
+  51.7 %) and gave the best perplexity, but not better answers.
+- With the aligned anchor, the descent pulls back to the model's own state:
+  32 steps (48.0 %) ≈ L2 off (47.0 %). In v3 the debate is the thinking part.
+
+**What the v3 training log shows (`v3_end.log`) — fixed in T53:**
+
+1. **The per-token gate switched L2 off for the reasoning phase:** `tgate`
+   1.06 → 0.03–0.06 by step 500 of PubMedQA, ~0.1–0.6 for the rest of
+   phase 1; only in MedQuAD did it open (1.4 → 1.73).
+2. **The debate collapsed into agreement:** `vote` 0.69 → 0.83, spread
+   ratio 0.0518 at the end (floor 0.05) — the 5 trajectories started almost
+   equal and read the text with the same query, so they read the same thing.
+3. **A false brake at step 1 of MedQuAD** (new data, larger gradients): L2
+   LR halved, gates ×0.9.
+4. **Confidence:** `conf=` followed the share of right tokens (~0.55 in
+   PubMedQA, 0.6–0.76 in MedQuAD), but nothing measured whether it is higher
+   on the right tokens.
+
 ## A7f. Benchmark of every model: % right, L2 off, thinking time (2026-11-02)
 
 Every finished model scored by `python -m ekdant.gen_eval mcq --all`
@@ -954,7 +1051,7 @@ always report it as *architecture-matched, not parameter-matched*.
 ```
 MedMCQA train (182,496 rows) ──► phase 1: train
 MedMCQA validation (4,170 usable) ──► score after phase 1 · pick the checkpoint · measure forgetting
-MedQA train (10,250) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
+MedQA train (10,256) ── seed-locked split ──┬─ 60 % (6,106) ──► phase 2: fine-tune
                                             └─ 40 % (4,072) ──► THE BENCHMARK — never trained on, scored once
 MedQA test (1,273) ──► second untouched number
 ```
@@ -1229,7 +1326,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 250 tests
+python -m pytest            # 256 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
