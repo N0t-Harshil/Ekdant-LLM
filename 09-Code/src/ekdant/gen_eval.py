@@ -828,7 +828,8 @@ def describe_l2(cfg: V2Config) -> str:
         where = "end"
     v3 = [n for n, on in (("aligned", getattr(cfg, "sandbox_aligned", False)),
                           ("context", getattr(cfg, "sandbox_context", False)),
-                          ("confidence", getattr(cfg, "sandbox_confidence", False))) if on]
+                          ("confidence", getattr(cfg, "sandbox_confidence", False)),
+                          ("free views", getattr(cfg, "sandbox_free_views", False))) if on]
     return (f"{where}, {'forced' if cfg.gate_force else 'free'}"
             + (f", v3 {'+'.join(v3)}" if v3 else "")
             + (f", thinks x{cfg.sandbox_train_passes}"
@@ -1235,12 +1236,168 @@ def mcq_compare(run_dirs: List[str], baseline: Optional[str] = None,
                   f"({verdict}; positive = more right)")
 
 
+def _pooled_acc(pairs: List[Tuple[Dict, Dict]], names: Sequence[str]) -> Optional[Dict]:
+    """Paired bootstrap of the accuracy gain (model - baseline) averaged over
+    every seed pair and over ``names`` (equal weight per seed and per test).
+    The questions are the same in every seed, so one question in every seed
+    is one resampling group: the CI sees seed-to-seed and question noise."""
+    a, b, g, w = [], [], [], []
+    for base, model in pairs:
+        for n in names:
+            if n not in base or n not in model:
+                return None
+            ra = {row["q"]: row["right"] for row in base[n]["rows"]}
+            rb = {row["q"]: row["right"] for row in model[n]["rows"]}
+            keys = sorted(set(ra) & set(rb))
+            if not keys:
+                return None
+            k = 1.0 / (len(keys) * len(names) * len(pairs))
+            for q in keys:
+                a.append(ra[q] * k)
+                b.append(rb[q] * k)
+                g.append(f"{n}:{q}")
+                w.append(k)
+    return paired_bootstrap(a, b, g, weights=w)
+
+
+def _pooled_nll(pairs: List[Tuple[Dict, Dict]]) -> Optional[Dict]:
+    """Per-token NLL change (model - baseline), the mean over the seed pairs.
+    Each seed has its own MedQuAD benchmark half, so groups are per seed."""
+    a, b, g, w = [], [], [], []
+    for p, (base, model) in enumerate(pairs):
+        ma, mb = base.get("medquad_ppl"), model.get("medquad_ppl")
+        if not ma or not mb:
+            return None
+        ra, rb = _rows(ma["on"]), _rows(mb["on"])
+        keys = sorted(set(ra) & set(rb))
+        if not keys:
+            return None
+        c = 1.0 / (len(pairs) * sum(ra[k][1] for k in keys))
+        groups = ma.get("row_group", {})
+        for k in keys:
+            a.append(ra[k][0] * c)
+            b.append(rb[k][0] * c)
+            g.append(f"{p}:{groups.get(str(k), k)}")
+            w.append(ra[k][1] * c)
+    return paired_bootstrap(a, b, g, weights=w)
+
+
+def gain_report(baselines: List[str], models: List[Tuple[str, List[str]]]) -> str:
+    """How much better is each model than the baseline, over all seeds?
+
+    ``baselines`` = the baseline run of every seed; ``models`` = (name, the
+    model's runs in the same seed order).  Per test: % right of both (mean
+    over seeds), the gain in points with a 95 % CI over seeds and questions,
+    the gain relative to the baseline (+x %), the share of the baseline's
+    wrong answers the model gets right, and the gain of each seed."""
+    def load(d):
+        with open(os.path.join(d, "mcq.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    base = [load(d) for d in baselines]
+    seeds = [m.get("seed", "?") for m in base]
+    lines = []
+    for name, dirs in models:
+        if len(dirs) != len(baselines):
+            raise ValueError(f"{name}: {len(dirs)} runs for {len(baselines)} baselines")
+        runs = [load(d) for d in dirs]
+        for d, m, s in zip(dirs, runs, seeds):
+            if m.get("seed", "?") != s:
+                raise ValueError(f"{d} has seed {m.get('seed')}, its baseline {s}: "
+                                 "give the runs in the same seed order")
+        pairs = list(zip(base, runs))
+        names = [n for n in MCQ_DATASETS if all(n in b and n in r for b, r in pairs)]
+        for label, tests in [(MCQ_TITLE[n], [n]) for n in names] + [("Average", names)]:
+            if not tests:
+                continue
+            acc_b = sum(sum(b[n]["accuracy"] for n in tests) / len(tests) for b in base) / len(base)
+            acc_m = sum(sum(r[n]["accuracy"] for n in tests) / len(tests) for r in runs) / len(runs)
+            ci = _pooled_acc(pairs, tests)
+            per = []
+            for p in pairs:
+                c = _pooled_acc([p], tests)
+                per.append(f"{100 * c['diff']:+.1f}{_star(c)}" if c else "-")
+            gain = ci["diff"] if ci else acc_m - acc_b
+            cells = [name, label, f"{100 * acc_b:.1f}", f"{100 * acc_m:.1f}",
+                     (f"{100 * gain:+.2f} [{100 * ci['lo']:+.2f}, {100 * ci['hi']:+.2f}]{_star(ci)}"
+                      if ci else f"{100 * gain:+.2f}"),
+                     f"{100 * gain / max(acc_b, 1e-12):+.1f} %",
+                     f"{100 * gain / max(1 - acc_b, 1e-12):+.1f} %",
+                     " / ".join(per)]
+            lines.append("| " + " | ".join(cells) + " |")
+        nl = _pooled_nll(pairs)
+        if nl:
+            pb = sum(b["medquad_ppl"]["on"]["ppl"] for b in base) / len(base)
+            pm = sum(r["medquad_ppl"]["on"]["ppl"] for r in runs) / len(runs)
+            per = []
+            for p in pairs:
+                c = _pooled_nll([p])
+                per.append(f"{100 * (math.exp(c['diff']) - 1):+.1f} %{_star(c)}" if c else "-")
+            lines.append("| " + " | ".join([
+                name, "MedQuAD ppl (lower = better)", f"{pb:.3f}", f"{pm:.3f}",
+                f"{100 * (math.exp(nl['diff']) - 1):+.2f} % [{100 * (math.exp(nl['lo']) - 1):+.2f}, "
+                f"{100 * (math.exp(nl['hi']) - 1):+.2f}]{_star(nl)}",
+                "-", "-", " / ".join(per)]) + " |")
+    head = ["Model", "Test", "Baseline % right", "Model % right",
+            "Gain, points [95% CI]", "Relative gain", "Baseline's errors fixed",
+            "Gain per seed (" + " / ".join(str(s) for s in seeds) + ")"]
+    return "\n".join(
+        [f"### How much better than the baseline? (seeds {', '.join(str(s) for s in seeds)} together)",
+         "", "| " + " | ".join(head) + " |", "|" + "---|" * len(head)] + lines
+        + ["", "% right and perplexity = mean over the seeds. Gain = model minus "
+           "baseline in points of % right, mean over the seeds, with a paired 95% "
+           "bootstrap CI (each question resampled in every seed at once); * = the "
+           "CI excludes 0 (a real gain, not noise). Relative gain = gain / the "
+           "baseline's % right (+5 % = five percent more right answers). "
+           "Baseline's errors fixed = gain / the baseline's % wrong. Perplexity: "
+           "change of the per-token NLL as a % change of perplexity, CI over the "
+           "benchmark questions of every seed. Chance: MedMCQA and MedQA 25 %, "
+           "PubMedQA 33 %."])
+
+
+GAIN_DOC = """How much better than the baseline, all seeds together.
+
+  python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \\
+      --model v22 runs/v22_end runs/v22s23_end \\
+      --model v3b runs/v3b_end runs/v3b_s23_end --markdown gain.md
+
+Give every model's runs in the same seed order as the baselines (checked).
+Reads the mcq.json files only (score the runs with `mcq` first).  To compare
+two L2 models, pass one of them as --baseline."""
+
+
+def gain_main(argv: Optional[List[str]] = None) -> None:
+    ap = argparse.ArgumentParser(prog="python -m ekdant.gen_eval gain", description=GAIN_DOC,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--baseline", nargs="+", required=True,
+                    help="the baseline run of every seed")
+    ap.add_argument("--model", nargs="+", action="append", required=True,
+                    metavar=("NAME", "RUN"),
+                    help="a name, then its runs in the same seed order (repeatable)")
+    ap.add_argument("--markdown", default=None)
+    args = ap.parse_args(argv)
+    models = []
+    for m in args.model:
+        if len(m) < 2:
+            ap.error("--model needs a name and at least one run")
+        models.append((m[0], m[1:]))
+    table = gain_report(args.baseline, models)
+    print("\n" + table + "\n")
+    if args.markdown:
+        with open(args.markdown, "w", encoding="utf-8") as f:
+            f.write(table + "\n")
+        print(f"written to {args.markdown}")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) >= 2 and sys.argv[1] == "mcq":
+    if len(sys.argv) >= 2 and sys.argv[1] == "gain":
+        gain_main(sys.argv[2:])
+    elif len(sys.argv) >= 2 and sys.argv[1] == "mcq":
         mcq_main(sys.argv[2:])
     elif len(sys.argv) >= 4 and sys.argv[1] == "compare":
         compare(sys.argv[2:])
     else:
         print("usage: python -m ekdant.gen_eval compare <run> <run> [...]\n"
-              "       python -m ekdant.gen_eval mcq <run> [...] [--zero-shot]")
+              "       python -m ekdant.gen_eval mcq <run> [...] [--zero-shot]\n"
+              "       python -m ekdant.gen_eval gain --baseline <runs> --model NAME <runs> [...]")
         raise SystemExit(2)

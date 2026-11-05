@@ -495,8 +495,20 @@ class V2Config:
     # stack 1..N times (drawn at random), so thinking twice is trained, not
     # just tried at test time; the model answers with N passes.  1 = as before.
     sandbox_train_passes: int = 1
+    # T55: sandbox_free_views - v3 with v22's thinking space: the trajectories
+    # start as K independent views (v22's orthogonal projections) and the
+    # descent pulls them to a learned anchor, instead of starting at and being
+    # pulled back to the model's own state.  Everything else of v3 stays (text
+    # read, verifier, confidence, per-token gate, output at the model's scale).
+    # Why: v22's trajectories really differ (spread ratio 0.22-0.46) and its
+    # L2 is robust to more thinking; v3's sit at the spread floor (0.05), so
+    # its 5 trajectories act almost as one.  Needs sandbox_aligned.
+    sandbox_free_views: bool = False
 
     def validate(self) -> "V2Config":
+        if self.sandbox_free_views and not self.sandbox_aligned:
+            raise ValueError("sandbox_free_views changes the v3 (sandbox_aligned) L2; "
+                             "without sandbox_aligned the views are already free")
         if self.addon not in ("none", "sandbox"):
             raise ValueError(f"addon must be none|sandbox, got {self.addon!r}")
         if self.readout not in ("mean", "lowest_energy"):
@@ -530,7 +542,7 @@ class V2Config:
                     norm_inputs=self.sandbox_prenorm,
                     context=self.sandbox_context, heads=self.sandbox_heads,
                     confidence=self.sandbox_confidence,
-                    aligned=self.sandbox_aligned,
+                    aligned=self.sandbox_aligned and not self.sandbox_free_views,
                     diverse_read=self.sandbox_diverse_read,
                     train_passes=self.sandbox_train_passes)
 

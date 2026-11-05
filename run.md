@@ -100,6 +100,73 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3m. L2 v3d: v3 with v22's free views, and the gain report (T55) — **run this next**
+
+**Why (from A7i):** v22, v3b and v3c answer equally well; v3's extra parts
+gave no gain. The clearest difference to v22 is how far L2's trajectories
+stay apart: v22 0.22–0.46 (spread ratio), v3 0.05 (= the floor), so v3's
+five trajectories act almost as one and the debate has nothing to argue
+about; v22's L2 is also robust to more thinking (descent x32: −2.4\* / −1.8,
+v3b −9.0\* / −5.6\*). v3 starts every trajectory at the model's own state and
+pulls them back to it.
+
+| change | what it does |
+|---|---|
+| `sandbox_free_views` (v3d) | the trajectories start as 5 independent views of the state (v22's orthogonal projections) and the descent pulls them to a learned anchor (v22), not back to the model's state; everything else of v3b stays: text read, verifier, confidence, per-token gate, output at the model's scale |
+| `gen_eval gain` | **how much better than the baseline, all seeds together:** gain in points with a 95 % CI over seeds and questions, relative gain (+x % more right answers), share of the baseline's wrong answers fixed, gain per seed; also for MedQuAD perplexity |
+
+Config `configs/v3d_sandbox_end.json` = v3b + `sandbox_free_views` (one
+debate pass: v3c's second pass gave nothing). Step 0 = the backbone on
+SmolLM2 (checked); L2 21.9M params.
+
+**1. The gain report on the finished models (seconds, no GPU):**
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # 277 passed
+python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
+    --model v22 runs/v22_end runs/v22s23_end \
+    --model v3b runs/v3b_end runs/v3b_s23_end \
+    --model v3c runs/v3c_end runs/v3c_s23_end --markdown gain_v3c.md
+```
+
+**2. v3d on both seeds (about 2 h, start each command once):**
+
+```bash
+ps aux | grep "ekdant" | grep -v grep        # must print nothing
+nvidia-smi                                   # 2 GPUs with >= 40 GB free (not GPU 0)
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+python -m ekdant.train $FLAGS --variant sandbox --config configs/v3d_sandbox_end.json --out runs/v3d_end > v3d_end.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v3d_end > mcq_v3d_s17.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 --variant sandbox --config configs/v3d_sandbox_end.json --out runs/v3d_s23_end > v3d_s23_end.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v3d_s23_end > mcq_v3d_s23.log 2>&1" > /dev/null 2>&1 &
+```
+
+**3. When `ps aux | grep ekdant | grep -v grep` prints nothing:**
+
+```bash
+python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
+    --model v22 runs/v22_end runs/v22s23_end \
+    --model v3b runs/v3b_end runs/v3b_s23_end \
+    --model v3d runs/v3d_end runs/v3d_s23_end --markdown gain_v3d.md
+python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end \
+    --model v3d runs/v3d_end runs/v3d_s23_end --markdown gain_v3d_vs_v22.md
+python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v3d_s17.md runs/v22_baseline runs/v22_end runs/v3b_end runs/v3d_end > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v3d_s23.md runs/v22s23_baseline runs/v22s23_end runs/v3b_s23_end runs/v3d_s23_end > /dev/null
+```
+
+The second `gain` compares v3d with v22 directly (v22 as the baseline).
+Bring back `gain_v3c.md`, `gain_v3d.md`, `gain_v3d_vs_v22.md`, both
+leaderboards, `mcq_v3d_s17.log`, `mcq_v3d_s23.log`, `v3d_end.log`,
+`v3d_s23_end.log`.
+
+**Decision:** v3d improves v3 if its pooled gain over the baseline is above
+v3b's with the CI of v3d vs v22 above 0, and its spread ratio stays above
+the floor (0.05). Nothing is promised: the earlier L2 versions all landed
+within half a point of each other.
+
 ## A3l. L2 v3c: L2 learns to think twice, and the confidence test (T54) — done, results in A7i
 
 **Why (from A7h):** v3b makes the model depend on L2 more than ever and its
@@ -112,7 +179,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 268 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 277 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -123,7 +190,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 268 passed
+python -m pytest -q                          # 277 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -1508,7 +1575,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 268 tests
+python -m pytest            # 277 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
