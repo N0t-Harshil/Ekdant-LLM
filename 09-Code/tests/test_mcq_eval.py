@@ -315,7 +315,9 @@ def test_forced_run_is_scored_with_its_trained_gate_floor(two_runs, tiny, tmp_pa
         f.update({"version": 3, "pubmedqa": {}, "l2": "end, forced" if d == forced else "end, free"})
         (d / "mcq.json").write_text(json.dumps(f))
     assert "forced gate floor" in M._score_state(str(forced), ["pubmedqa"])
-    assert M._score_state(str(l2), ["pubmedqa"]) == "complete"
+    # the free one is not re-scored for the floor; only for the T54
+    # confidence test that every version-3/4 file lacks
+    assert M._score_state(str(l2), ["pubmedqa"]) == "scored without the confidence test (T54)"
 
 
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)

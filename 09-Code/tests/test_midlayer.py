@@ -46,7 +46,7 @@ def _effect_on_later_tokens(layer):
         ref = m(ids).logits
     real = m.addon.sandbox.forward
 
-    def bump(x, mask=None, attn_mask=None, ctx=None):
+    def bump(x, mask=None, attn_mask=None, ctx=None, passes=None):
         o = real(x, mask=mask, attn_mask=attn_mask, ctx=ctx)
         c = o.consensus.clone()
         c[:, 2] += 3.0

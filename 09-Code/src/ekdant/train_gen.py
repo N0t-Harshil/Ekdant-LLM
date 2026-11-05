@@ -746,6 +746,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         log(f"[test confidence] AUROC={c['auroc']:.3f} (0.5 = no idea) - "
             f"mean confidence {c['conf_right']:.3f} on right next tokens vs "
             f"{c['conf_wrong']:.3f} on wrong ones (accuracy {c['accuracy']:.3f})")
+    if "own_confidence" in b:
+        log(f"[test confidence] the model's own top-word probability: "
+            f"AUROC={b['own_confidence']['auroc']:.3f} (L2's confidence adds "
+            f"something only if it beats this)")
     log(f"[test pubmedqa_held] ppl={p['ppl']:.3f} rouge_l={p['rouge_l']:.4f} "
         f"token_f1={p['token_f1']:.4f}")
     write()

@@ -10,6 +10,7 @@ Spec: 04-Model-DeepDive/26c_Internal_Sandbox_Build.md
 from __future__ import annotations
 
 import math
+import random
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import torch
@@ -321,6 +322,7 @@ class Sandbox(nn.Module):
         confidence: bool = False,
         aligned: bool = False,
         diverse_read: bool = False,
+        train_passes: int = 1,
     ):
         super().__init__()
         if readout not in ("mean", "lowest_energy"):
@@ -334,9 +336,15 @@ class Sandbox(nn.Module):
         self.K = K
         self.rounds = rounds
         self.steps = steps
-        # times the whole debate stack is applied (T47 thinking-time test;
-        # training always uses 1)
-        self.debate_passes = 1
+        # times the whole debate stack is applied (T47 thinking-time test).
+        # T54 train_passes: in training each forward draws 1..train_passes
+        # passes, so a second pass learns to refine the first instead of
+        # breaking it; the model then answers with train_passes passes.
+        if train_passes < 1:
+            raise ValueError(f"train_passes must be >= 1, got {train_passes}")
+        self.train_passes = train_passes
+        self.debate_passes = train_passes
+        self._pass_rng = random.Random(0)
         self.eta = eta
         self.rho_min = rho_min
         self.readout = readout
@@ -369,10 +377,18 @@ class Sandbox(nn.Module):
         hist = (n * w).cumsum(1) / w.cumsum(1).clamp_min(1.0)
         return TextMemory(k, v, allowed, hist[:, Tk - Tq:])
 
+    def draw_passes(self) -> Optional[int]:
+        """The number of debate passes for one training forward (T54), or
+        None = use ``debate_passes``."""
+        if self.training and self.train_passes > 1:
+            return self._pass_rng.randint(1, self.train_passes)
+        return None
+
     def forward(self, hT: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
                 attn_mask: Optional[torch.Tensor] = None,
-                ctx: Optional[torch.Tensor] = None) -> SandboxOutput:
+                ctx: Optional[torch.Tensor] = None,
+                passes: Optional[int] = None) -> SandboxOutput:
         """hT [B,T,H]; mask [B,T] (1 = token the loss trains) only affects
         the diagnostics / spread floor, never the consensus; attn_mask
         [B,Tk] (1 = real token) keeps padding out of the text read; ctx
@@ -382,7 +398,7 @@ class Sandbox(nn.Module):
         if self.mem_key is not None:
             mem = self.memory(hT if ctx is None else ctx, hT.shape[1], attn_mask)
         traj = self.init_proj(hT)
-        for _ in range(self.debate_passes):
+        for _ in range(self.debate_passes if passes is None else passes):
             for layer in self.debate:
                 traj = layer(traj, mem)
         traj, a_t, energy, retention = self.descent(

@@ -81,6 +81,8 @@ def answer_nll(model, loader, device, autocast) -> Dict:
     diag: Dict[str, float] = {}
     confs: List[torch.Tensor] = []
     rights: List[torch.Tensor] = []
+    own: List[torch.Tensor] = []
+    own_right: List[torch.Tensor] = []
     for batch in loader:
         ids = batch["input_ids"].to(device)
         mask = batch["attention_mask"].to(device)
@@ -90,10 +92,14 @@ def answer_nll(model, loader, device, autocast) -> Dict:
         logp = F.log_softmax(out.logits[:, :-1].float(), dim=-1)
         tgt = labels[:, 1:]
         valid = tgt != -100
+        top_lp, top = logp.max(-1)
+        right = (top == tgt)[valid].cpu()
+        own.append(top_lp.exp()[valid].cpu())
+        own_right.append(right)
         z = _conf_logits(model)
         if z is not None:
-            confs.append(torch.sigmoid(z[:, :-1])[valid].cpu())
-            rights.append((logp.argmax(-1) == tgt)[valid].cpu())
+            confs.append(torch.sigmoid(z[:, :-1].float())[valid].cpu())
+            rights.append(right)
         tok_nll = -logp.gather(-1, tgt.clamp_min(0).unsqueeze(-1)).squeeze(-1)
         tok_nll = tok_nll * valid
         row_nll += tok_nll.sum(-1).tolist()
@@ -111,6 +117,10 @@ def answer_nll(model, loader, device, autocast) -> Dict:
         r["addon"] = {k: v / max(1, len(row_idx)) for k, v in diag.items()}
     if confs:
         r["confidence"] = calibration(torch.cat(confs), torch.cat(rights))
+    if own:
+        # the yardstick (T54): the model's own top-word probability; L2's
+        # confidence only adds something if it beats this
+        r["own_confidence"] = calibration(torch.cat(own), torch.cat(own_right))
     return r
 
 
@@ -331,7 +341,7 @@ MCQ_DATASETS = ("medmcqa", "medqa", "pubmedqa")
 # perplexity on / off / thinking, facts (T48), 4 = forced runs scored with
 # their trained gate floor (T49).  An older file is scored again (a version-3
 # file only for a forced run).
-MCQ_VERSION = 4
+MCQ_VERSION = 5
 MCQ_CHANCE = {"medmcqa": 0.25, "medqa": 0.25, "pubmedqa": 1 / 3}
 PUBMED_OPTIONS = ["yes", "no", "maybe"]
 
@@ -389,8 +399,9 @@ def _mcq_prompt(tok, q: Question, max_prompt: int, letters: bool) -> Optional[Li
 @torch.no_grad()
 def _forward_rows(model, rows: List[List[int]], pad: int, device, autocast,
                   batch_size: int):
-    """Yields (row index, logits [len, V] on the device) for every row,
-    batched by length so little compute is spent on padding."""
+    """Yields (row index, logits [len, V] on the device, L2's confidence
+    logits [len] or None) for every row, batched by length so little compute
+    is spent on padding."""
     order = sorted(range(len(rows)), key=lambda i: len(rows[i]))
     for s in range(0, len(order), batch_size):
         chunk = order[s:s + batch_size]
@@ -402,8 +413,10 @@ def _forward_rows(model, rows: List[List[int]], pad: int, device, autocast,
             mask[r, :len(rows[i])] = 1
         with autocast():
             out = model(ids.to(device), attention_mask=mask.to(device))
+        z = _conf_logits(model)
         for r, i in enumerate(chunk):
-            yield i, out.logits[r, :len(rows[i])]
+            yield i, out.logits[r, :len(rows[i])], \
+                (None if z is None else z[r, :len(rows[i])])
 
 
 def score_questions(model, tok, questions: Sequence[Question], device, autocast,
@@ -429,21 +442,31 @@ def score_questions(model, tok, questions: Sequence[Question], device, autocast,
             let_rows.append(pl)
             let_q.append(qi)
     mean_lp = {qi: [float("-inf")] * len(questions[qi].options) for qi in kept}
-    for i, lp in _forward_rows(model, opt_rows, pad, device, autocast, batch_size):
+    l2_conf: Dict[int, List[float]] = {}
+    for i, lp, z in _forward_rows(model, opt_rows, pad, device, autocast, batch_size):
         qi, oi, n_p, n_o = opt_meta[i]
         tgt = torch.tensor(opt_rows[i][n_p:], device=lp.device)
         # position t predicts token t+1: the option's tokens are read from
         # positions n_p-1 .. n_p+n_o-2
         sel = F.log_softmax(lp[n_p - 1:n_p - 1 + n_o].float(), dim=-1)
         mean_lp[qi][oi] = float(sel.gather(-1, tgt.unsqueeze(-1)).mean())
+        if z is not None:
+            # L2's confidence while it reads this option (T54)
+            l2_conf.setdefault(qi, [0.0] * len(questions[qi].options))[oi] = \
+                float(torch.sigmoid(z[n_p - 1:n_p - 1 + n_o].float()).mean())
     letter_pick: Dict[int, int] = {}
-    for i, lp in _forward_rows(model, let_rows, pad, device, autocast, batch_size):
+    for i, lp, _ in _forward_rows(model, let_rows, pad, device, autocast, batch_size):
         letter_pick[let_q[i]] = int(lp[-1, letter_ids].float().argmax())
     rows = []
     for qi in kept:
         q, scores = questions[qi], mean_lp[qi]
         pick = max(range(len(scores)), key=scores.__getitem__)
-        row = {"q": qi, "pick": pick, "right": int(pick == q.answer)}
+        row = {"q": qi, "pick": pick, "right": int(pick == q.answer),
+               # the model's own confidence: its probability of the option
+               # it picked, among the options (T54)
+               "own_conf": float(torch.tensor(scores).softmax(0)[pick])}
+        if qi in l2_conf:
+            row["l2_conf"] = l2_conf[qi][pick]
         if qi in letter_pick:
             row["letter_pick"] = letter_pick[qi]
             row["letter_right"] = int(letter_pick[qi] == q.answer)
@@ -467,7 +490,25 @@ def mcq_summarise(rows: List[Dict], n_total: int) -> Dict:
     lr = [r["letter_right"] for r in rows if "letter_right" in r]
     if lr:
         out["letter_accuracy"] = sum(lr) / len(lr)
+    for sig in ("own_conf", "l2_conf"):
+        if rows and all(sig in r for r in rows):
+            out.setdefault("know", {})[sig] = knows([r[sig] for r in rows], right)
     return out
+
+
+def knows(conf: Sequence[float], right: Sequence[int]) -> Dict[str, float]:
+    """Does a confidence know when the answer is right (T54)?  AUROC
+    (0.5 = no idea) and the % right on the half of the questions it is
+    surest about vs the other half: a model that knows when it knows can
+    answer the sure half and say 'not sure' to the rest."""
+    n = len(right)
+    order = sorted(range(n), key=lambda i: -conf[i])
+    half = (n + 1) // 2
+    sure, unsure = order[:half], order[half:]
+    return {"auroc": auroc(torch.tensor(list(conf)), torch.tensor(list(right)).bool()),
+            "sure_half": sum(right[i] for i in sure) / max(1, len(sure)),
+            "unsure_half": sum(right[i] for i in unsure) / max(1, len(unsure)),
+            "n": n}
 
 
 def _autocast(device):
@@ -521,12 +562,15 @@ def load_run_weights(run_dir: str, last: Dict, cfg: V2Config):
     return cfg, torch.load(path, map_location="cpu", weights_only=False)["model"], chosen
 
 
-def think_settings(steps: int) -> List[Tuple[str, Optional[int], Optional[int]]]:
+def think_settings(steps: int, passes: int = 1
+                   ) -> List[Tuple[str, Optional[int], Optional[int]]]:
     """(label, debate passes, descent steps) of the thinking-time test
     (T47): less and more of each of L2's two loops; the trained setting
-    (1 pass, ``steps`` steps) is the reference and is not repeated."""
+    (``passes`` passes, ``steps`` steps) is the reference and is not
+    repeated.  A model trained with 2 passes (T54) is also tried with 1 and 3."""
     grid = sorted({0, steps // 2, 2 * steps, 4 * steps} - {steps})
-    return ([("debate x0", 0, None), ("debate x2", 2, None)]
+    pgrid = sorted({0, passes + 1} | ({passes - 1} if passes > 1 else set()))
+    return ([(f"debate x{p}", p, None) for p in pgrid]
             + [(f"steps {s}", None, s) for s in grid])
 
 
@@ -555,7 +599,7 @@ def mcq_evaluate(model, tok, qs: Dict[str, List[Question]], device,
             box = model.sandboxes()[0]
             out[name]["think"] = {"trained": f"debate x{box.debate_passes}, "
                                              f"steps {box.steps}"}
-            for label, passes, steps in think_settings(box.steps):
+            for label, passes, steps in think_settings(box.steps, box.debate_passes):
                 with model.think(passes, steps):
                     r = sc(questions)
                 out[name]["think"][label] = r
@@ -599,7 +643,7 @@ def ppl_evaluate(model, ds, groups: List[str], pad: int, device, batch_size: int
     if model.addon is not None and think:
         box = model.sandboxes()[0]
         out["think"] = {"trained": f"debate x{box.debate_passes}, steps {box.steps}"}
-        for label, passes, steps in think_settings(box.steps):
+        for label, passes, steps in think_settings(box.steps, box.debate_passes):
             with model.think(passes, steps):
                 out["think"][label] = bench_nll(model, ds, pad, device, batch_size)
             log(f"    thinking {label}: ppl {out['think'][label]['ppl']:.3f}")
@@ -644,6 +688,8 @@ def _score_state(run_dir: str, names: Sequence[str]) -> str:
         # version 3 scored forced runs without their forced gate floor (T49);
         # free runs have floor 0, so their numbers stay valid
         return "scored without its forced gate floor (T49)"
+    if v < 5:
+        return "scored without the confidence test (T54)"
     if any(n not in m for n in names):
         return "some tests missing"
     return "complete"
@@ -784,7 +830,9 @@ def describe_l2(cfg: V2Config) -> str:
                           ("context", getattr(cfg, "sandbox_context", False)),
                           ("confidence", getattr(cfg, "sandbox_confidence", False))) if on]
     return (f"{where}, {'forced' if cfg.gate_force else 'free'}"
-            + (f", v3 {'+'.join(v3)}" if v3 else ""))
+            + (f", v3 {'+'.join(v3)}" if v3 else "")
+            + (f", thinks x{cfg.sandbox_train_passes}"
+               if getattr(cfg, "sandbox_train_passes", 1) > 1 else ""))
 
 
 def _paired_acc(ref: Dict, run: Dict, names: Sequence[str]) -> Optional[Dict]:
@@ -941,6 +989,55 @@ def think_table(run_dirs: List[str]) -> str:
     return "\n".join(lines)
 
 
+def know_table(run_dirs: List[str]) -> str:
+    """Does the model know when it is right (T54)?  Per test, how well the
+    model's own probability and L2's confidence tell right answers from
+    wrong ones, and the % right on the half each is surest about."""
+    lines = []
+    for d in run_dirs:
+        name, m, _ = _load_both(d)
+        for n in MCQ_DATASETS:
+            k = m.get(n, {}).get("know")
+            if not k:
+                continue
+            cells = [name, MCQ_TITLE[n], f"{100 * m[n]['accuracy']:.1f}"]
+            for sig in ("own_conf", "l2_conf"):
+                s = k.get(sig)
+                cells += ([f"{s['auroc']:.3f}",
+                           f"{100 * s['sure_half']:.1f} / {100 * s['unsure_half']:.1f}"]
+                          if s else ["-", "-"])
+            lines.append("| " + " | ".join(cells) + " |")
+    tok = []
+    for d in run_dirs:
+        name, m, _ = _load_both(d)
+        on = m.get("medquad_ppl", {}).get("on", {})
+        if "own_confidence" in on:
+            l2 = on.get("confidence", {}).get("auroc")
+            tok.append(f"| {name} | {on['own_confidence']['auroc']:.3f} | "
+                       + (f"{l2:.3f}" if l2 is not None else "-") + " |")
+    if not lines and not tok:
+        return ""
+    out = ["### Does the model know when it is right? (T54)", ""]
+    if lines:
+        head = ["Model", "Test", "% right (all)", "Own probability: AUROC",
+                "Own probability: % right sure / unsure half", "L2 confidence: AUROC",
+                "L2 confidence: % right sure / unsure half"]
+        out += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)] + lines
+        out += ["", "Per question: the model's own confidence = its probability of the "
+                "option it picked; L2 confidence = L2's learned confidence while reading "
+                "that option. AUROC = chance that a right answer gets a higher confidence "
+                "than a wrong one (0.5 = no idea, 1 = perfect). Sure / unsure half = % right "
+                "on the half of the questions the signal is surest / least sure about: a "
+                "big gap means the model can answer when sure and say 'not sure' otherwise. "
+                "L2 adds something only if its numbers beat the model's own probability."]
+    if tok:
+        out += ["", "| Model | Next-word AUROC: own top-word probability | "
+                "Next-word AUROC: L2 confidence |", "|---|---|---|"] + tok
+        out += ["", "MedQuAD benchmark, every answer token: how well each signal tells the "
+                "model's right next words from its wrong ones."]
+    return "\n".join(out)
+
+
 def _load_both(d: str) -> Tuple[str, Dict, Optional[Dict]]:
     with open(os.path.join(d, "mcq.json"), encoding="utf-8") as f:
         m = json.load(f)
@@ -1074,7 +1171,8 @@ def full_report(run_dirs: List[str], baseline: Optional[str] = None) -> str:
     parts = ["## Benchmark of every model (T46-T48)", "",
              "### Leaderboard", "", mcq_leaderboard(run_dirs, baseline)]
     for part in (dependence_table(run_dirs), think_table(run_dirs),
-                 think_ppl_table(run_dirs), facts_table(run_dirs)):
+                 think_ppl_table(run_dirs), know_table(run_dirs),
+                 facts_table(run_dirs)):
         if part:
             parts += ["", part]
     return "\n".join(parts)

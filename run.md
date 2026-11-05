@@ -100,7 +100,69 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3k. L2 v3b: the fixes from the v3 run (T53) — **run this next**
+## A3l. L2 v3c: L2 learns to think twice, and the confidence test (T54) — **run this next**
+
+**Why (from A7h):** v3b makes the model depend on L2 more than ever and its
+confidence is real (AUROC 0.81 on two seeds), but it answers no better than
+v22, and thinking longer hurts (a second debate pass −6.5\*): L2 was only
+ever trained with one pass. Two changes:
+
+| change | what it does |
+|---|---|
+| `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
+| the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
+
+Step 0 = the backbone exactly on SmolLM2 (checked); 267 tests. A training step
+runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
+uses more GPU memory.
+
+**Start each command ONCE.** The v3b seed-23 benchmark was wrong because the
+A3k chain was started a second time while the first was still training: the
+second copy found `last.pt`, stopped, wiped `v3b_s23_end.log` and scored the
+half-trained model. Check first that nothing is running:
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # 267 passed
+ps aux | grep "ekdant" | grep -v grep        # must print nothing
+nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
+
+# 1) v3c, both seeds at the same time on two GPUs (~2-2.5 h each), each followed by its benchmark
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+python -m ekdant.train $FLAGS --variant sandbox --config configs/v3c_sandbox_end.json --out runs/v3c_end > v3c_end.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v3c_end > mcq_v3c_s17.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 --variant sandbox --config configs/v3c_sandbox_end.json --out runs/v3c_s23_end > v3c_s23_end.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v3c_s23_end > mcq_v3c_s23.log 2>&1" > /dev/null 2>&1 &
+
+# 2) the confidence test for the models we have (and the correct v3b seed-23 score), on a third GPU
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.gen_eval mcq runs/v22_baseline runs/v22_end runs/v3b_end \
+    runs/v22s23_baseline runs/v22s23_end runs/v3b_s23_end > mcq_rescore.log 2>&1 &
+
+tail -f v3c_end.log
+```
+
+When all three are done (`ps aux | grep ekdant | grep -v grep` prints nothing),
+the two leaderboards (seconds, no GPU):
+
+```bash
+python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v3c_s17.md \
+    runs/v22_baseline runs/v22_end runs/v3b_end runs/v3c_end > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v3c_s23.md \
+    runs/v22s23_baseline runs/v22s23_end runs/v3b_s23_end runs/v3c_s23_end > /dev/null
+```
+
+Watch in `v3c_end.log`: `tgate=` and `vote=` as for v3b; the
+`[test confidence]` lines now also print the model's own top-word AUROC.
+Bring back both leaderboards, `mcq_rescore.log`, `mcq_v3c_s17.log`,
+`mcq_v3c_s23.log` and both training logs. **What decides it:** v3c beats
+v22 if its PubMedQA is above v22_end's on both seeds; thinking twice is
+learned if `debate x1` (thinking once) now costs accuracy instead of the
+second pass costing it; the confidence means something if L2's AUROC and
+sure/unsure gap beat the model's own probability.
+
+## A3k. L2 v3b: the fixes from the v3 run (T53) — done, results in A7h
 
 `configs/v3b_sandbox_end.json` = `v3_sandbox_end.json` plus two switches
 (the v3 config is kept unchanged, so `v3_end` stays reproducible):
@@ -761,6 +823,58 @@ How to read it:
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
 
+## A7h. L2 v3b on two seeds (2026-11-05)
+
+Sources: `leaderboard_v3b_s17.md`, `mcq_v3b.log`, `v3b_end.log`,
+`v3b_s23_end (1).log` (the full seed-23 log), `leaderboard_v3b_s23.md`.
+`*` = paired 95 % CI excludes 0.
+
+**Seed 17 (`v3b_end` vs `v22_baseline`, `v22_end`, `v3_end`):**
+
+| | baseline | v22_end | v3_end | v3b_end |
+|---|---|---|---|---|
+| MedMCQA / MedQA % right | 27.2 / 25.6 | 27.2 / 25.9 | 27.3 / 25.6 | 27.5 / 25.7 |
+| PubMedQA % right | 58.9 | **60.4** | 58.3 | 59.9 (+1.0, noise) |
+| Average | 37.2 | **37.8** | 37.1 | 37.7 (+0.5, noise) |
+| MedQuAD ppl | 3.783 | 3.776 (−0.2 %\*) | 3.764 (−0.5 %\*) | 3.765 (−0.5 %\*) |
+| PubMedQA with L2 off | — | 54.1 (−6.3\*) | 47.0 (−11.3\*) | 47.4 (**−12.5\***) |
+| MedMCQA with L2 off | — | −0.0 | −0.4 | **−0.8\*** |
+| debate x0 / x2 | — | −7.2\* / −0.4 | −14.5\* / +1.9 | −12.9\* / **−6.5\*** |
+| descent 0 / 32 steps | — | −0.1 / −2.4\* | +1.5 / −10.3\* | +0.8 / −9.0\* |
+| confidence AUROC | — | — | not measured | **0.814** (0.786 on right next words vs 0.521 on wrong) |
+| training time | 1.3 h | 1.5 h | 1.9 h | 1.8 h |
+
+**Seed 23 (`v3b_s23_end`), from the training log:** MedQuAD ppl **3.778**
+(v22s23_end 3.790, baseline 3.796); L2 off +0.1016 per-token NLL [+0.0994,
++0.1038]\*; **confidence AUROC 0.818** (0.785 vs 0.515); ROUGE-L / F1 29.8 /
+36.2 (v22s23_end 30.2 / 36.6). **Its row in `leaderboard_v3b_s23.md` is
+invalid** (PubMedQA 49.3 %, ppl 9.190, no training time): the A3k chain was
+started twice, and the second copy scored the checkpoint of the first copy
+at about step 1,200 of PubMedQA. Re-scored in A3l.
+
+**Seed-23 CI of the v22 model (asked in A7g):** `v22s23_end` vs
+`v22s23_baseline`: PubMedQA **+3.2\*** points, average **+1.1\*** points —
+the end-placement gain is significant on this seed.
+
+**What the v3b logs show (the T53 fixes):**
+
+1. **The per-token gate no longer shuts L2 off:** `tgate` 1.04 → lowest 0.52
+   (steps 500–1,400), then up to 1.2 (step 3,000) and 1.5–1.6 for the rest of
+   PubMedQA, 1.84 in MedQuAD (v3: 0.06 at step 500).
+2. **The trajectories still mostly agree:** `vote` 0.80–0.82 in PubMedQA
+   (v3: 0.78–0.83), 0.71 at the end of MedQuAD (v3: 0.75); spread ratio 0.0528
+   (v3: 0.0518). The per-trajectory query did not break the agreement.
+3. **No false brake at the start of MedQuAD** (v3: one at step 1). Seed 17 had
+   two real bursts in PubMedQA (steps 301 and 3,087), handled by the brake.
+4. **The confidence is real:** AUROC 0.814 / 0.818 on the two seeds.
+
+**Reading:** v3b fixes v3's answers (58.3 → 59.9 %), makes the model depend
+on L2 more than any earlier model, and has a confidence that tells right from
+wrong next words; but on seed 17 it answers no better than v22 (59.9 vs
+60.4 %), and thinking longer hurts (a second pass −6.5\*) because L2 was
+only trained with one pass. Whether the confidence beats the model's own
+probability was not measured yet. Both addressed in A3l (T54).
+
 ## A7g. Seed-23 repeat and L2 v3 (2026-11-05)
 
 Sources: `mcq_all3.log` (seed 23), `leaderboard_v3.md`, `mcq_v3.log`,
@@ -1326,7 +1440,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 256 tests
+python -m pytest            # 267 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

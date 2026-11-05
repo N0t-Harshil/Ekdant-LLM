@@ -305,13 +305,16 @@ class GatedAddOn(nn.Module):
         ctx = x if past_ctx is None else torch.cat([past_ctx.type_as(x), x], dim=1)
         self.last_ctx = ctx.detach()
         g = self.effective_gate()
+        # drawn here, outside the checkpoint, so the recompute in the
+        # backward pass runs the same number of passes (T54)
+        passes = self.sandbox.draw_passes()
         if self.checkpoint and torch.is_grad_enabled():
             # recompute L2 in the backward pass instead of storing its
             # activations: identical numbers, far less memory (T40)
             out = torch.utils.checkpoint.checkpoint(
-                self.sandbox, x, mask, attn_mask, ctx, use_reentrant=False)
+                self.sandbox, x, mask, attn_mask, ctx, passes, use_reentrant=False)
         else:
-            out = self.sandbox(x, mask=mask, attn_mask=attn_mask, ctx=ctx)
+            out = self.sandbox(x, mask=mask, attn_mask=attn_mask, ctx=ctx, passes=passes)
         aux = dict(out.aux)
         # L2's internal size, which the output norm hides from the loss;
         # logged so drift is visible during training (T34)
@@ -488,6 +491,10 @@ class V2Config:
     # this, so L2 cannot be switched off token by token (0 = the T50 gate).
     sandbox_diverse_read: bool = False
     token_gate_min: float = 0.0
+    # T54: sandbox_train_passes - each training forward runs the debate
+    # stack 1..N times (drawn at random), so thinking twice is trained, not
+    # just tried at test time; the model answers with N passes.  1 = as before.
+    sandbox_train_passes: int = 1
 
     def validate(self) -> "V2Config":
         if self.addon not in ("none", "sandbox"):
@@ -497,6 +504,8 @@ class V2Config:
         if self.addon_final and not self.addon_layers:
             raise ValueError("addon_final needs addon_layers (use addon_layer=-1 "
                              "for the end placement alone)")
+        if self.sandbox_train_passes < 1:
+            raise ValueError(f"sandbox_train_passes must be >= 1, got {self.sandbox_train_passes}")
         if not 0.0 <= self.token_gate_min < 1.0:
             raise ValueError(f"token_gate_min must be in [0, 1), got {self.token_gate_min}")
         if self.sandbox_confidence and self.n_sandbox % 2 == 0:
@@ -522,7 +531,8 @@ class V2Config:
                     context=self.sandbox_context, heads=self.sandbox_heads,
                     confidence=self.sandbox_confidence,
                     aligned=self.sandbox_aligned,
-                    diverse_read=self.sandbox_diverse_read)
+                    diverse_read=self.sandbox_diverse_read,
+                    train_passes=self.sandbox_train_passes)
 
     def to_dict(self) -> Dict:
         return asdict(self)
