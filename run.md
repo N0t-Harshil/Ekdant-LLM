@@ -100,7 +100,75 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3n. L2 v4: L2 inside the model, sized to it, reading more - and a second benchmark where the model writes the explanation (T56) — **run this next** (instead of A3m)
+## A3o. v5, the final model (= the v22 recipe): reproduce it, a third seed, and L2 dropout (T57) — **run this next**
+
+**Why:** v4 was not better than v22 (A7j), so we go back. **v5 =
+`configs/v5_final.json`, an exact copy of v22's config**
+(`v2_sandbox_final.json`; a test checks they are identical; none of the
+v3/v4 additions is on). It is trained with the same flags as v22.
+
+Three questions:
+
+| # | runs | question |
+|---|---|---|
+| 1 | `v5_s17` | **does v22 reproduce?** Same config, same seed 17, today's code. GPU training is not bit-exact, so the numbers will differ a little; it reproduces if `gain_v5_repeat.md` shows no starred difference from `v22_end` |
+| 2 | `v5_baseline_s31`, `v5_s31` | **a third seed**: the final number for the thesis is v5 vs the baseline on seeds 17, 23 and 31 (17 and 23 are the existing `v22_end` / `v22s23_end`, same config) |
+| 3 | `v5drop_s17`, `v5drop_s23`, `v5drop_s31` | **L2 dropout, the new idea:** with `--l2-drop 0.3` L2 is switched off for 30 % of the training steps (chosen at random, fixed by the seed). Today the model hands part of its own job to L2 (v22: PubMedQA −6 points with L2 off, below its own baseline), so L2 replaces part of the model instead of adding to it. With dropout SmolLM2 must stay good alone, and L2 is only kept for what it adds on top. At test time L2 is always on |
+
+**1. Start (each command once):**
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # 298 passed
+ps aux | grep "ekdant" | grep -v grep        # must print nothing
+nvidia-smi                                   # GPUs 1, 2, 3 >= 30 GB free (not GPU 0)
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
+V5="--variant sandbox --config configs/v5_final.json"
+CUDA_VISIBLE_DEVICES=1 nohup bash -c "
+python -m ekdant.train $FLAGS $V5 --out runs/v5_s17 > v5_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5_s17 > mcq_v5_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 --variant baseline --config configs/v2_baseline.json --out runs/v5_baseline_s31 > v5_baseline_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5_baseline_s31 > mcq_v5_baseline_s31.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+python -m ekdant.train $FLAGS $V5 --l2-drop 0.3 --out runs/v5drop_s17 > v5drop_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5drop_s17 > mcq_v5drop_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $V5 --out runs/v5_s31 > v5_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5_s31 > mcq_v5_s31.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 $V5 --l2-drop 0.3 --out runs/v5drop_s23 > v5drop_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5drop_s23 > mcq_v5drop_s23.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $V5 --l2-drop 0.3 --out runs/v5drop_s31 > v5drop_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5drop_s31 > mcq_v5drop_s31.log 2>&1" > /dev/null 2>&1 &
+```
+
+Each GPU runs two trainings and their benchmarks, one after another. Watch
+with `tail v5_s17.log` etc.; in the `v5drop` logs `l2_dropped_steps` is in
+`results.json` at the end (about 30 % of the steps).
+
+**2. When `ps aux | grep ekdant | grep -v grep` prints nothing:**
+
+```bash
+python -m ekdant.gen_eval gain --baseline runs/v22_end --model v5_repeat runs/v5_s17 --markdown gain_v5_repeat.md
+python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
+    --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
+    --model v5drop runs/v5drop_s17 runs/v5drop_s23 runs/v5drop_s31 --markdown gain_v5.md
+python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end runs/v5_s31 \
+    --model v5drop runs/v5drop_s17 runs/v5drop_s23 runs/v5drop_s31 --markdown gain_v5drop_vs_v5.md
+python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v5_s17.md runs/v22_baseline runs/v22_end runs/v5_s17 runs/v5drop_s17 > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v5_s23.md runs/v22s23_baseline runs/v22s23_end runs/v5drop_s23 > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v5_baseline_s31 --markdown leaderboard_v5_s31.md runs/v5_baseline_s31 runs/v5_s31 runs/v5drop_s31 > /dev/null
+```
+
+Bring back the three `gain_*.md`, the three `leaderboard_v5_*.md`, and every
+`v5*.log` and `mcq_v5*.log`.
+
+**Decision:** (1) v22 reproduces if `gain_v5_repeat.md` has no starred row
+on PubMedQA or the average. (2) The thesis result is v5 in `gain_v5.md`
+(three seeds). (3) L2 dropout is better if `gain_v5drop_vs_v5.md` shows a
+starred gain on PubMedQA, the average or the explanation benchmark; if not,
+v5 stays the final model.
+
+## A3n. L2 v4: L2 inside the model, sized to it, reading more - and a second benchmark where the model writes the explanation (T56) — done, results in A7j
 
 **Why:** every L2 so far gave the same result (A7i). Three limits of the L2
 design, and what v4 changes:
@@ -134,7 +202,7 @@ explain?") and in the `gain` report.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 289 passed
+python -m pytest -q                          # 298 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -174,7 +242,7 @@ gain (the 95 % CI above 0) on PubMedQA, the average or the explanation
 benchmark; if not, we go back to v22 / v3b. A3m (v3d alone) is optional: it
 only tells whether the free views alone matter.
 
-## A3m. L2 v3d: v3 with v22's free views, and the gain report (T55) — optional (A3n first)
+## A3m. L2 v3d: v3 with v22's free views, and the gain report (T55) — optional, not run (v4 was not better; A3o first)
 
 **Why (from A7i):** v22, v3b and v3c answer equally well; v3's extra parts
 gave no gain. The clearest difference to v22 is how far L2's trajectories
@@ -197,7 +265,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 289 passed
+python -m pytest -q                          # 298 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -253,7 +321,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 289 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 298 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -264,7 +332,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 289 passed
+python -m pytest -q                          # 298 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -964,6 +1032,49 @@ How to read it:
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
 
+## A7j. L2 v4 and the explanation benchmark, two seeds (2026-11-07)
+
+Sources: `gain_v4.md`, `gain_v4_vs_v22.md`, `leaderboard_v4_s17.md`,
+`leaderboard_v4_s23.md`, `mcq_explain_old.log`, `mcq_v4_s17.log`,
+`mcq_v4_s23.log`, `v4_mix.log`, `v4_s23_mix.log`. Seeds 17 and 23 pooled;
+`*` = paired 95 % CI excludes 0.
+
+**v4 against v22 (`gain_v4_vs_v22.md`):**
+
+| test | v22 | v4 | v4 − v22 [95 % CI] |
+|---|---|---|---|
+| PubMedQA % | 60.1 | 58.7 | −1.35 [−2.70, +0.00] |
+| average % | 37.9 | 37.4 | **−0.49 [−1.02, −0.01]\*** |
+| MedMCQA / MedQA % | 27.2 / 26.3 | 27.4 / 26.0 | +0.23 / −0.35 (noise) |
+| MedQuAD ppl | 3.783 | 3.779 | −0.12 %\* |
+| MedMCQA explanation ppl | 26.364 | 26.278 | −0.32 %\* |
+| MedMCQA explanation names the right answer % | 16.5 | 18.0 | +1.50 [−0.50, +3.50] |
+| PubMedQA conclusion ppl | 10.045 | 10.057 | +0.12 %\* (worse) |
+| PubMedQA conclusion ROUGE-L | 22.4 | 22.0 | −0.44\* (worse) |
+
+**Every model against the baseline (`gain_v4.md`):**
+
+| model | PubMedQA points (relative) | average points | MedMCQA explanation ppl | names the right answer |
+|---|---|---|---|---|
+| **v22** | **+2.35\* (+4.1 %)** | **+0.86\*** | −1.91 %\* | −0.25 |
+| v3b | +2.05 (+3.6 %) | +0.78\* | −1.88 %\* | −1.00 |
+| v4 | +1.00 (+1.7 %) | +0.37 | −2.23 %\* | +1.25 |
+
+- **v4 is not better than v22** (decision rule of A3n): it is worse on
+  the average (starred) and on PubMedQA; its only starred gain over v22
+  (explanation ppl −0.32 %) is too small to matter. We go back to v22.
+- v4 does use L2: the gate stays open (`tgate` 1.0–1.1); with L2 off
+  MedQuAD ppl 3.771 → 4.189 (seed 17) and 3.787 → 4.220 (seed 23), and the
+  MedMCQA explanation ppl 26.2 → 32.0 (seed 17). Using L2 more did not give
+  better answers.
+- **The explanation benchmark:** every model names the right answer in
+  only about 16–18 % of its own explanations, and no L2 version changes
+  that beyond noise. Every L2 model predicts the experts' explanations
+  about 2 % better than the baseline (starred), which is perplexity, not
+  evidence of reasoning.
+- L2's confidence again does not beat the model's own probability (AUROC
+  0.79 / 0.78 vs 0.906).
+
 ## A7i. L2 v3c and the confidence test, two seeds (2026-11-05)
 
 Sources: `leaderboard_v3c_s17.md`, `leaderboard_v3c_s23.md`,
@@ -1649,7 +1760,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 289 tests
+python -m pytest            # 298 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

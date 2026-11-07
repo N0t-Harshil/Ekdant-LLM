@@ -15,6 +15,7 @@ identical (zero-init gate) and see identical data in identical order.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import json
 import math
@@ -79,7 +80,7 @@ RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
             "gate_force", "gate_rollback", "max_rollbacks", "snapshot_every", "floor_slowdown",
-            "floor_step_down", "gate_floor_min", "l2_warmup", "warmup",
+            "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
 
@@ -101,6 +102,12 @@ def clip_grads(model: EkdantLM, max_norm: float):
     bn = float(torch.nn.utils.clip_grad_norm_(backbone, max_norm))
     an = float(torch.nn.utils.clip_grad_norm_(addon, max_norm)) if addon else 0.0
     return bn, an
+
+
+def l2_dropped(seed: int, stage: int, step: int, p: float) -> bool:
+    """T57 L2 dropout: is L2 switched off for this optimiser step?  Drawn
+    from (seed, stage, step) alone, so a resumed run drops the same steps."""
+    return p > 0 and random.Random(seed * 1_000_003 + stage * 100_003 + step).random() < p
 
 
 def gate_boost(step: int, boost: float, steps: int) -> float:
@@ -310,6 +317,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--l2-warmup", type=int, default=0,
                     help="T44: SmolLM2 frozen for the first N optimiser steps of "
                          "phase 1, so L2 learns before it competes (0 = off)")
+    ap.add_argument("--l2-drop", type=float, default=0.0,
+                    help="T57: L2 switched off for this share of the optimiser "
+                         "steps (e.g. 0.3), so SmolLM2 cannot hand its own job "
+                         "to L2 and L2 must add on top (0 = off)")
     ap.add_argument("--gate-rollback", action="store_true",
                     help="T43: on a burst go back to the last snapshot and "
                          "re-open the floor more slowly and a little lower")
@@ -386,6 +397,15 @@ def main(argv: Optional[List[str]] = None) -> None:
         cfg.addon = ADDON[args.variant]
         if args.l2_warmup > 0 and cfg.addon == "none":
             log("error: --l2-warmup needs L2 (the baseline would train nothing)")
+            raise SystemExit(1)
+        if args.l2_drop and cfg.addon == "none":
+            log("error: --l2-drop needs L2 (the baseline has nothing to drop)")
+            raise SystemExit(1)
+        if not 0.0 <= args.l2_drop < 1.0:
+            log("error: --l2-drop must be in [0, 1)")
+            raise SystemExit(1)
+        if args.l2_drop and args.gate_force:
+            log("error: --l2-drop switches L2 off, --gate-force forbids that")
             raise SystemExit(1)
         if args.gate_force and args.gate_floor <= 0:
             log("error: --gate-force needs --gate-floor > 0 (the minimum gate)")
@@ -473,7 +493,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     opt_step = int(st.get("opt_step", 0))
     wall_prev = float(st.get("wall_clock_s", 0.0))
     skipped_steps = int(st.get("skipped_steps", 0))
-    brake = GateBrake(spike=args.brake_spike, l2_max=args.brake_l2_max,
+    dropped_steps = int(st.get("l2_dropped_steps", 0))
+    l2_drop = float({**vars(args), **st.get("run_args", {})}.get("l2_drop", 0.0))
+    brake =GateBrake(spike=args.brake_spike, l2_max=args.brake_l2_max,
                       warmup=args.brake_warmup)
     if "brake" in st:
         brake.load_state_dict(st["brake"])
@@ -507,6 +529,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                          "history": history, "best_val_nll": best_val,
                          "tokens_seen": tokens_seen,
                          "skipped_steps": skipped_steps,
+                         "l2_dropped_steps": dropped_steps,
                          "brake": brake.state_dict(),
                          "gate_ramp": ramp.state_dict(),
                          "wall_clock_s": wall_prev + time.time() - t_start,
@@ -548,9 +571,13 @@ def main(argv: Optional[List[str]] = None) -> None:
                     log(f"[{stage}] step {opt_step}: L2 warm-up "
                         + ("- SmolLM2 frozen, only L2 learns" if warm
                            else "done - SmolLM2 trains again"))
+                # T57: L2 off for this whole optimiser step (never while
+                # only L2 trains)
+                drop = (model.addon is not None and not warm
+                        and l2_dropped(args.seed, si, opt_step, l2_drop))
                 b = collate([ds[i] for i in batches[bi]])
                 ids, mask = b["input_ids"].to(device), b["attention_mask"].to(device)
-                with autocast():
+                with autocast(), (model.l2_off() if drop else contextlib.nullcontext()):
                     out = model(ids, attention_mask=mask,
                                 labels=b["labels"].to(device))
                 loss = out.loss
@@ -585,8 +612,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                             raise SystemExit(1)
                     else:
                         f = lr_at(opt_step, total_opt, 1.0, args.warmup)
-                        burst = (model.addon is not None
+                        # a dropped step has no L2 gradient: not a sample
+                        # of L2's normal size, so the brake skips it
+                        burst = (model.addon is not None and not drop
                                  and brake.update(gn_addon, l2_rms))
+                        dropped_steps += int(drop)
                         rolled = (burst and snap is not None
                                   and snap_rollbacks < args.max_rollbacks)
                         if burst and snap is not None and not rolled:
@@ -735,6 +765,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                        "params_addon": model.addon_params(),
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,
                        "skipped_steps": skipped_steps,
+                       "l2_dropped_steps": dropped_steps,
                        "brake_events": brake.events,
                        "rollbacks": ramp.rollbacks,
                        "peak_mem_gb": torch.cuda.max_memory_allocated(device) / 1e9
