@@ -199,10 +199,13 @@ def test_explain_table_and_gain_rows(tmp_path):
     assert "| **v_baseline** (baseline) | MedMCQA explanation | 2.718 | - | 20.0 | 30.0 | 20.0 |" in t
     assert "| v4_mix | MedMCQA explanation | 2.460 (-9.5%*) | - | 20.0 (+0.0) | 30.0 (+0.0) | 40.0 (+20.0*) |" in t
     b23 = _explain_file(tmp_path / "b23", 23, [1] * 20 + [0] * 80, [1.0] * 100)
-    m23 = _explain_file(tmp_path / "m23", 23, [1] * 30 + [0] * 70, [1.0] * 100)
+    m23 = _explain_file(tmp_path / "m23", 23, [1] * 32 + [0] * 68, [1.0] * 100)
     g = M.gain_report([b17, b23], [("v4", [m17, m23])])
-    assert "| v4 | MedMCQA explanation: names the right answer | 20.0 | 35.0 | +15.00 [" in g
-    assert "| +75.0 % | +18.8 % | +20.0* / +10.0* |" in g
+    # gain 16 points: +80 % relative, 20 % of the baseline's 80 % misses fixed
+    # (numbers chosen away from a rounding boundary: x.x5 rounds differently
+    # on different machines)
+    assert "| v4 | MedMCQA explanation: names the right answer | 20.0 | 36.0 | +16.00 [" in g
+    assert "| +80.0 % | +20.0 % | +20.0* / +12.0* |" in g
     assert "| v4 | MedMCQA explanation ppl (lower = better) | 2.718 | 2.589 |" in g
     assert "Can the model explain?" in M.full_report([b17, m17])
 
