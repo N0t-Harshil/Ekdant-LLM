@@ -234,5 +234,5 @@ cost of the sandbox arm (wall-clock estimated at ≈1.5× the baseline).
 
 ```bash
 pip install -e .[dev]
-pytest -q          # 298 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
+pytest -q          # 304 tests (model/sandbox/transformer/data/schedule/split), CPU, ~10s
 ```

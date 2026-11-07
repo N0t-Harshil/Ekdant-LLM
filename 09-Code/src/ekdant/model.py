@@ -537,8 +537,20 @@ class V2Config:
     # site reads the listed layers below it.
     sandbox_stream_scale: bool = False
     sandbox_read_layers: list = field(default_factory=list)
+    # T58: the end site's output norm starts as a copy of the backbone's own
+    # final norm, so L2's output has the model's per-channel scale.  Before,
+    # it started at 1 while SmolLM2's final state has rms ~2.1 (final-norm
+    # weights ~1.8): h + g*(y - h) then mostly shrank the model's own state
+    # (cos(y - h, -h) ~0.9) instead of adding what L2 computed.
+    sandbox_out_from_backbone: bool = False
 
     def validate(self) -> "V2Config":
+        if self.sandbox_out_from_backbone and self.sandbox_aligned:
+            raise ValueError("sandbox_out_from_backbone sizes L2's output; sandbox_aligned "
+                             "already sizes it to the model's state")
+        if self.sandbox_out_from_backbone and self.sites() and not self.addon_final:
+            raise ValueError("sandbox_out_from_backbone sets the end site: needs L2 at "
+                             "the end (addon_layer -1 or addon_final)")
         reads = list(self.sandbox_read_layers)
         if reads != sorted(set(reads)) or any(int(l) < 1 for l in reads):
             raise ValueError(f"sandbox_read_layers must be increasing, unique and >= 1, got {reads}")
@@ -662,6 +674,12 @@ class EkdantLM(nn.Module):
                                         stream_scale=cfg.sandbox_stream_scale,
                                         n_read=n_reads[0])
                 self._sites = [self.addon] if sites else []
+            if cfg.sandbox_out_from_backbone:
+                # T58: the end site speaks at the model's per-channel scale
+                with torch.no_grad():
+                    for s in self._all_sites():
+                        if s.mode == "final":
+                            s.out_norm.weight.copy_(lm.model.norm.weight)
             # capture hooks first: a read layer is never a site (validate)
             for l in reads:
                 lm.model.layers[l - 1].register_forward_hook(

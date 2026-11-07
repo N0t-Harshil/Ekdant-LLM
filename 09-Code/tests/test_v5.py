@@ -83,4 +83,70 @@ def test_old_runs_without_l2_drop_still_resume(tiny, tmp_path):
     assert r["cost"]["l2_dropped_steps"] == 0
 
 
+# --- T58: L2's output at the model's own scale -------------------------------
+
+def _scaled_pair(**kw):
+    from ekdant.backbone import tiny_llama
+    from ekdant.model import EkdantLM
+    torch.manual_seed(0)
+    lm = tiny_llama(layers=3)
+    with torch.no_grad():
+        lm.model.norm.weight.uniform_(1.5, 2.5)        # like SmolLM2 (~1.8)
+    ref = {k: v.clone() for k, v in lm.state_dict().items()}
+    m = EkdantLM(V2Config(addon="sandbox", debate_rounds=1, sandbox_mlp_ratio=2.0, **kw), lm)
+    plain = tiny_llama(layers=3)
+    plain.load_state_dict(ref)
+    return m, plain
+
+
+def test_out_norm_starts_as_the_backbones_final_norm():
+    m, _ = _scaled_pair(sandbox_out_from_backbone=True)
+    assert torch.equal(m.addon.out_norm.weight, m.lm.model.norm.weight)
+    assert m.addon.out_norm.weight is not m.lm.model.norm.weight     # a copy, trained apart
+    old, _ = _scaled_pair()
+    assert torch.equal(old.addon.out_norm.weight, torch.ones_like(old.addon.out_norm.weight))
+
+
+def test_out_from_backbone_step_zero_is_the_backbone():
+    m, plain = _scaled_pair(sandbox_out_from_backbone=True)
+    ids = torch.randint(3, 64, (2, 7))
+    with torch.no_grad():
+        assert torch.allclose(m.eval()(ids).logits, plain(ids).logits, atol=1e-5)
+
+
+def test_l2_output_has_the_models_scale():
+    sizes = {}
+    for on in (False, True):
+        m, _ = _scaled_pair(sandbox_out_from_backbone=on)
+        ids = torch.randint(3, 64, (2, 7))
+        with torch.no_grad():
+            h = m.lm.model(ids).last_hidden_state
+            out = m.addon.sandbox(h)
+            y = m.addon.out_norm(out.consensus)
+        sizes[on] = float(y.pow(2).mean().sqrt() / h.pow(2).mean().sqrt())
+    assert sizes[False] < 0.7                       # too small: the gate shrinks h
+    assert 0.8 < sizes[True] < 1.25                 # the model's own size
+
+
+def test_out_from_backbone_with_the_mix_sets_only_the_end_site():
+    m, _ = _scaled_pair(sandbox_out_from_backbone=True, addon_layers=[2], addon_final=True)
+    assert torch.equal(m.addon.final_site.out_norm.weight, m.lm.model.norm.weight)
+    s = m.addon.sites[0].out_norm.weight
+    assert torch.equal(s, torch.ones_like(s))
+
+
+def test_out_from_backbone_validation():
+    with pytest.raises(ValueError):                 # no end site
+        V2Config(addon="sandbox", addon_layer=2, sandbox_out_from_backbone=True).validate()
+    with pytest.raises(ValueError):                 # aligned already sizes it
+        V2Config(addon="sandbox", sandbox_aligned=True, sandbox_out_from_backbone=True).validate()
+
+
+def test_shipped_v5_out_config_is_v5_plus_the_fix():
+    out = json.loads((CONFIGS / "v5_out.json").read_text())
+    v5 = json.loads((CONFIGS / "v5_final.json").read_text())
+    assert {k for k in out if out[k] != v5.get(k)} == {"sandbox_out_from_backbone"}
+    assert out["sandbox_out_from_backbone"] is True
+
+
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)

@@ -100,7 +100,7 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3o. v5, the final model (= the v22 recipe): reproduce it, a third seed, and L2 dropout (T57) — **run this next**
+## A3o. v5, the final model (= the v22 recipe): reproduce it, a third seed, L2 dropout (T57) and the output-scale fix (T58) — **run this next**
 
 **Why:** v4 was not better than v22 (A7j), so we go back. **v5 =
 `configs/v5_final.json`, an exact copy of v22's config**
@@ -119,7 +119,7 @@ Three questions:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 298 passed
+python -m pytest -q                          # 304 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 1, 2, 3 >= 30 GB free (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
@@ -145,13 +145,55 @@ Each GPU runs two trainings and their benchmarks, one after another. Watch
 with `tail v5_s17.log` etc.; in the `v5drop` logs `l2_dropped_steps` is in
 `results.json` at the end (about 30 % of the steps).
 
+**1b. The output-scale fix (T58) — start when a GPU is free** (after
+one of the chains above, or at once on a fourth GPU with >= 30 GB free):
+
+**What was wrong:** at the end L2's result `y` replaces the model's state
+`h` through `h + g*(y - h)`. SmolLM2's final state has rms ~2.1 (its final
+norm weights are ~1.8), but L2's output norm starts at 1, so `y` is about
+half the model's size (0.48, measured on SmolLM2). Then `y - h` points
+almost straight at `-h` (cosine 0.90): opening the gate mostly **shrinks
+the model's own state** (flatter next-word scores) instead of adding what L2
+computed. This is a likely reason why v22's gate stayed at ~0.02 for the
+whole run (`|g|` 0.016–0.028 in `v22_end.log`). `configs/v5_out.json` = v5 +
+`"sandbox_out_from_backbone": true`: L2's output norm starts as a copy of
+SmolLM2's own final norm, so `y` has the model's size (0.89) and the
+cosine drops to 0.75 (0.71 = unrelated vectors of equal size). Step 0 is
+still exactly SmolLM2 (checked). v3/v4 had a related fix (`sandbox_aligned`),
+but together with other changes, so its effect was never measured alone.
+
+```bash
+OUT="--variant sandbox --config configs/v5_out.json"
+CUDA_VISIBLE_DEVICES=1 nohup bash -c "
+python -m ekdant.train $FLAGS $OUT --out runs/v5out_s17 > v5out_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5out_s17 > mcq_v5out_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 23 $OUT --out runs/v5out_s23 > v5out_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5out_s23 > mcq_v5out_s23.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $OUT --out runs/v5out_s31 > v5out_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5out_s31 > mcq_v5out_s31.log 2>&1" > /dev/null 2>&1 &
+```
+
+(set `FLAGS` as in step 1 if this is a new terminal; change the GPU number
+to the free one). Watch `|g|=` in `v5out_s17.log`: if the fix works, the
+gate opens further than v22's ~0.02.
+
+Also useful, 1 second: how far v22's own output norm moved from 1 during
+training:
+
+```bash
+python -c "import torch; s=torch.load('runs/v22_end/best.pt',map_location='cpu',weights_only=False)['model']; w=s['addon.out_norm.weight']; g=s['addon.gate']; print('out_norm mean %.3f  gate mean|.| %.4f max %.3f' % (w.mean(), g.abs().mean(), g.abs().max()))"
+```
+
 **2. When `ps aux | grep ekdant | grep -v grep` prints nothing:**
 
 ```bash
 python -m ekdant.gen_eval gain --baseline runs/v22_end --model v5_repeat runs/v5_s17 --markdown gain_v5_repeat.md
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
     --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
-    --model v5drop runs/v5drop_s17 runs/v5drop_s23 runs/v5drop_s31 --markdown gain_v5.md
+    --model v5drop runs/v5drop_s17 runs/v5drop_s23 runs/v5drop_s31 \
+    --model v5out runs/v5out_s17 runs/v5out_s23 runs/v5out_s31 --markdown gain_v5.md
+python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end runs/v5_s31 \
+    --model v5out runs/v5out_s17 runs/v5out_s23 runs/v5out_s31 --markdown gain_v5out_vs_v5.md
 python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end runs/v5_s31 \
     --model v5drop runs/v5drop_s17 runs/v5drop_s23 runs/v5drop_s31 --markdown gain_v5drop_vs_v5.md
 python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v5_s17.md runs/v22_baseline runs/v22_end runs/v5_s17 runs/v5drop_s17 > /dev/null
@@ -159,14 +201,15 @@ python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown le
 python -m ekdant.gen_eval mcq --compare --baseline v5_baseline_s31 --markdown leaderboard_v5_s31.md runs/v5_baseline_s31 runs/v5_s31 runs/v5drop_s31 > /dev/null
 ```
 
-Bring back the three `gain_*.md`, the three `leaderboard_v5_*.md`, and every
-`v5*.log` and `mcq_v5*.log`.
+Bring back the four `gain_*.md`, the three `leaderboard_v5_*.md`, every
+`v5*.log` and `mcq_v5*.log`, and the output of the one-line `out_norm` check.
 
 **Decision:** (1) v22 reproduces if `gain_v5_repeat.md` has no starred row
 on PubMedQA or the average. (2) The thesis result is v5 in `gain_v5.md`
-(three seeds). (3) L2 dropout is better if `gain_v5drop_vs_v5.md` shows a
-starred gain on PubMedQA, the average or the explanation benchmark; if not,
-v5 stays the final model.
+(three seeds). (3) L2 dropout / the output-scale fix is better if
+`gain_v5drop_vs_v5.md` / `gain_v5out_vs_v5.md` shows a starred gain on
+PubMedQA, the average or the explanation benchmark; if not, v5 stays the
+final model.
 
 ## A3n. L2 v4: L2 inside the model, sized to it, reading more - and a second benchmark where the model writes the explanation (T56) — done, results in A7j
 
@@ -202,7 +245,7 @@ explain?") and in the `gain` report.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 298 passed
+python -m pytest -q                          # 304 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -265,7 +308,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 298 passed
+python -m pytest -q                          # 304 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -321,7 +364,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 298 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 304 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -332,7 +375,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 298 passed
+python -m pytest -q                          # 304 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -1760,7 +1803,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 298 tests
+python -m pytest            # 304 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
