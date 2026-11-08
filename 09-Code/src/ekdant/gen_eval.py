@@ -11,6 +11,8 @@
 CLI:  python -m ekdant.gen_eval compare runs/v2_baseline runs/v2_sandbox ...
       python -m ekdant.gen_eval mcq runs/v25_baseline runs/v25_end ... (T46,
       multiple-choice accuracy; see ``MCQ_DOC``)
+      python -m ekdant.gen_eval reason --baseline ... --model NAME ... (T59,
+      does L2 reason better; see ``REASON_DOC``)
 """
 
 from __future__ import annotations
@@ -1667,9 +1669,303 @@ def gain_main(argv: Optional[List[str]] = None) -> None:
         print(f"written to {args.markdown}")
 
 
+# --- T59: does L2 reason better?  Three tests on PubMedQA -------------------
+#
+# 1. labels     where does the PubMedQA gain come from: % right per true answer
+#               (yes / no / maybe) and how often each answer is chosen.  A gain
+#               that is only "says maybe more often" is a preference, not
+#               reasoning.
+# 2. no abstract  the same questions without the abstract.  "Uses the abstract"
+#               = % right with it minus % right without it: a model that reasons
+#               from the evidence gains more from reading it.
+# 3. flipped    the authors' one-sentence conclusion as the only evidence, once
+#               as written and once with its meaning flipped by one negation
+#               ("does not improve" <-> "does improve"; the right answer flips
+#               yes <-> no).  "Follows the evidence" = right on both versions;
+#               "same answer both times" = the model ignored the evidence.
+
+REASON_VERSION = 1
+REASON_AUX = ("does", "did", "do", "is", "are", "was", "were", "can", "could",
+              "may", "should", "will", "might")
+_NEG_WORDS = r"\b(not|no|never|neither|nor|none|cannot|without|fail\w*|lack\w*)\b|n't\b"
+
+
+def flip_conclusion(text: str) -> Optional[str]:
+    """The conclusion with its meaning flipped by adding or removing one
+    negation, or None when that cannot be done safely.  Kept only: one
+    sentence; exactly one negation, attached to an auxiliary ("does not",
+    "cannot", "no significant") and removed; or no negation at all and
+    exactly one auxiliary, which gets "not" ("can" -> "cannot")."""
+    import re
+
+    t = " ".join(str(text).split())
+    if not t or re.search(r"[.!?]\s+[A-Z]", t):       # more than one sentence
+        return None
+    negs = [m.group(0) for m in re.finditer(_NEG_WORDS, t, re.I)]
+    cands = []
+    for a in REASON_AUX:
+        for m in re.finditer(r"\b%s not\b" % a, t, re.I):
+            cands.append((m.start(), m.end(), m.group(0)[:len(a)]))
+    for m in re.finditer(r"\bcannot\b", t, re.I):
+        cands.append((m.start(), m.end(), m.group(0)[:3]))
+    for m in re.finditer(r"\bno significant\b", t, re.I):
+        cands.append((m.start(), m.end(),
+                      ("A" if m.group(0)[0] == "N" else "a") + " significant"))
+    if cands or negs:
+        if len(cands) != 1 or len(negs) != 1:
+            return None
+        s, e, rep = cands[0]
+        return t[:s] + rep + t[e:]
+    pos = [m for a in REASON_AUX for m in re.finditer(r"\b%s\b" % a, t, re.I)]
+    if len(pos) != 1:
+        return None
+    m = pos[0]
+    w = m.group(0)
+    rep = (w[0] + "annot") if w.lower() == "can" else w + " not"
+    return t[:m.start()] + rep + t[m.end():]
+
+
+def _pubmedqa_raw() -> List[Dict]:
+    """PubMedQA pqa_labeled rows (question, abstract, answer, conclusion), in
+    the order ``load_questions('pubmedqa')`` uses."""
+    from datasets import load_dataset
+
+    ds = _offline_first(lambda: load_dataset("qiaojin/PubMedQA", "pqa_labeled",
+                                             split="train"))
+    return [{"question": r["question"], "context": " ".join(r["context"]["contexts"]),
+             "answer": r["final_decision"], "conclusion": r["long_answer"]}
+            for r in ds if r["final_decision"] in PUBMED_OPTIONS]
+
+
+def reason_sets(raw: Sequence[Dict]) -> Tuple[Dict[str, List[Question]], List[Dict]]:
+    """The four question sets of the reasoning tests and the flipped pairs.
+    ``full`` = PubMedQA as in the mcq benchmark; ``no_context`` = the same
+    without the abstract; ``flip_orig`` / ``flip_neg`` = yes / no questions
+    whose one-sentence conclusion can be flipped, with the conclusion (as
+    written / flipped) as the only context.  ``flip_neg[i]`` has the opposite
+    right answer of ``flip_orig[i]``."""
+    full = [Question(r["question"], PUBMED_OPTIONS, PUBMED_OPTIONS.index(r["answer"]),
+                     r["context"]) for r in raw]
+    noctx = [Question(q.question, q.options, q.answer, "") for q in full]
+    orig, neg, pairs = [], [], []
+    for i, r in enumerate(raw):
+        if r["answer"] == "maybe":
+            continue
+        f = flip_conclusion(r["conclusion"])
+        if f is None:
+            continue
+        a = PUBMED_OPTIONS.index(r["answer"])
+        orig.append(Question(r["question"], PUBMED_OPTIONS, a, " ".join(r["conclusion"].split())))
+        neg.append(Question(r["question"], PUBMED_OPTIONS, 1 - a, f))
+        pairs.append({"source": i, "answer": r["answer"], "question": r["question"],
+                      "conclusion": orig[-1].context, "flipped": f})
+    return {"full": full, "no_context": noctx, "flip_orig": orig, "flip_neg": neg}, pairs
+
+
+def reason_evaluate(model, tok, sets: Dict[str, List[Question]], device,
+                    max_len: int, batch_size: int, log=print) -> Dict:
+    """Every reasoning set scored by option likelihood (as the mcq
+    benchmark); each row also keeps the right answer."""
+    autocast = _autocast(device)
+    out = {}
+    for name, qs in sets.items():
+        r = score_questions(model, tok, qs, device, autocast, max_len, batch_size)
+        for row in r["rows"]:
+            row["answer"] = qs[row["q"]].answer
+        out[name] = r
+        log(f"  {name}: {100 * r['accuracy']:.1f}% right of {r['n']}")
+    return out
+
+
+def _reason_get(kind: str, *args):
+    """``get(m)`` -> {question: (value, 1)} for ``_pool`` from a reason.json."""
+    def rows(m, s):
+        return {r["q"]: r for r in m["sets"][s]["rows"]}
+
+    def get(m):
+        if kind == "right":                       # % right, optionally one true answer
+            s, label = args
+            return {q: (r["right"], 1.0) for q, r in rows(m, s).items()
+                    if label is None or r["answer"] == label}
+        if kind == "picks":                       # how often answer ``a`` is chosen
+            (a,) = args
+            return {q: (int(r["pick"] == a), 1.0) for q, r in rows(m, "full").items()}
+        if kind == "uses_abstract":               # right with - right without
+            f, n = rows(m, "full"), rows(m, "no_context")
+            return {q: (f[q]["right"] - n[q]["right"], 1.0) for q in f if q in n}
+        o, g = rows(m, "flip_orig"), rows(m, "flip_neg")
+        keys = [q for q in o if q in g]
+        if kind == "both_right":
+            return {q: (o[q]["right"] * g[q]["right"], 1.0) for q in keys}
+        if kind == "same_answer":
+            return {q: (int(o[q]["pick"] == g[q]["pick"]), 1.0) for q in keys}
+        raise ValueError(kind)
+    return get
+
+
+def _mean_value(ms: List[Dict], get) -> float:
+    vals = [sum(v for v, _ in get(m).values()) / max(1, len(get(m))) for m in ms]
+    return sum(vals) / max(1, len(vals))
+
+
+def reason_report(baselines: List[str], models: List[Tuple[str, List[str]]]) -> str:
+    """The three reasoning tests (T59), each model against the baseline, all
+    seeds pooled (paired bootstrap over questions; * = CI excludes 0)."""
+    def load(d):
+        with open(os.path.join(d, "reason.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    base = [load(d) for d in baselines]
+    seeds = [m.get("seed", "?") for m in base]
+    tests = [("1. Where the gain comes from", [
+        ("% right, all questions", ("right", "full", None)),
+        ("% right, true answer yes", ("right", "full", 0)),
+        ("% right, true answer no", ("right", "full", 1)),
+        ("% right, true answer maybe", ("right", "full", 2)),
+        ("% of answers that are yes", ("picks", 0)),
+        ("% of answers that are no", ("picks", 1)),
+        ("% of answers that are maybe", ("picks", 2))]),
+        ("2. Without the abstract", [
+            ("% right with the abstract", ("right", "full", None)),
+            ("% right without the abstract", ("right", "no_context", None)),
+            ("uses the abstract (with - without)", ("uses_abstract",))]),
+        ("3. Flipped evidence", [
+            ("% right, conclusion as written", ("right", "flip_orig", None)),
+            ("% right, conclusion flipped", ("right", "flip_neg", None)),
+            ("follows the evidence (right on both)", ("both_right",)),
+            ("same answer both times (ignores it)", ("same_answer",))])]
+    lines = []
+    head = ["Model", "Test", "Measure", "Baseline", "Model", "Difference, points [95% CI]",
+            "Per seed (" + " / ".join(str(s) for s in seeds) + ")"]
+    for name, dirs in models:
+        if len(dirs) != len(baselines):
+            raise ValueError(f"{name}: {len(dirs)} runs for {len(baselines)} baselines")
+        runs = [load(d) for d in dirs]
+        for d, m, s in zip(dirs, runs, seeds):
+            if m.get("seed", "?") != s:
+                raise ValueError(f"{d} has seed {m.get('seed')}, its baseline {s}: "
+                                 "give the runs in the same seed order")
+        pairs = list(zip(base, runs))
+        for title, measures in tests:
+            for label, spec in measures:
+                get = _reason_get(*spec)
+                ci = _pool(pairs, get, False)
+                per = [(lambda c: f"{100 * c['diff']:+.1f}{_star(c)}" if c else "-")(
+                    _pool([p], get, False)) for p in pairs]
+                lines.append("| " + " | ".join([
+                    name, title, label, f"{100 * _mean_value(base, get):.1f}",
+                    f"{100 * _mean_value(runs, get):.1f}",
+                    (f"{100 * ci['diff']:+.2f} [{100 * ci['lo']:+.2f}, {100 * ci['hi']:+.2f}]"
+                     f"{_star(ci)}") if ci else "-",
+                    " / ".join(per)]) + " |")
+    n_flip = base[0]["sets"]["flip_orig"]["n"] if base else 0
+    n_full = base[0]["sets"]["full"]["n"] if base else 0
+    return "\n".join(
+        [f"### Does L2 reason better? Three PubMedQA tests (T59; seeds "
+         f"{', '.join(str(s) for s in seeds)} together)", "",
+         "| " + " | ".join(head) + " |", "|" + "---|" * len(head)] + lines
+        + ["", f"PubMedQA pqa_labeled, {n_full} questions (test 1 and 2) and {n_flip} "
+           "yes/no questions whose one-sentence conclusion could be flipped by one "
+           "negation (test 3). Values = mean over the seeds; difference = model minus "
+           "baseline with a paired 95% bootstrap CI over questions (each question "
+           "resampled in every seed at once); * = the CI excludes 0. "
+           "Test 1: a gain that comes only from choosing one answer more often is a "
+           "preference, not reasoning. Test 2: 'uses the abstract' = how many points "
+           "the abstract adds; more = the model's answer depends more on the "
+           "evidence. Test 3: the authors' conclusion is the only evidence, once as "
+           "written and once with one negation added or removed (the right answer "
+           "flips yes <-> no); 'follows the evidence' = right on both versions, "
+           "'same answer both times' = the evidence was ignored. The model reasons "
+           "better from evidence only if test 2 and test 3 both show a starred gain."])
+
+
+REASON_DOC = """Does L2 reason better? Three tests on PubMedQA (T59).
+
+  python -m ekdant.gen_eval reason --baseline runs/v22_baseline runs/v22s23_baseline \\
+      --model v5 runs/v22_end runs/v22s23_end --markdown reason.md
+
+Every run without an up-to-date reason.json is scored first (needs a GPU,
+about as long as the PubMedQA part of `mcq`), then the table is printed.
+Give every model's runs in the same seed order as the baselines (checked)."""
+
+
+def _reason_state(run_dir: str) -> bool:
+    path = os.path.join(run_dir, "reason.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get("version", 0) >= REASON_VERSION
+    except (OSError, ValueError):
+        return False
+
+
+def reason_main(argv: Optional[List[str]] = None) -> None:
+    ap = argparse.ArgumentParser(prog="python -m ekdant.gen_eval reason",
+                                 description=REASON_DOC,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--baseline", nargs="+", required=True)
+    ap.add_argument("--model", nargs="+", action="append", required=True,
+                    metavar=("NAME", "RUN"))
+    ap.add_argument("--markdown", default=None)
+    ap.add_argument("--flip-file", default=None,
+                    help="also write every flipped conclusion pair here (to check by hand)")
+    ap.add_argument("--rescore", action="store_true")
+    ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--gpu", default="auto")
+    ap.add_argument("--min-free-gb", type=float, default=10.0)
+    args = ap.parse_args(argv)
+    models = []
+    for m in args.model:
+        if len(m) < 2:
+            ap.error("--model needs a name and at least one run")
+        models.append((m[0], m[1:]))
+    every = list(dict.fromkeys(args.baseline + [d for _, ds in models for d in ds]))
+    todo = [d for d in every if args.rescore or not _reason_state(d)]
+    sets = pairs = None
+    if todo or args.flip_file:
+        sets, pairs = reason_sets(_pubmedqa_raw())
+    if todo:
+        from ekdant.train_gen import pick_device
+
+        device = pick_device(args.gpu, args.min_free_gb)
+        for k, run_dir in enumerate(todo, 1):
+            cfg, state, chosen, run_args = load_run(run_dir, with_args=True)
+            _log(f"[{k}/{len(todo)}] {run_dir} ({chosen}, L2: {describe_l2(cfg)})")
+            apply_hf_token(cfg.hf_token_file)
+            tok = load_tokenizer(cfg.backbone)
+            model = EkdantLM(cfg, load_backbone(cfg.backbone))
+            model.load_state_dict(state)
+            floor = float(run_args.get("trained_gate_floor", 0.0))
+            if model.addon is not None and floor > 0:
+                model.addon.set_gate_floor(floor)
+            model.to(device)
+            res = {"version": REASON_VERSION, "checkpoint": chosen,
+                   "seed": int(run_args.get("seed", 17)), "l2": describe_l2(cfg),
+                   "sets": reason_evaluate(model, tok, sets, device, cfg.max_seq_len,
+                                           args.batch_size, _log)}
+            with open(os.path.join(run_dir, "reason.json"), "w", encoding="utf-8") as f:
+                json.dump(res, f)
+            del model
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+    if args.flip_file:
+        with open(args.flip_file, "w", encoding="utf-8") as f:
+            f.write(f"# Flipped conclusions (T59 test 3): {len(pairs)} pairs\n\n")
+            for p in pairs:
+                f.write(f"- **{p['answer']}** | {p['question']}\n  - as written: "
+                        f"{p['conclusion']}\n  - flipped: {p['flipped']}\n")
+    table = reason_report(args.baseline, models)
+    print("\n" + table + "\n")
+    if args.markdown:
+        with open(args.markdown, "w", encoding="utf-8") as f:
+            f.write(table + "\n")
+        print(f"written to {args.markdown}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "gain":
         gain_main(sys.argv[2:])
+    elif len(sys.argv) >= 2 and sys.argv[1] == "reason":
+        reason_main(sys.argv[2:])
     elif len(sys.argv) >= 2 and sys.argv[1] == "mcq":
         mcq_main(sys.argv[2:])
     elif len(sys.argv) >= 4 and sys.argv[1] == "compare":
@@ -1677,5 +1973,6 @@ if __name__ == "__main__":
     else:
         print("usage: python -m ekdant.gen_eval compare <run> <run> [...]\n"
               "       python -m ekdant.gen_eval mcq <run> [...] [--zero-shot]\n"
-              "       python -m ekdant.gen_eval gain --baseline <runs> --model NAME <runs> [...]")
+              "       python -m ekdant.gen_eval gain --baseline <runs> --model NAME <runs> [...]\n"
+              "       python -m ekdant.gen_eval reason --baseline <runs> --model NAME <runs> [...]")
         raise SystemExit(2)

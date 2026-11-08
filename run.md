@@ -100,6 +100,39 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3p. Does L2 reason better? Three PubMedQA tests (T59) — **run this next**
+
+Every result so far is % right and perplexity; none of it shows reasoning
+(A7k: the explanations name the right answer no more often, MedQA does not
+change). These three tests ask it directly, on the runs that already exist
+(no training):
+
+| Test | What it asks | Reasoning would show as |
+|---|---|---|
+| 1. Where the gain comes from | % right per true answer (yes / no / maybe) and how often each answer is chosen | gains on every answer, not only "chooses maybe / no more often" |
+| 2. Without the abstract | the same 1,000 questions without the abstract; "uses the abstract" = % right with it minus without it | a starred gain in "uses the abstract" |
+| 3. Flipped evidence | the authors' one-sentence conclusion is the only evidence, once as written and once with one negation added or removed ("does not improve" ↔ "does improve"; 164 yes/no questions); the right answer flips | a starred gain in "follows the evidence (right on both)" |
+
+L2 reasons better from evidence only if tests 2 **and** 3 show a starred
+gain. If not, the PubMedQA gain is not evidence of reasoning, and the thesis
+says so.
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # 323 passed
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.gen_eval reason \
+    --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
+    --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
+    --model v5drop runs/v5drop_s17 runs/v5drop_s23 runs/v5drop_s31 \
+    --model v5out runs/v5out_s17 runs/v5out_s23 runs/v5out_s31 \
+    --markdown reason_v5.md --flip-file reason_flips.md > reason_v5.log 2>&1 &
+```
+
+Each run is scored once (`reason.json` in its folder; ~2,300 questions x 3
+answers, a few minutes per run, 12 runs). Bring back `reason_v5.md`,
+`reason_flips.md` (every flipped conclusion, to check by hand) and
+`reason_v5.log`.
+
 ## A3o. v5, the final model (= the v22 recipe): reproduce it, a third seed, L2 dropout (T57) and the output-scale fix (T58) — **done, results in A7k**
 
 **Why:** v4 was not better than v22 (A7j), so we go back. **v5 =
@@ -119,7 +152,7 @@ Three questions:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 304 passed
+python -m pytest -q                          # 323 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 1, 2, 3 >= 30 GB free (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
@@ -245,7 +278,7 @@ explain?") and in the `gain` report.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 304 passed
+python -m pytest -q                          # 323 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -308,7 +341,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 304 passed
+python -m pytest -q                          # 323 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -364,7 +397,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 304 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 323 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -375,7 +408,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 304 passed
+python -m pytest -q                          # 323 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -1865,7 +1898,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 304 tests
+python -m pytest            # 323 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
