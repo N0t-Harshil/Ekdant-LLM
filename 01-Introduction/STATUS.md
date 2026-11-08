@@ -4,7 +4,7 @@
 
 ## 1. Current build status
 
-**Train L2 first, then the whole model or LoRA (2026-11-08, T44 warm-up, T60, `run.md` A3q):** L2 learns alone for the first 2,000 steps (SmolLM2 frozen), so the layers after it stay fixed and L2 must learn what they accept; then the whole model (`midwarm`, `v5warm`) or L2 + LoRA r=16 (`midlora`, `v5lora`), three seeds each. LoRA added back as this stage-2 option at the author's request (off by default). Not yet trained. 332 tests.
+**Train L2 first, then the whole model or LoRA (2026-11-08, T44 warm-up, T60, `run.md` A3q):** L2 learns alone for the first 2,000 steps (SmolLM2 frozen), so the layers after it stay fixed and L2 must learn what they accept; then the whole model (`midwarm`, `v5warm`) or L2 + LoRA r=16 (`midlora`, `v5lora`), three seeds each, plus a LoRA baseline without L2 (`lora_baseline`) as their fair comparison. LoRA added back as this stage-2 option at the author's request (off by default). Not yet trained. 332 tests.
 
 **Reasoning tests built (2026-11-08, T59, `run.md` A3p):** the results so far are % right and perplexity, not reasoning. Three PubMedQA tests on the existing runs: where the gain comes from (per true answer), the questions without the abstract, and the authors' conclusion with its meaning flipped by one negation (164 questions). Not yet run. 332 tests.
 

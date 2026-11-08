@@ -115,6 +115,7 @@ already accept. Then stage 2:
 | `v5warm` | end (v5) | whole model | v5 (PubMedQA +2.07\*) |
 | `midlora` | after layer 20 | L2 + LoRA r=16 (SmolLM2's own weights never change) | `midwarm` |
 | `v5lora` | end (v5) | L2 + LoRA r=16 | `v5warm` |
+| `lora_baseline` | no L2 (`configs/v2_baseline.json`) | LoRA r=16 from step 0 (no L2, so nothing to warm up) | the fair baseline for `midlora` / `v5lora` (author's request, 2026-11-08) |
 
 LoRA (T60): rank-16 adapters on every attention and MLP projection, scale
 alpha 32, at `--lr 2e-4` (adapters need a larger LR than full
@@ -161,7 +162,23 @@ python -m ekdant.train $FLAGS --seed 31 $V5 $W $LORA --out runs/v5lora_s31 > v5l
 python -m ekdant.gen_eval mcq runs/v5lora_s31 > mcq_v5lora_s31.log 2>&1" > /dev/null 2>&1 &
 ```
 
-(GPU 1 stays free for A3p.) Each log shows `L2 warm-up - SmolLM2 frozen`
+The LoRA baseline, on GPU 1 beside the A3p reasoning job (both are small):
+
+```bash
+CUDA_VISIBLE_DEVICES=1 nohup bash -c "
+python -m ekdant.train $FLAGS --variant baseline --config configs/v2_baseline.json $LORA --out runs/lora_baseline_s17 > lora_baseline_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/lora_baseline_s17 > mcq_lora_baseline_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 23 --variant baseline --config configs/v2_baseline.json $LORA --out runs/lora_baseline_s23 > lora_baseline_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/lora_baseline_s23 > mcq_lora_baseline_s23.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 --variant baseline --config configs/v2_baseline.json $LORA --out runs/lora_baseline_s31 > lora_baseline_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/lora_baseline_s31 > mcq_lora_baseline_s31.log 2>&1" > /dev/null 2>&1 &
+```
+
+Note: the baseline's adapters learn for the whole PubMedQA stage, while in
+`midlora` / `v5lora` they wait for the 2,000 warm-up steps (L2 learns
+alone then); the baseline has no L2 to warm up.
+
+Each log shows `L2 warm-up - SmolLM2 frozen`
 at step 0 and `L2 warm-up done` at step 2,000; the LoRA logs show
 `lora_r=16` and `trainable=` far below `total=` on the params line. **First
 sign to watch:** during the 2,000 frozen steps the loss can only fall if L2
@@ -187,13 +204,16 @@ python -m ekdant.gen_eval reason --baseline runs/v22_baseline runs/v22s23_baseli
     --model v5lora runs/v5lora_s17 runs/v5lora_s23 runs/v5lora_s31 \
     --model midwarm runs/midwarm_s17 runs/midwarm_s23 runs/midwarm_s31 \
     --model midlora runs/midlora_s17 runs/midlora_s23 runs/midlora_s31 --markdown reason_warm.md
+python -m ekdant.gen_eval gain --baseline runs/lora_baseline_s17 runs/lora_baseline_s23 runs/lora_baseline_s31     --model v5lora runs/v5lora_s17 runs/v5lora_s23 runs/v5lora_s31     --model midlora runs/midlora_s17 runs/midlora_s23 runs/midlora_s31 --markdown gain_lora.md
+python -m ekdant.gen_eval reason --baseline runs/lora_baseline_s17 runs/lora_baseline_s23 runs/lora_baseline_s31     --model v5lora runs/v5lora_s17 runs/v5lora_s23 runs/v5lora_s31     --model midlora runs/midlora_s17 runs/midlora_s23 runs/midlora_s31 --markdown reason_lora.md
 ```
 
-Bring back `gain_warm.md`, `gain_warm_vs_v5.md`, `reason_warm.md`, and
-every `midwarm*`, `midlora*`, `v5warm*`, `v5lora*` log. Note: the baseline
+Bring back `gain_warm.md`, `gain_warm_vs_v5.md`, `reason_warm.md`,
+`gain_lora.md`, `reason_lora.md`, and every `midwarm*`, `midlora*`,
+`v5warm*`, `v5lora*`, `lora_baseline*` log. Note: the baseline
 is fully fine-tuned; a LoRA run that loses to it may lose because of LoRA,
-not L2 (`midlora` / `v5lora` are compared with their full fine-tuning twins
-for that reason).
+not L2. So the LoRA runs are also compared with `lora_baseline` (same LoRA,
+no L2: `gain_lora.md`), and with their full fine-tuning twins.
 
 ## A3p. Does L2 reason better? Three PubMedQA tests (T59) — **run this next**
 
