@@ -100,6 +100,101 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3q. Train L2 first, then the whole model or LoRA (T44 warm-up, T60) — **run after / beside A3p**
+
+**The idea (author, 2026-11-08):** so far L2 and SmolLM2 learned together
+from step 0, so L2 started random and the layers after it had to cope with
+it while they changed too. Here **L2 learns alone first** (`--l2-warmup
+2000`: SmolLM2 frozen for the first 2,000 of the 6,540 PubMedQA steps). The
+layers after L2 cannot change, so L2 has to learn to give them what they
+already accept. Then stage 2:
+
+| Run | Where L2 sits | Stage 2 (after step 2,000) | Compare against |
+|---|---|---|---|
+| `midwarm` | after layer 20 (`configs/v2_sandbox.json`, the v22_mid recipe) | whole model | v22_mid (no warm-up: PubMedQA +0.9, average +0.5\*) |
+| `v5warm` | end (v5) | whole model | v5 (PubMedQA +2.07\*) |
+| `midlora` | after layer 20 | L2 + LoRA r=16 (SmolLM2's own weights never change) | `midwarm` |
+| `v5lora` | end (v5) | L2 + LoRA r=16 | `v5warm` |
+
+LoRA (T60): rank-16 adapters on every attention and MLP projection, scale
+alpha 32, at `--lr 2e-4` (adapters need a larger LR than full
+fine-tuning's 5e-5; it applies only to the adapters). While L2 warms up the
+adapters wait too. Every run is scored on both benchmarks by `mcq`:
+multiple choice (MedMCQA, MedQA, PubMedQA) and written answers against the
+original (MedQuAD ROUGE-L / F1 and perplexity, MedMCQA explanations,
+PubMedQA conclusions).
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q                          # 332 passed
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
+V5="--variant sandbox --config configs/v5_final.json"
+MID="--variant sandbox --config configs/v2_sandbox.json"
+W="--l2-warmup 2000"
+LORA="--lora-r 16 --lora-alpha 32 --lr 2e-4"
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+python -m ekdant.train $FLAGS $MID $W --out runs/midwarm_s17 > midwarm_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/midwarm_s17 > mcq_midwarm_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 23 $MID $W --out runs/midwarm_s23 > midwarm_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/midwarm_s23 > mcq_midwarm_s23.log 2>&1;
+python -m ekdant.train $FLAGS $MID $W $LORA --out runs/midlora_s17 > midlora_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/midlora_s17 > mcq_midlora_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 23 $MID $W $LORA --out runs/midlora_s23 > midlora_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/midlora_s23 > mcq_midlora_s23.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 31 $MID $W --out runs/midwarm_s31 > midwarm_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/midwarm_s31 > mcq_midwarm_s31.log 2>&1;
+python -m ekdant.train $FLAGS $V5 $W --out runs/v5warm_s17 > v5warm_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5warm_s17 > mcq_v5warm_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $MID $W $LORA --out runs/midlora_s31 > midlora_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/midlora_s31 > mcq_midlora_s31.log 2>&1;
+python -m ekdant.train $FLAGS $V5 $W $LORA --out runs/v5lora_s17 > v5lora_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5lora_s17 > mcq_v5lora_s17.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=0 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 $V5 $W --out runs/v5warm_s23 > v5warm_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5warm_s23 > mcq_v5warm_s23.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $V5 $W --out runs/v5warm_s31 > v5warm_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5warm_s31 > mcq_v5warm_s31.log 2>&1;
+python -m ekdant.train $FLAGS --seed 23 $V5 $W $LORA --out runs/v5lora_s23 > v5lora_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5lora_s23 > mcq_v5lora_s23.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $V5 $W $LORA --out runs/v5lora_s31 > v5lora_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/v5lora_s31 > mcq_v5lora_s31.log 2>&1" > /dev/null 2>&1 &
+```
+
+(GPU 1 stays free for A3p.) Each log shows `L2 warm-up - SmolLM2 frozen`
+at step 0 and `L2 warm-up done` at step 2,000; the LoRA logs show
+`lora_r=16` and `trainable=` far below `total=` on the params line. **First
+sign to watch:** during the 2,000 frozen steps the loss can only fall if L2
+itself helps; if it stays flat, L2 cannot add anything to a fixed SmolLM2.
+
+**When `ps aux | grep ekdant | grep -v grep` prints nothing:**
+
+```bash
+python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
+    --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
+    --model v5warm runs/v5warm_s17 runs/v5warm_s23 runs/v5warm_s31 \
+    --model v5lora runs/v5lora_s17 runs/v5lora_s23 runs/v5lora_s31 \
+    --model midwarm runs/midwarm_s17 runs/midwarm_s23 runs/midwarm_s31 \
+    --model midlora runs/midlora_s17 runs/midlora_s23 runs/midlora_s31 --markdown gain_warm.md
+python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end runs/v5_s31 \
+    --model v5warm runs/v5warm_s17 runs/v5warm_s23 runs/v5warm_s31 \
+    --model v5lora runs/v5lora_s17 runs/v5lora_s23 runs/v5lora_s31 \
+    --model midwarm runs/midwarm_s17 runs/midwarm_s23 runs/midwarm_s31 \
+    --model midlora runs/midlora_s17 runs/midlora_s23 runs/midlora_s31 --markdown gain_warm_vs_v5.md
+python -m ekdant.gen_eval reason --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
+    --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
+    --model v5warm runs/v5warm_s17 runs/v5warm_s23 runs/v5warm_s31 \
+    --model v5lora runs/v5lora_s17 runs/v5lora_s23 runs/v5lora_s31 \
+    --model midwarm runs/midwarm_s17 runs/midwarm_s23 runs/midwarm_s31 \
+    --model midlora runs/midlora_s17 runs/midlora_s23 runs/midlora_s31 --markdown reason_warm.md
+```
+
+Bring back `gain_warm.md`, `gain_warm_vs_v5.md`, `reason_warm.md`, and
+every `midwarm*`, `midlora*`, `v5warm*`, `v5lora*` log. Note: the baseline
+is fully fine-tuned; a LoRA run that loses to it may lose because of LoRA,
+not L2 (`midlora` / `v5lora` are compared with their full fine-tuning twins
+for that reason).
+
 ## A3p. Does L2 reason better? Three PubMedQA tests (T59) — **run this next**
 
 Every result so far is % right and perplexity; none of it shows reasoning
@@ -119,7 +214,7 @@ says so.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 323 passed
+python -m pytest -q                          # 332 passed
 CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.gen_eval reason \
     --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
     --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
@@ -152,7 +247,7 @@ Three questions:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 323 passed
+python -m pytest -q                          # 332 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 1, 2, 3 >= 30 GB free (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
@@ -278,7 +373,7 @@ explain?") and in the `gain` report.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 323 passed
+python -m pytest -q                          # 332 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -341,7 +436,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 323 passed
+python -m pytest -q                          # 332 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -397,7 +492,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 323 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 332 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -408,7 +503,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 323 passed
+python -m pytest -q                          # 332 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -1898,7 +1993,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 323 tests
+python -m pytest            # 332 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

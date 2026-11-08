@@ -195,6 +195,51 @@ def count_parameters(model: nn.Module, trainable_only: bool = True) -> int:
                if (p.requires_grad or not trainable_only))
 
 
+# --- T60: LoRA on the backbone (the second stage of "train L2 first") --------
+# SmolLM2's own weights stay frozen; every attention and MLP projection gets a
+# trainable low-rank update W x + (alpha / r) * B A x (Hu et al., 2021).  B
+# starts at zero, so a fresh LoRA model is exactly the pretrained one.
+# Embeddings, norms and the tied head stay frozen; L2 is not touched.  Written
+# here (no peft) so it runs on the pod's torch 2.2.
+
+LORA_TARGETS = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+
+
+class LoRALinear(nn.Module):
+    """A frozen ``nn.Linear`` plus a trainable rank-``r`` update."""
+
+    def __init__(self, base: nn.Linear, r: int, alpha: float):
+        super().__init__()
+        self.base = base
+        self.scale = alpha / r
+        self.lora_a = nn.Parameter(base.weight.new_empty(r, base.in_features))
+        self.lora_b = nn.Parameter(base.weight.new_zeros(base.out_features, r))
+        nn.init.kaiming_uniform_(self.lora_a, a=math.sqrt(5))
+
+    def forward(self, x):
+        return self.base(x) + F.linear(F.linear(x, self.lora_a), self.lora_b) * self.scale
+
+
+def apply_lora(lm: nn.Module, r: int, alpha: float, targets=LORA_TARGETS) -> int:
+    """Freeze ``lm`` and wrap every ``nn.Linear`` named in ``targets``;
+    returns how many were wrapped."""
+    for p in lm.parameters():
+        p.requires_grad_(False)
+    targets = set(targets)
+    hits = [(parent, name, child) for parent in lm.modules()
+            for name, child in parent.named_children()
+            if name in targets and isinstance(child, nn.Linear)]
+    if not hits:
+        raise ValueError(f"no LoRA target found among {sorted(targets)}")
+    for parent, name, child in hits:
+        setattr(parent, name, LoRALinear(child, r, alpha))
+    return len(hits)
+
+
+def is_lora_param(name: str) -> bool:
+    return name.rsplit(".", 1)[-1] in ("lora_a", "lora_b")
+
+
 def estimate_model_size(cfg: EkdantConfig) -> Dict[str, int]:
     cfg = cfg.validate()
     m = EkdantModel(cfg)
@@ -543,8 +588,17 @@ class V2Config:
     # weights ~1.8): h + g*(y - h) then mostly shrank the model's own state
     # (cos(y - h, -h) ~0.9) instead of adding what L2 computed.
     sandbox_out_from_backbone: bool = False
+    # T60: LoRA on the backbone.  0 = SmolLM2 fully fine-tuned (every result
+    # up to v5); r > 0 = SmolLM2 frozen, rank-r adapters on every projection
+    # learn (with --l2-warmup: L2 first, then L2 + the adapters).
+    lora_r: int = 0
+    lora_alpha: float = 32.0
 
     def validate(self) -> "V2Config":
+        if self.lora_r < 0:
+            raise ValueError(f"lora_r must be >= 0, got {self.lora_r}")
+        if self.lora_r > 0 and self.lora_alpha <= 0:
+            raise ValueError(f"lora_alpha must be > 0, got {self.lora_alpha}")
         if self.sandbox_out_from_backbone and self.sandbox_aligned:
             raise ValueError("sandbox_out_from_backbone sizes L2's output; sandbox_aligned "
                              "already sizes it to the model's state")
@@ -631,6 +685,8 @@ class EkdantLM(nn.Module):
         super().__init__()
         self.cfg = cfg.validate()
         self.lm = lm
+        if cfg.lora_r > 0:
+            apply_lora(lm, cfg.lora_r, cfg.lora_alpha)       # T60
         dim = lm.config.hidden_size
         self.addon: Optional[GatedAddOn] = None
         n_layers = len(lm.model.layers)

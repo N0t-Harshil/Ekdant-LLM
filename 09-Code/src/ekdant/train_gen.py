@@ -38,7 +38,7 @@ from ekdant.gen_data import (
 )
 from ekdant.gen_eval import (_rows, answer_nll, by_type, generate_greedy,
                              paired_bootstrap, score_generations)
-from ekdant.model import EkdantLM, V2Config, count_parameters
+from ekdant.model import EkdantLM, V2Config, count_parameters, is_lora_param
 from ekdant.train import fmt_duration, log, lr_at
 
 STAGES = ("pubmedqa", "medquad_ft")
@@ -80,7 +80,8 @@ RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
             "gate_force", "gate_rollback", "max_rollbacks", "snapshot_every", "floor_slowdown",
-            "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "warmup",
+            "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "lora_r",
+            "lora_alpha", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
 
@@ -276,6 +277,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gate-lr", type=float, default=1e-3,
                     help="LR of L2's 576-entry gate alone (T35); its "
                          "matrices keep --addon-lr")
+    ap.add_argument("--lora-r", type=int, default=0,
+                    help="LoRA rank on SmolLM2 (T60): its own weights stay frozen and "
+                         "rank-r adapters learn at --lr; 0 = full fine-tuning (default)")
+    ap.add_argument("--lora-alpha", type=float, default=32.0,
+                    help="LoRA scale (update = alpha / r * B A x)")
     ap.add_argument("--warmup", type=int, default=200)
     ap.add_argument("--epochs", type=int, default=1, help="phase-1 epochs")
     ap.add_argument("--ft-epochs", type=int, default=3, help="phase-2 epochs")
@@ -411,6 +417,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             log("error: --gate-force needs --gate-floor > 0 (the minimum gate)")
             raise SystemExit(1)
         cfg.gate_force = args.gate_force
+        if args.lora_r < 0:
+            log("error: --lora-r must be >= 0")
+            raise SystemExit(1)
+        cfg.lora_r, cfg.lora_alpha = args.lora_r, args.lora_alpha      # T60
 
     log(f"hugging face token: {apply_hf_token(cfg.hf_token_file)}")
     torch.manual_seed(args.seed)
@@ -427,7 +437,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         if use_bf16 else (lambda: torch.autocast(device.type, enabled=False))
     pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
     log(f"variant={args.variant} addon={cfg.addon} backbone={cfg.backbone} "
-        f"params total={count_parameters(model)/1e6:.2f}M "
+        f"params total={count_parameters(model, False)/1e6:.2f}M "
+        f"trainable={count_parameters(model)/1e6:.2f}M lora_r={cfg.lora_r} "
         f"addon={model.addon_params()/1e6:.2f}M device={device}")
 
     # ---- data (identical for every arm: same seed, same splits) ----
@@ -467,7 +478,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         with open(res_path, encoding="utf-8") as f:
             results = json.load(f)
     results.update({"variant": args.variant, "addon": cfg.addon,
-                    "config": cfg.to_dict(), "params_total": count_parameters(model),
+                    "config": cfg.to_dict(), "params_total": count_parameters(model, False),
+                    "params_trainable": count_parameters(model),
                     "params_addon": model.addon_params()})
 
     def write() -> None:
@@ -510,8 +522,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     def set_frozen(on: bool) -> None:
         nonlocal frozen
         if on != frozen:
-            for p in model.lm.parameters():
-                p.requires_grad_(not on)
+            # with LoRA (T60) only the adapters are ever unfrozen
+            for n, p in model.lm.named_parameters():
+                if cfg.lora_r == 0 or is_lora_param(n):
+                    p.requires_grad_(not on)
             frozen = on
     snap: Optional[Dict] = None
     snap_rollbacks = 0      # rollbacks to the current snapshot (T45)
@@ -761,7 +775,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         log(f"[test L2 off] medquad_bench ppl={bo['ppl']:.3f} (with L2 {b['ppl']:.3f}): "
             f"per-token NLL {imp['diff']:+.4f} 95% CI [{imp['lo']:+.4f}, "
             f"{imp['hi']:+.4f}]; pubmedqa_held ppl={po['ppl']:.3f}")
-    results["cost"] = {"params_total": count_parameters(model),
+    results["cost"] = {"params_total": count_parameters(model, False),
+                       "params_trainable": count_parameters(model),
                        "params_addon": model.addon_params(),
                        "tokens_seen": tokens_seen, "wall_clock_s": wall,
                        "skipped_steps": skipped_steps,
