@@ -100,7 +100,7 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3o. v5, the final model (= the v22 recipe): reproduce it, a third seed, L2 dropout (T57) and the output-scale fix (T58) — **run this next**
+## A3o. v5, the final model (= the v22 recipe): reproduce it, a third seed, L2 dropout (T57) and the output-scale fix (T58) — **done, results in A7k**
 
 **Why:** v4 was not better than v22 (A7j), so we go back. **v5 =
 `configs/v5_final.json`, an exact copy of v22's config**
@@ -1074,6 +1074,68 @@ How to read it:
 
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
+
+## A7k. v5 (the v22 recipe) on three seeds, L2 dropout and the output-scale fix (2026-11-08)
+
+Sources: `gain_v5_repeat.md`, `gain_v5.md`, `gain_v5drop_vs_v5.md`,
+`gain_v5out_vs_v5.md`, `v5_s17.log`, `v5_s31.log`, `v5drop_s17/23/31.log`,
+`v5out_s17/23/31.log`, `mcq_v5*.log`. All eight trainings wrote
+`results.json`. "v5" on three seeds = `v22_end`, `v22s23_end`, `v5_s31`;
+baselines `v22_baseline`, `v22s23_baseline`, `v5_baseline_s31`. * = the 95 %
+CI excludes 0. The three `leaderboard_v5_*.md` and the `out_norm` check were
+not brought back; the gain reports cover the same benchmarks.
+
+**1. v5 reproduces v22** (`gain_v5_repeat.md`, `v5_s17` against `v22_end`,
+same seed 17): every benchmark within noise. PubMedQA +0.20 [−0.80, +1.20],
+average +0.08 [−0.30, +0.44], MedQuAD ppl 3.776 for both (+0.01 %), names
+the right answer −1.50 [−3.50, 0.00]. Today's code gives the v22 model.
+
+**2. v5 against the baseline, three seeds** (`gain_v5.md`):
+
+| | PubMedQA | Average | MedQuAD ppl | Explanation ppl | PubMedQA conclusion ppl |
+|---|---|---|---|---|---|
+| v5 | +2.07 [+0.57, +3.73]\* (58.0 → 60.0 %) | +0.72 [+0.17, +1.31]\* | −0.16 %\* | −1.78 %\* | −0.45 %\* |
+| v5drop | +0.97 [+0.23, +1.73]\* | +0.36 [+0.06, +0.66]\* | −0.10 %\* | −0.59 %\* | −0.15 %\* |
+| v5out | +1.13 [+0.10, +2.23]\* | +0.37 [−0.02, +0.77] | −0.23 %\* | −0.92 %\* | −0.10 %\* |
+
+v5's PubMedQA gain per seed: +1.5 / +3.2\* / +1.5 (17 / 23 / 31). MedMCQA
+and MedQA: no model differs from the baseline (all within ±0.2 points, no
+star). Names the right answer in its explanation: no model differs from the
+baseline (v5 −0.67, v5drop −0.33, v5out −1.33, all CIs include 0).
+
+**3. L2 dropout against v5** (`gain_v5drop_vs_v5.md`): not better. PubMedQA
+−1.10 [−2.47, +0.23], average −0.36 [−0.86, +0.09], explanation ppl
++1.21 %\* worse, MedQuAD ppl +0.06 %\* worse, PubMedQA conclusion ppl
++0.30 %\* worse. What it did change: the model no longer leans on L2.
+Switching L2 off at test costs v5drop only +0.002 per-token NLL on MedQuAD
+(s17 3.779 → 3.787, s23 3.792 → 3.799, s31 3.832 → 3.839) against +0.086 /
++0.072 for v5 (s17 3.776 → 4.117, s31 3.830 → 4.114); the PubMedQA held-out
+ppl with L2 off is 8.19 / 8.16 / 8.28 for v5drop against 10.03 / 9.76 for
+v5. Its gate ended lower (|g| 0.019–0.021 against 0.025–0.028). So dropout
+removed the co-adaptation, and what L2 then adds on its own is small: most
+of the v5 / v22 "L2 off" drop is the backbone handing work to L2, not a
+measure of what L2 adds.
+
+**4. The output-scale fix against v5** (`gain_v5out_vs_v5.md`): not better.
+PubMedQA −0.93 [−1.93, −0.00]\*, average −0.35 [−0.72, −0.01]\*,
+explanation ppl +0.87 %\* worse, PubMedQA conclusion ppl +0.35 %\* worse;
+only MedQuAD ppl is −0.07 %\* better (tiny). The gate did not open further:
+|g| at the end of training 0.029–0.030 (v5out) against 0.025–0.028 (v5);
+during the PubMedQA stage the two seed-17 runs track each other
+(0.0148 / 0.0157 at step 1250, 0.0177 / 0.0176 at step 6050). The L2-off
+drop grew (MedQuAD +0.131 / +0.113 / +0.095 NLL for seeds 17 / 23 / 31,
+held-out PubMedQA ppl 10.54 / 9.32 / 9.41): the model leaned more on L2,
+without a better result. So the output scale was not what kept the gate
+small.
+
+**5. Confidence:** the model's own top-word probability gives AUROC
+0.904–0.906 in every run (no change).
+
+**Decision** (rules in A3o): neither L2 dropout nor the output-scale fix
+shows a starred gain over v5, so **v5 (= the v22 recipe) stays the final
+model**, now on three seeds: PubMedQA +2.07\* points (+3.6 %), average
++0.72\*, explanation ppl −1.78 %\*, no change on MedMCQA / MedQA. These are
+perplexity and % right gains; they are not evidence of reasoning.
 
 ## A7j. L2 v4 and the explanation benchmark, two seeds (2026-11-07)
 

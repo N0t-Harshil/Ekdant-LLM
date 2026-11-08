@@ -4,6 +4,8 @@
 
 ## 1. Current build status
 
+**v5 results (2026-11-08, `run.md` A7k):** v5 reproduces v22 (same seed, every benchmark within noise). On three seeds v5 beats the baseline: PubMedQA +2.07\* points (58.0 → 60.0 %), average +0.72\*, explanation ppl −1.78 %\*, MedMCQA / MedQA unchanged. L2 dropout (T57) and the output-scale fix (T58) are both not better than v5 (v5out: PubMedQA −0.93\*, average −0.35\*); L2 dropout shows that most of the old "L2 off" drop was the backbone leaning on L2. **v5 = the v22 recipe is the final model.**
+
 **Output-scale gap found and fixed (2026-11-07, T58, `run.md` A3o step 1b):** at the end, v22's L2 output starts at half the model's size (SmolLM2 final state rms ~2.1, L2's output norm starts at 1), so opening the gate mostly shrinks the model's own state (cosine of the change with -h 0.90); v22's gate stayed at ~0.02. `sandbox_out_from_backbone` starts L2's output norm as a copy of the model's final norm (0.89x, cosine 0.75; step 0 unchanged). `v5out` = v5 + this, three seeds. Untrained. 304 tests.
 
 **v4 results and v5, the final model (2026-11-07, `run.md` A7j, A3o, T57):** v4 is not better than v22 (two seeds: average −0.49\* points, PubMedQA −1.35; explanation benchmark: every model names the right answer in 16–18 % of its explanations, no L2 effect beyond noise). We go back: v5 = v22's config unchanged (`configs/v5_final.json`), retrained on seed 17 to check it reproduces and on a third seed (31) with its baseline. New idea tested on it: L2 dropout (`--l2-drop 0.3`, L2 off for 30 % of the training steps) so the model cannot hand its own job to L2. Untrained. 304 tests.
