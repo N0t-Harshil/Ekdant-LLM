@@ -196,9 +196,9 @@ python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end runs/v5_s
     --model v5out runs/v5out_s17 runs/v5out_s23 runs/v5out_s31 --markdown gain_v5out_vs_v5.md
 python -m ekdant.gen_eval gain --baseline runs/v22_end runs/v22s23_end runs/v5_s31 \
     --model v5drop runs/v5drop_s17 runs/v5drop_s23 runs/v5drop_s31 --markdown gain_v5drop_vs_v5.md
-python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v5_s17.md runs/v22_baseline runs/v22_end runs/v5_s17 runs/v5drop_s17 > /dev/null
-python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v5_s23.md runs/v22s23_baseline runs/v22s23_end runs/v5drop_s23 > /dev/null
-python -m ekdant.gen_eval mcq --compare --baseline v5_baseline_s31 --markdown leaderboard_v5_s31.md runs/v5_baseline_s31 runs/v5_s31 runs/v5drop_s31 > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v22_baseline --markdown leaderboard_v5_s17.md runs/v22_baseline runs/v22_end runs/v5_s17 runs/v5drop_s17 runs/v5out_s17 > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v22s23_baseline --markdown leaderboard_v5_s23.md runs/v22s23_baseline runs/v22s23_end runs/v5drop_s23 runs/v5out_s23 > /dev/null
+python -m ekdant.gen_eval mcq --compare --baseline v5_baseline_s31 --markdown leaderboard_v5_s31.md runs/v5_baseline_s31 runs/v5_s31 runs/v5drop_s31 runs/v5out_s31 > /dev/null
 ```
 
 Bring back the four `gain_*.md`, the three `leaderboard_v5_*.md`, every
