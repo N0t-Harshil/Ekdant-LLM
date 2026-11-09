@@ -584,6 +584,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                     set_frozen(warm)
                     log(f"[{stage}] step {opt_step}: L2 warm-up "
                         + ("- SmolLM2 frozen, only L2 learns" if warm
+                           else "done - LoRA adapters train, SmolLM2's own "
+                                "weights stay frozen" if cfg.lora_r > 0
                            else "done - SmolLM2 trains again"))
                 # T57: L2 off for this whole optimiser step (never while
                 # only L2 trains)

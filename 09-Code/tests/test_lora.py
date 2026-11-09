@@ -109,4 +109,12 @@ def test_baseline_with_lora_trains_only_the_adapters(tiny, tmp_path):
     _base_weights_unchanged(torch.load(out / "last.pt", weights_only=False))
 
 
+def test_warmup_end_message_names_what_trains(tiny, tmp_path, capsys):
+    # after the warm-up, a LoRA run must not claim that SmolLM2 trains again
+    G.main(_args(tiny, tmp_path / "lora", extra=["--l2-warmup", "1", "--lora-r", "4"]))
+    out = capsys.readouterr().out
+    assert "LoRA adapters train" in out and "SmolLM2 trains again" not in out
+    G.main(_args(tiny, tmp_path / "full", extra=["--l2-warmup", "1"]))
+    assert "SmolLM2 trains again" in capsys.readouterr().out
+
 from test_train_gen import _args, tiny  # noqa: E402,F401  (shared fixture)

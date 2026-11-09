@@ -100,7 +100,7 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3q. Train L2 first, then the whole model or LoRA (T44 warm-up, T60) — **run after / beside A3p**
+## A3q. Train L2 first, then the whole model or LoRA (T44 warm-up, T60) — done, results in A7l
 
 **The idea (author, 2026-11-08):** so far L2 and SmolLM2 learned together
 from step 0, so L2 started random and the layers after it had to cope with
@@ -127,7 +127,7 @@ PubMedQA conclusions).
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 332 passed
+python -m pytest -q                          # 333 passed
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
 V5="--variant sandbox --config configs/v5_final.json"
 MID="--variant sandbox --config configs/v2_sandbox.json"
@@ -215,7 +215,7 @@ is fully fine-tuned; a LoRA run that loses to it may lose because of LoRA,
 not L2. So the LoRA runs are also compared with `lora_baseline` (same LoRA,
 no L2: `gain_lora.md`), and with their full fine-tuning twins.
 
-## A3p. Does L2 reason better? Three PubMedQA tests (T59) — **run this next**
+## A3p. Does L2 reason better? Three PubMedQA tests (T59) — done, results in A7l
 
 Every result so far is % right and perplexity; none of it shows reasoning
 (A7k: the explanations name the right answer no more often, MedQA does not
@@ -234,7 +234,7 @@ says so.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 332 passed
+python -m pytest -q                          # 333 passed
 CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.gen_eval reason \
     --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
     --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
@@ -267,7 +267,7 @@ Three questions:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 332 passed
+python -m pytest -q                          # 333 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 1, 2, 3 >= 30 GB free (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
@@ -393,7 +393,7 @@ explain?") and in the `gain` report.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 332 passed
+python -m pytest -q                          # 333 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -456,7 +456,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 332 passed
+python -m pytest -q                          # 333 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -512,7 +512,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 332 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 333 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -523,7 +523,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 332 passed
+python -m pytest -q                          # 333 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -1222,6 +1222,102 @@ How to read it:
 
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
+
+## A7l. Reasoning tests, L2 warm-up and LoRA, three seeds (2026-11-09)
+
+Sources: `reason_v5.md`, `reason_v5.log`, `gain_warm.md`, `gain_warm_vs_v5.md`,
+`reason_warm.md`, `gain_lora.md`, `reason_lora.md`, the 15 training logs
+`v5warm_*`, `midwarm_*`, `v5lora_*`, `midlora_*`, `lora_baseline_*` (seeds
+17 / 23 / 31) and `mcq_v5warm_*`, `mcq_midwarm_*`, `mcq_midlora_*`. Every run
+finished without an error. Baselines as in A7k (`v22_baseline`,
+`v22s23_baseline`, `v5_baseline_s31`); v5 = `v22_end`, `v22s23_end`,
+`v5_s31`. * = the 95 % CI excludes 0. `reason_flips.md` and the
+`mcq_v5lora_*` / `mcq_lora_baseline_*` logs were not brought back (the
+scores are in the gain reports).
+
+The logs confirm the setup: every warm-up run logs "L2 warm-up - SmolLM2
+frozen" at step 0 and "warm-up done" at step 2,000; the LoRA runs train
+24.48M of 158.99M parameters (`lora_r=16`), the LoRA baseline 4.88M of
+139.40M.
+
+**1. Reasoning tests on v5 (A3p, `reason_v5.md`).** The rule set before the
+run: L2 reasons better from evidence only if test 2 **and** test 3 show a
+starred gain. No model passes.
+
+| Model | Test 1: where the gain comes from | Test 2: uses the abstract | Test 3: follows the flipped evidence |
+|---|---|---|---|
+| v5 | answers yes +11.03\* points more often; right on true-yes +10.99\*, on true-no −11.83\* | +0.17 [−1.77, +2.00] | +3.25 [−1.83, +8.94] |
+| v5drop | yes +2.77\*; true-yes +3.14\*, true-no −2.27\* | +0.60 [−0.43, +1.57] | +3.25 [−0.00, +6.50] |
+| v5out | yes +5.97\*; true-yes +5.80\*, true-no −6.21\* | +0.27 [−0.90, +1.40] | +4.07 [+0.81, +8.13]\* (seeds +3.7 / +7.9\* / +0.6) |
+
+v5's PubMedQA gain (+2.07\*) is an answer preference: it says yes more
+often, gains on the yes questions and loses almost as much on the no
+questions (the set has 552 yes and 338 no questions, so the net is
+positive). It gains as much without the abstract (+1.90\*). Only v5out shows
+a starred test-3 gain, carried by one seed, and it fails test 2. **None of
+the results is evidence that L2 reasons better.**
+
+**2. Warm-up, then the whole model (`gain_warm.md`, `gain_warm_vs_v5.md`).**
+
+| Model | PubMedQA | MedMCQA | MedQA | MedQuAD ppl | Explanation ppl | PubMedQA conclusion ppl |
+|---|---|---|---|---|---|---|
+| v5warm vs baseline | −15.00\* (58.0 → 43.0 %) | +0.10 | −0.08 | −1.93 %\* | −6.54 %\* | +0.09 % |
+| midwarm vs baseline | −15.07\* (58.0 → 42.9 %) | −0.18 | −0.60 | −2.07 %\* | −7.01 %\* | +0.18 % |
+| v5warm vs v5 | −17.07\* | +0.17 | −0.24 | −1.78 %\* | −4.85 %\* | +0.55 %\* |
+| midwarm vs v5 | −17.13\* | −0.11 | −0.76 | −1.92 %\* | −5.33 %\* | +0.63 %\* |
+
+- The best perplexity gains of the thesis (MedQuAD −2 %, the experts'
+  explanations −7 %), about twelve times v5's.
+- PubMedQA collapses: 85 % of the answers are "no" (baseline 50 %), so the
+  reasoning tests all get worse ("uses the abstract" −11.33\* / −13.47\*,
+  "follows the evidence" −11.38\* / −12.40\*).
+- The collapse is in SmolLM2, not in L2: with L2 switched off PubMedQA is
+  38–44 % in every run, and L2 on adds 2–4 points (`mcq_*warm*.log`).
+- The model leans less on L2: switching L2 off costs +0.035–0.036 per-token
+  NLL on MedQuAD (v5warm) and +0.015–0.019 (midwarm), against +0.086 for v5.
+  Most of the perplexity gain is SmolLM2's own.
+- Names the right answer in its explanation: no change (v5warm −0.00,
+  midwarm +0.17, CIs include 0).
+
+**3. Warm-up, then LoRA (`gain_lora.md`, `reason_lora.md`).** LoRA alone
+breaks PubMedQA: the LoRA baseline (no L2) and both LoRA + L2 models answer
+"no" to every PubMedQA question (33.8 % = the share of "no" questions). On
+the plain baseline the LoRA runs lose (average −7.64\* / −7.67\*, MedQuAD ppl
++5.30 %\* / +4.79 %\*). Against the LoRA baseline:
+
+| Model | MedMCQA | MedQA | MedQuAD ppl | Explanation ppl | PubMedQA conclusion ppl |
+|---|---|---|---|---|---|
+| v5lora | −0.17 | +0.97 [+0.24, +1.68]\* (seeds +1.0 / +1.7\* / +0.2) | −1.69 %\* | +2.80 %\* worse | +3.49 %\* worse |
+| midlora | −0.03 | +0.73 [−0.05, +1.47] | −2.17 %\* | +1.16 %\* worse | +1.83 %\* worse |
+
+The reasoning tests cannot tell them apart (all always answer "no"); the
+one difference is midlora using the abstract less (−2.23\*).
+
+**4. Answer generation (MedQuAD, 1,000 generated answers per run, word
+overlap with the reference answer; from the training logs, mean of seeds
+17 / 23 / 31; no CI is computed for these):**
+
+| Model | ROUGE-L | F1 | ROUGE-L vs its baseline, per seed |
+|---|---|---|---|
+| baseline | 30.08 | 36.49 | - |
+| v5 | 30.28 (+0.20) | 36.76 (+0.26) | +0.6 / +0.2 / −0.2 |
+| v5warm | 29.94 (−0.14) | 36.38 (−0.11) | +0.4 / −0.6 / −0.2 |
+| midwarm | 30.34 (+0.26) | 36.90 (+0.40) | +0.1 / −0.1 / +0.7 |
+| LoRA baseline | 27.02 (−3.06) | 32.65 (−3.85) | −3.2 / −3.2 / −2.8 |
+| v5lora vs LoRA baseline | 27.95 (+0.93) | 33.69 (+1.04) | +1.3 / +0.3 / +1.1 |
+| midlora vs LoRA baseline | 28.35 (+1.33) | 34.13 (+1.49) | +1.8 / +1.1 / +1.1 |
+
+With full fine-tuning L2 does not change the written answers: every
+difference is below a point and changes sign between seeds, while one
+model varies by about 3 points between seeds. With LoRA, L2 adds about one
+point in every seed, but all LoRA models write worse answers than the full
+fine-tuned ones. The written explanations (`gain_warm.md`): ROUGE-L v5warm
++0.04, midwarm −0.12 (no star); v5lora −1.31\*, midlora −0.43.
+
+**Decision:** v5 (= the v22 recipe) stays the final model. Its PubMedQA gain
+is an answer preference, not reasoning; L2 warm-up gives the best
+perplexity but moves SmolLM2 to answering "no" and lowers the reliance on
+L2; LoRA does not suit this task (it answers "no" to every PubMedQA question even without L2).
 
 ## A7k. v5 (the v22 recipe) on three seeds, L2 dropout and the output-scale fix (2026-11-08)
 
@@ -2013,7 +2109,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 332 tests
+python -m pytest            # 333 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
