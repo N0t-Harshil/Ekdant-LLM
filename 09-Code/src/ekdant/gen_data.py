@@ -2,6 +2,8 @@
 
     phase 1   PubMedQA pqa_artificial: question + abstract -> conclusion
     phase 2   MedQuAD fine-tune half (question -> answer)
+    T61       ``evidence_examples``: phase 1 rebuilt so the yes / no decision
+              is trained and must follow the evidence
     bench     MedQuAD benchmark half, split by unique question
 
 The loss covers answer tokens only (prompt labels are -100).  Answers are
@@ -31,6 +33,7 @@ class GenExample:
     answer: str
     context: str = ""
     qtype: str = ""
+    label: str = ""        # PubMedQA final_decision (yes / no), T61
 
 
 def format_gen_prompt(ex: GenExample) -> str:
@@ -48,7 +51,7 @@ def _rows_to_examples(rows: Iterable[Dict],
         ex = convert(r)
         if ex.question.strip() and ex.answer.strip():
             out.append(GenExample(ex.question.strip(), ex.answer.strip(),
-                                  ex.context.strip(), ex.qtype))
+                                  ex.context.strip(), ex.qtype, ex.label))
     return out
 
 
@@ -64,8 +67,62 @@ def load_pubmedqa(limit: Optional[int] = None, seed: int = 17) -> List[GenExampl
     ds = _offline_first(lambda: load_dataset(*PUBMEDQA, split="train"))
     ex = _rows_to_examples(ds, lambda r: GenExample(
         r["question"], r["long_answer"] or "",
-        context=" ".join(r["context"]["contexts"])))
+        context=" ".join(r["context"]["contexts"]),
+        label=r.get("final_decision") or ""))
     return _subsample(ex, limit, seed)
+
+
+def pubmedqa_test_keys() -> set:
+    """Question keys of PubMedQA pqa_labeled, the benchmark of every
+    PubMedQA test: never trained on (T61)."""
+    from datasets import load_dataset
+
+    ds = _offline_first(lambda: load_dataset("qiaojin/PubMedQA", "pqa_labeled",
+                                             split="train"))
+    return {question_key(q) for q in ds["question"]}
+
+
+def evidence_examples(train: List[GenExample], seed: int = 17,
+                      exclude: Iterable[str] = ()) -> Tuple[List[GenExample], Dict]:
+    """T61: phase 1 rebuilt so the decision is trained and depends on the
+    evidence.  pqa_artificial is 92.8 % yes and its target was only the
+    conclusion, so the yes / no word the benchmark scores was never trained.
+
+    * balanced rows: every "no" row and as many seeded "yes" rows, question +
+      abstract -> "<yes|no>. <conclusion>";
+    * flipped pairs: for every one-sentence conclusion that one negation can
+      flip (``gen_eval.flip_conclusion``), two rows with the conclusion as the
+      only context, once as written -> its label and once flipped -> the other
+      label (yes / no balanced by construction).
+
+    Questions in ``exclude`` (the benchmark) are dropped.  Returns (rows,
+    counts)."""
+    from ekdant.gen_eval import flip_conclusion
+
+    ex_keys = set(exclude)
+    pool = [e for e in train if e.label in ("yes", "no")
+            and question_key(e.question) not in ex_keys]
+    yes = [e for e in pool if e.label == "yes"]
+    no = [e for e in pool if e.label == "no"]
+    n = min(len(yes), len(no))
+    rng = random.Random(seed)
+    picked = rng.sample(yes, n) + rng.sample(no, n)
+    rows = [GenExample(e.question, f"{e.label}. {e.answer}", e.context,
+                       label=e.label) for e in picked]
+    other = {"yes": "no", "no": "yes"}
+    n_pairs = 0
+    for e in pool:
+        f = flip_conclusion(e.answer)
+        if f is None:
+            continue
+        n_pairs += 1
+        rows.append(GenExample(e.question, e.label, " ".join(e.answer.split()),
+                               label=e.label))
+        rows.append(GenExample(e.question, other[e.label], f, label=other[e.label]))
+    rng.shuffle(rows)
+    return rows, {"balanced": 2 * n, "flip_pairs": n_pairs, "rows": len(rows),
+                  "excluded": len(train) - len([e for e in train
+                                                if question_key(e.question) not in ex_keys])}
 
 
 def load_medquad(limit: Optional[int] = None, seed: int = 17) -> List[GenExample]:

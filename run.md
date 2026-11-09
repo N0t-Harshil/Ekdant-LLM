@@ -100,6 +100,87 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3r. Train the decision from the evidence (T61) — **run this next**
+
+**Why (step 1, checked on the data, 2026-11-09):** the PubMedQA training set
+`pqa_artificial` has 211,269 rows: **196,144 yes (92.8 %), 15,125 no, no
+maybe**. And the training target was only the conclusion text: the model
+never learned to write "yes" or "no" after `Answer:`, which is exactly the
+word the PubMedQA benchmark scores. So the PubMedQA answer was a side
+effect of conclusion writing, and L2 learned a preference (A7l), not a
+decision from the evidence.
+
+**What `--evidence` changes (stage 1 only; MedQuAD and every benchmark stay
+the same):**
+
+| Rows | Prompt | Target | Count (seed 17) |
+|---|---|---|---|
+| balanced | question + abstract | `yes. <conclusion>` / `no. <conclusion>` | 29,934 (every "no" row + as many "yes") |
+| flipped pairs | question + the conclusion only | `yes` / `no` | 2 × 45,774: the conclusion as written → its label, and flipped by one negation → the other label |
+
+The pairs make "always yes" or "always no" score exactly 50 %: only a model
+that reads the evidence can get both right. The flip is `flip_conclusion`
+from the reasoning tests (T59), applied to the **training** conclusions;
+the 1,000 PubMedQA benchmark questions are dropped from training (none of
+them is in `pqa_artificial`, checked). Stage 1 is about a fifth of the old
+text (121,482 rows, mostly short), so it is faster.
+
+**The comparison:** both arms get the same new data. `evbase` = SmolLM2
+with `--evidence`, no L2; `ev5` = v5 with `--evidence`. Three seeds each.
+**L2 helps the model reason from evidence only if `ev5` beats `evbase` with
+a starred gain on test 2 ("uses the abstract") and test 3 ("follows the
+evidence").** If both arms improve equally, the data helped and L2 did not.
+Note: test 3 is no longer unseen for these runs (the same kind of flip is
+trained, on other questions); test 2 is unchanged.
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q > pytest.log 2>&1; echo "pytest exit $?"; tail -1 pytest.log    # exit 0, 338 passed
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30 --evidence"
+V5="--variant sandbox --config configs/v5_final.json"
+BASE="--variant baseline --config configs/v2_baseline.json"
+
+CUDA_VISIBLE_DEVICES=0 nohup bash -c "
+python -m ekdant.train $FLAGS $BASE --out runs/evbase_s17 > evbase_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/evbase_s17 > mcq_evbase_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $V5 --out runs/ev5_s31 > ev5_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/ev5_s31 > mcq_ev5_s31.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=1 nohup bash -c "
+python -m ekdant.train $FLAGS $V5 --out runs/ev5_s17 > ev5_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/ev5_s17 > mcq_ev5_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $BASE --out runs/evbase_s31 > evbase_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/evbase_s31 > mcq_evbase_s31.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 $BASE --out runs/evbase_s23 > evbase_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/evbase_s23 > mcq_evbase_s23.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 $V5 --out runs/ev5_s23 > ev5_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/ev5_s23 > mcq_ev5_s23.log 2>&1" > /dev/null 2>&1 &
+```
+
+Check after a few minutes: each log shows `evidence data (T61): balanced=...
+flip_pairs=... rows=... excluded=0` and `rows pubmedqa=...` near 121,000.
+`grep -l Traceback ev*.log mcq_ev*.log` must print nothing.
+
+**When `ps aux | grep ekdant | grep -v grep` prints nothing:**
+
+```bash
+EB="runs/evbase_s17 runs/evbase_s23 runs/evbase_s31"
+E5="runs/ev5_s17 runs/ev5_s23 runs/ev5_s31"
+B0="runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31"
+V5R="runs/v22_end runs/v22s23_end runs/v5_s31"
+CUDA_VISIBLE_DEVICES=1 nohup bash -c "
+python -m ekdant.gen_eval gain --baseline $EB --model ev5 $E5 --markdown gain_ev.md > gain_ev.log 2>&1;
+python -m ekdant.gen_eval gain --baseline $B0 --model v5 $V5R --model evbase $EB --model ev5 $E5 --markdown gain_ev_vs_old.md > gain_ev_vs_old.log 2>&1;
+python -m ekdant.gen_eval reason --baseline $EB --model ev5 $E5 --markdown reason_ev.md > reason_ev.log 2>&1;
+python -m ekdant.gen_eval reason --baseline $B0 --model v5 $V5R --model evbase $EB --model ev5 $E5 --markdown reason_ev_vs_old.md > reason_ev_vs_old.log 2>&1" > /dev/null 2>&1 &
+```
+
+Bring back `gain_ev.md`, `gain_ev_vs_old.md`, `reason_ev.md`,
+`reason_ev_vs_old.md` and every `ev*.log` / `mcq_ev*.log`. `reason_ev.md` is
+the answer: ev5 against evbase. `*_vs_old.md` show what the new data did to
+each arm against the old baseline.
+
 ## A3q. Train L2 first, then the whole model or LoRA (T44 warm-up, T60) — done, results in A7l
 
 **The idea (author, 2026-11-08):** so far L2 and SmolLM2 learned together
@@ -127,7 +208,7 @@ PubMedQA conclusions).
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 333 passed
+python -m pytest -q                          # 338 passed
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
 V5="--variant sandbox --config configs/v5_final.json"
 MID="--variant sandbox --config configs/v2_sandbox.json"
@@ -234,7 +315,7 @@ says so.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 333 passed
+python -m pytest -q                          # 338 passed
 CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.gen_eval reason \
     --baseline runs/v22_baseline runs/v22s23_baseline runs/v5_baseline_s31 \
     --model v5 runs/v22_end runs/v22s23_end runs/v5_s31 \
@@ -267,7 +348,7 @@ Three questions:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 333 passed
+python -m pytest -q                          # 338 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 1, 2, 3 >= 30 GB free (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30"
@@ -393,7 +474,7 @@ explain?") and in the `gain` report.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 333 passed
+python -m pytest -q                          # 338 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # GPUs 2 and 3 >= 40 GB free, GPU 1 >= 10 GB (not GPU 0)
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -456,7 +537,7 @@ SmolLM2 (checked); L2 21.9M params.
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 333 passed
+python -m pytest -q                          # 338 passed
 python -m ekdant.gen_eval gain --baseline runs/v22_baseline runs/v22s23_baseline \
     --model v22 runs/v22_end runs/v22s23_end \
     --model v3b runs/v3b_end runs/v3b_s23_end \
@@ -512,7 +593,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 333 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 338 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -523,7 +604,7 @@ half-trained model. Check first that nothing is running:
 
 ```bash
 cd ~/work/Ekdant-LLM && git pull && cd 09-Code
-python -m pytest -q                          # 333 passed
+python -m pytest -q                          # 338 passed
 ps aux | grep "ekdant" | grep -v grep        # must print nothing
 nvidia-smi                                   # pick 3 GPUs (not GPU 0): 2 with >= 40 GB free, 1 with >= 10 GB
 FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 40"
@@ -2109,7 +2190,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 333 tests
+python -m pytest            # 338 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window

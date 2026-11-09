@@ -29,10 +29,12 @@ import torch
 from ekdant.backbone import apply_hf_token, load_backbone, load_tokenizer
 from ekdant.gen_data import (
     GenDataset,
+    evidence_examples,
     gen_collate,
     holdout,
     load_medquad,
     load_pubmedqa,
+    pubmedqa_test_keys,
     question_key,
     split_by_question,
 )
@@ -80,7 +82,7 @@ RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
             "gate_force", "gate_rollback", "max_rollbacks", "snapshot_every", "floor_slowdown",
-            "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "lora_r",
+            "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "lora_r", "evidence",
             "lora_alpha", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
@@ -327,6 +329,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="T57: L2 switched off for this share of the optimiser "
                          "steps (e.g. 0.3), so SmolLM2 cannot hand its own job "
                          "to L2 and L2 must add on top (0 = off)")
+    ap.add_argument("--evidence", action="store_true",
+                    help="T61: phase 1 trains the yes / no decision from the "
+                         "evidence - balanced yes / no rows (decision + "
+                         "conclusion) and conclusion-only rows flipped by one "
+                         "negation; PubMedQA benchmark questions excluded")
     ap.add_argument("--gate-rollback", action="store_true",
                     help="T43: on a burst go back to the last snapshot and "
                          "re-open the floor more slowly and a little lower")
@@ -445,6 +452,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     pub = load_pubmedqa(args.limit, args.seed)
     pub_train, pub_held = holdout(pub, min(args.pubmed_holdout, len(pub) // 10),
                                   args.seed)
+    ev = None
+    if args.evidence:      # T61: train the decision, from the evidence
+        pub_train, ev = evidence_examples(pub_train, args.seed, pubmedqa_test_keys())
+        log("evidence data (T61): " + " ".join(f"{k}={v}" for k, v in ev.items()))
     ft, val, bench = split_by_question(load_medquad(args.limit, args.seed),
                                        args.seed)
     mk = lambda ex: GenDataset(ex, tok, cfg.max_seq_len, cfg.max_answer)  # noqa: E731
@@ -481,6 +492,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                     "config": cfg.to_dict(), "params_total": count_parameters(model, False),
                     "params_trainable": count_parameters(model),
                     "params_addon": model.addon_params()})
+    if ev is not None:
+        results["evidence_data"] = ev
 
     def write() -> None:
         with open(res_path, "w", encoding="utf-8") as f:
