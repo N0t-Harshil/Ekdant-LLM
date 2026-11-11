@@ -4,6 +4,8 @@
 
 ## 1. Current build status
 
+**Verdict on L2 (2026-11-11, supervisor update section 5):** L2 is not useful for this task and is not kept. Reasoning never shown (pre-registered test never passed); its only fair accuracy gain (+2.07\*, old data) was a "yes" preference and it adds −0.10 with the evidence data; perplexity −0.15 to −1.78 %\* but generated text (ROUGE-L, names the right answer) never differs significantly; +19.6 M parameters. Proposed final model: evidence data without L2 (evbase).
+
 **Pair-loss results (2026-11-11, `run.md` A7n, T63; supervisor summary `08-Thesis/Professor_Update_2026-11-11.md`):** the pair loss hurts SmolLM2 alone (PubMedQA −4.97\*, it stops using the abstract: 8.8 → 0.6 points). With L2 it does not (pair5 − pairbase PubMedQA +4.27\*, uses the abstract +4.43\*, follows the evidence +1.02 n.s.), but switching L2 off leaves pair5's score unchanged, so L2 protected the backbone during training and does not compute the answer. Not kept; no model beats evbase / ev5. **No experiment so far shows L2 reasoning better.**
 
 **Pair loss on the flipped pairs (2026-11-11, T63, `run.md` A3s, done):** both rows of a flipped pair share a batch, and a loss asks the yes / no margin to flip between them (PairCFR-style). Uses the logits already computed: same cost. Arms `pairbase` / `pair5`, three seeds; first finish the four missing A3r MCQ runs. Built, not yet trained. 346 tests.

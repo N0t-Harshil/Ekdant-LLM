@@ -108,14 +108,24 @@ The true share of "yes" in the benchmark is 55.2 %.
 - **Evidence data:** both models now under-say "yes" (about 40 %). They are right on 87–88 % of the true-no questions and 57–58 % of the true-yes ones.
 - **Pair loss:** this pushes SmolLM2 alone further, to 34.6 % "yes".
 
-### 4.6 Writing quality
+### 4.6 Text generation
 
-Explanation perplexity:
-- the evidence data improves it for both models: **−5.33 %\*** without L2, **−6.72 %\*** with L2;
-- L2 itself: −1.46 %\* on the same data;
-- generated MedQuAD answers (ROUGE-L): no consistent L2 difference.
+Two kinds of measure: **perplexity** (how well the model predicts a reference text; lower is better) and **generated text** (the model writes its own explanation; ROUGE-L against the reference, and whether it names the right answer).
 
-The pair loss makes generated explanations worse: ROUGE-L −1.99\* (pairbase) and −3.15\* (pair5) against evbase.
+What L2 adds, same data (with L2 minus without L2):
+
+| Measure | Old data (v5) | Evidence data (ev5) |
+|---|---|---|
+| MedQuAD perplexity | −0.16 %\* | −0.15 %\* |
+| MedMCQA explanation perplexity | −1.78 %\* | −1.46 %\* |
+| PubMedQA conclusion perplexity | −0.45 %\* | +0.84 %\* (worse) |
+| Generated: explanation ROUGE-L | +0.05 | +0.01 |
+| Generated: explanation names the right answer | −0.67 | −0.83 |
+| Generated: conclusion ROUGE-L | −0.35 | −0.02 |
+
+- **L2 lowers perplexity a little** (under 2 %, starred, on every seed), but this **does not show up in the text it writes**: no generated-text measure differs significantly.
+- **The evidence data has the larger effect:** explanation perplexity **−5.33 %\*** (no L2) and **−6.72 %\*** (with L2) against the old baseline. The cost: PubMedQA conclusion perplexity +11.7 / +12.7 %\* worse, because less conclusion text is trained.
+- The pair loss makes generated explanations worse: ROUGE-L −1.99\* (pairbase) and −3.15\* (pair5) against evbase.
 
 ## 5. What we conclude
 
@@ -126,10 +136,20 @@ The pair loss makes generated explanations worse: ROUGE-L −1.99\* (pairbase) a
    - Where it did seem to help (pair loss), the effect is in how the backbone trained, not in what L2 computes. The test we set before the runs was not passed.
 3. **The evaluation method is a result in itself.** Splitting accuracy by the true answer, measuring "uses the abstract", and the flipped-evidence test together turned an apparent +2 point "reasoning" gain into an answer preference. Accuracy alone would have hidden this.
 
+### Verdict on the L2 layer
+
+**L2 is not useful for this task and is not worth keeping.** Across every experiment (v2–v5, T59–T63):
+- **Reasoning:** never shown. The pre-registered test (starred gains on test 2 and test 3) was never passed.
+- **Accuracy:** its only fair gain (+2.07\* on PubMedQA, old data) was a "yes" preference. With the right data it adds −0.10 points. MedMCQA and MedQA never moved.
+- **Text generation:** perplexity drops by under 2 %, but the text the model writes is no better.
+- **Cost:** 19.6 M extra parameters (+14 % on a 135 M model), and the model learns to lean on L2 (ev5 loses 5.5–9.5 points with L2 off) without getting better than the model trained without it.
+
+What the project did produce comes from the work *around* L2: the data finding (+3.3\* PubMedQA without any add-on) and the three reasoning tests, which exposed L2's gain as a preference.
+
 ## 6. Questions for the meeting
 
 - **Thesis framing:** should the thesis report L2 as a careful negative result? That would mean an add-on that changes accuracy without reasoning better, shown with the three tests, plus the data finding as the positive contribution.
 - **Next experiment, or stop:** is there one more L2 experiment worth running? One example is evaluating on an unseen flipped-evidence format, now that test 3 is trained-like. Or should the experiments stop here and the writing start?
-- **Final model:** for the final model, take the evidence-data recipe, with or without L2? They score the same; ev5 has 19.6 M more parameters.
+- **Final model:** proposed: the evidence-data recipe **without L2** (evbase). It scores the same as ev5 with 19.6 M fewer parameters.
 
 *Sources: `run.md` A7k (v5), A7l (reasoning tests, warm-up, LoRA), A7m (evidence data), A7n (pair loss); reports `gain_*.md` and `reason_*.md` in `09-Code`; design notes in `07-Management/30_Design_v2_Pretrained_Backbone.md`; open issues T59–T63 in `07-Management/10_Known_Issues.md`.*
