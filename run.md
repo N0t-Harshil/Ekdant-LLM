@@ -100,7 +100,7 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3s. Pair loss on the flipped pairs (T63) — **run this next**
+## A3s. Pair loss on the flipped pairs (T63) — done, results in A7n
 
 **Step 0 — finish A3r.** The MCQ benchmark is missing for four A3r runs
 (`mcq_evbase_s23/_s31`, `mcq_ev5_s31` were empty, `mcq_ev5_s23.log` was not
@@ -1394,12 +1394,76 @@ How to read it:
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
 
+## A7n. Pair loss on the flipped pairs, three seeds (2026-11-11)
+
+Sources: `progress_a3s.log` (every step exit 0, no Traceback),
+`reason_pair.md` (pair5 against pairbase), `reason_pair_vs_ev.md` and
+`gain_pair_vs_ev.md` (against evbase), `gain_pair.md`, `gain_ev.md`,
+`gain_ev_vs_old.md` (now complete), the six `pair*` training logs and
+`mcq_pair*` logs. Charts: `08-Thesis/figures/update_1..5_*.png`; summary
+for the supervisor: `08-Thesis/Professor_Update_2026-11-11.md`.
+
+**1. The pair loss trained as intended:** `pair=` falls from 0.25-0.30 at
+step 50 to 0.10-0.14 at the end of stage 1 in every run (log 2 = 0.69
+would mean the same answer on both versions).
+
+**2. It hurts SmolLM2 alone** (pairbase − evbase): PubMedQA **−4.97\***
+(61.3 → 56.3 %), uses the abstract **−8.17\*** (8.8 → 0.6 points: the
+model answers almost the same with and without the abstract), follows the
+flipped evidence +2.85 (CI touches 0), explanation ROUGE-L −1.99\*.
+
+**3. With L2 it does not** (pair5 − pairbase, `reason_pair.md`):
+
+| Measure | pairbase | pair5 | Difference [95 % CI] | Per seed |
+|---|---|---|---|---|
+| PubMedQA % right | 56.3 | 60.6 | **+4.27 [+3.10, +5.57]\*** | +4.6\* / +6.0\* / +2.2\* |
+| right, true yes / true no | 48.2 / 87.9 | 59.7 / 81.8 | +11.47\* / −6.11\* | |
+| % answers yes | 34.6 | 44.1 | +9.43\* | |
+| without the abstract | 55.7 | 55.5 | −0.17 [−0.57, +0.17] | |
+| test 2: uses the abstract | 0.6 | 5.1 | **+4.43 [+3.13, +5.80]\*** | +4.8\* / +5.8\* / +2.7\* |
+| test 3: follows the evidence | 81.5 | 82.5 | +1.02 [−0.81, +2.85] | −1.2 / +3.7\* / +0.6 |
+
+The first starred test-2 gain of L2 on all three seeds. The pre-registered
+rule (starred gains on test 2 **and** test 3) is still **not met**.
+
+**4. But L2 does not make the difference at test time.** Switching L2 off
+(`mcq_pair5_*`): PubMedQA 60.1 → 59.0, 58.3 → 57.9, 63.3 → 63.6; MedQuAD
+per-token NLL +0.0014-0.0017 (ev5: PubMedQA −7.3 / −9.5 / −5.5 points,
+NLL +0.045-0.064). The gate ended smaller (|g| 0.015 for pair5_s17
+against 0.027 for ev5_s17). So pair5 without L2 is still about 4 points
+better than pairbase: the gain is in SmolLM2's own weights, trained next
+to L2. L2 changed how the backbone trained (it kept it from collapsing
+under the pair loss), it does not compute the answer. This cannot be
+called L2 reasoning.
+
+**5. Against the evidence-data models:** pair5 − evbase PubMedQA −0.70
+(n.s.), uses the abstract −3.73\*, follows the evidence +3.86\* (trained-
+like), explanation ROUGE-L −3.15\*, names the right answer −3.50\*. The pair
+loss gives no model better than evbase / ev5.
+
+**6. Writing answers:** MedQuAD ppl pair5 − pairbase −0.08 %\*, ROUGE-L
+from the logs 0.3055 / 0.2942 / 0.2817 against 0.3039 / 0.2943 / 0.2869:
+no consistent change.
+
+**7. A3r gain reports, now complete** (`gain_ev.md`): ev5 − evbase MedMCQA
+−0.02, MedQA +0.03, PubMedQA −0.10, average −0.03 (none starred);
+MedQuAD ppl −0.15 %\*, explanation ppl −1.46 %\*. Against the old baseline
+(`gain_ev_vs_old.md`): evbase average +1.25\*, ev5 +1.22\* (v5 +0.72\*);
+MedQuAD ppl −0.89 %\* / −1.04 %\*; explanation ppl −5.33 %\* / −6.72 %\*;
+PubMedQA conclusion ppl +11.7 %\* / +12.7 %\* worse (less conclusion text
+is trained).
+
+**Decision:** the pair loss is not kept. The evidence data (T61) is the
+best recipe: evbase / ev5 PubMedQA 61.3 / 61.2 %, average +1.25\* /
++1.22\* over the old baseline. No experiment so far shows that L2 reasons
+better.
+
 ## A7m. Train the decision from the evidence, three seeds (2026-11-11)
 
 Sources: `reason_ev.md` (ev5 against evbase), `reason_ev_vs_old.md` (every
 arm against the old baseline), the six training logs, `mcq_ev5_s17.log`,
-`mcq_evbase_s17.log`. `gain_ev.md` / `gain_ev_vs_old.md` failed: the MCQ
-step is missing for four runs (A3s step 0).
+`mcq_evbase_s17.log`. `gain_ev.md` / `gain_ev_vs_old.md` failed at first (MCQ missing
+for four runs); A3s step 0 completed them, numbers in A7n point 7.
 
 **1. The data change works, for both arms.** Against the old baseline
 (no `--evidence`):

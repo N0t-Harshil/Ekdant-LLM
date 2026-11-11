@@ -4,7 +4,9 @@
 
 ## 1. Current build status
 
-**Next: pair loss on the flipped pairs (2026-11-11, T63, `run.md` A3s):** both rows of a flipped pair share a batch, and a loss asks the yes / no margin to flip between them (PairCFR-style). Uses the logits already computed: same cost. Arms `pairbase` / `pair5`, three seeds; first finish the four missing A3r MCQ runs. Built, not yet trained. 346 tests.
+**Pair-loss results (2026-11-11, `run.md` A7n, T63; supervisor summary `08-Thesis/Professor_Update_2026-11-11.md`):** the pair loss hurts SmolLM2 alone (PubMedQA −4.97\*, it stops using the abstract: 8.8 → 0.6 points). With L2 it does not (pair5 − pairbase PubMedQA +4.27\*, uses the abstract +4.43\*, follows the evidence +1.02 n.s.), but switching L2 off leaves pair5's score unchanged, so L2 protected the backbone during training and does not compute the answer. Not kept; no model beats evbase / ev5. **No experiment so far shows L2 reasoning better.**
+
+**Pair loss on the flipped pairs (2026-11-11, T63, `run.md` A3s, done):** both rows of a flipped pair share a batch, and a loss asks the yes / no margin to flip between them (PairCFR-style). Uses the logits already computed: same cost. Arms `pairbase` / `pair5`, three seeds; first finish the four missing A3r MCQ runs. Built, not yet trained. 346 tests.
 
 **Evidence training results (2026-11-11, `run.md` A7m, T61):** the data works for both arms: PubMedQA evbase +3.30\*, ev5 +3.20\* over the old baseline (v5 on the old data: +2.07\*), flipped-evidence test 27 % → 79-80 % right on both versions (trained-like now), 'uses the abstract' up but not starred. **L2 adds nothing on top:** ev5 − evbase PubMedQA −0.10, uses the abstract −1.07\*, follows the evidence +1.22 (CI includes 0). Rule not met.
 
