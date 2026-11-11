@@ -34,6 +34,7 @@ class GenExample:
     context: str = ""
     qtype: str = ""
     label: str = ""        # PubMedQA final_decision (yes / no), T61
+    pair: int = -1         # T63: id shared by the two rows of a flipped pair
 
 
 def format_gen_prompt(ex: GenExample) -> str:
@@ -115,14 +116,35 @@ def evidence_examples(train: List[GenExample], seed: int = 17,
         f = flip_conclusion(e.answer)
         if f is None:
             continue
-        n_pairs += 1
         rows.append(GenExample(e.question, e.label, " ".join(e.answer.split()),
-                               label=e.label))
-        rows.append(GenExample(e.question, other[e.label], f, label=other[e.label]))
+                               label=e.label, pair=n_pairs))
+        rows.append(GenExample(e.question, other[e.label], f, label=other[e.label],
+                               pair=n_pairs))
+        n_pairs += 1
     rng.shuffle(rows)
     return rows, {"balanced": 2 * n, "flip_pairs": n_pairs, "rows": len(rows),
                   "excluded": len(train) - len([e for e in train
                                                 if question_key(e.question) not in ex_keys])}
+
+
+def pair_order(ds: "GenDataset", generator: torch.Generator) -> List[int]:
+    """T63: a shuffled row order of ``ds`` in which the two rows of every
+    flipped pair (same ``GenExample.pair``) sit side by side at an even
+    position, so with an even batch size both always land in the same batch.
+    Every other row (and a pair that lost one row to ``max_len``) is shuffled
+    in two by two; an odd one left over goes last."""
+    members: Dict[int, List[int]] = {}
+    single: List[int] = []
+    for r in range(len(ds)):
+        p = ds.example(r).pair
+        (members.setdefault(p, []) if p >= 0 else single).append(r)
+    units = [m for m in members.values() if len(m) == 2]
+    single = sorted(single + [r for m in members.values() if len(m) != 2 for r in m])
+    single = [single[i] for i in torch.randperm(len(single), generator=generator).tolist()]
+    tail = [single.pop()] if len(single) % 2 else []
+    units += [single[i:i + 2] for i in range(0, len(single), 2)]
+    units = [units[i] for i in torch.randperm(len(units), generator=generator).tolist()]
+    return [r for u in units for r in u] + tail
 
 
 def load_medquad(limit: Optional[int] = None, seed: int = 17) -> List[GenExample]:

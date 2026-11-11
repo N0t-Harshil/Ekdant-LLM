@@ -23,7 +23,7 @@ Does a parallel debate sandbox (L2) help a language model reason? **v2 (current)
 | [06-Training-Eval](06-Training-Eval/07_Training_Pipeline.md) | Training pipeline, validation + held-out protocol, debugging, performance | Ch. 5/6 |
 | [07-Management](07-Management/10_Known_Issues.md) | Issue log (T1–T27), defense-ordered future work, [v2 design spec](07-Management/30_Design_v2_Pretrained_Backbone.md) (pretrained backbone + generative QA) and its [implementation plan](07-Management/31_Plan_v2_Implementation.md) | Ch. 7 |
 | [08-Thesis](08-Thesis/thesis.md) | thesis.md + thesis.tex/pdf + [glossary](08-Thesis/GLOSSARY.md) | Draft |
-| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 338 tests, A/B configs | Build |
+| [09-Code](09-Code/README.md) | **T + L2 training code** — pure PyTorch, 346 tests, A/B configs | Build |
 | [papers/](papers/00_Papers_Index.md) | 66 PDFs (all thesis-cited) + indexes | Sources |
 
 ## Day-1 (new collaborator)
@@ -34,7 +34,7 @@ Does a parallel debate sandbox (L2) help a language model reason? **v2 (current)
 cd 09-Code
 pip install -e .[dev]     # note: trailing dot is required (pins: 09-Code/requirements.txt)
 python -c "import ekdant; print('ok')"
-pytest -q                    # 338 tests, CPU, ~10s
+pytest -q                    # 346 tests, CPU, ~10s
 python -m ekdant.train --variant sandbox --out /tmp/sbx --limit 400 --epochs 1 --batch-size 4   # smoke ~2 min
 ```
 

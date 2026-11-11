@@ -22,7 +22,7 @@ import math
 import os
 import random
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -34,6 +34,7 @@ from ekdant.gen_data import (
     holdout,
     load_medquad,
     load_pubmedqa,
+    pair_order,
     pubmedqa_test_keys,
     question_key,
     split_by_question,
@@ -82,7 +83,7 @@ RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "gate_boost", "gate_boost_steps", "brake_spike", "brake_l2_max",
             "gate_floor", "gate_floor_start", "gate_floor_steps",
             "gate_force", "gate_rollback", "max_rollbacks", "snapshot_every", "floor_slowdown",
-            "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "lora_r", "evidence",
+            "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "lora_r", "evidence", "pair_loss",
             "lora_alpha", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
             "seed")
@@ -334,6 +335,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "evidence - balanced yes / no rows (decision + "
                          "conclusion) and conclusion-only rows flipped by one "
                          "negation; PubMedQA benchmark questions excluded")
+    ap.add_argument("--pair-loss", type=float, default=0.0,
+                    help="T63: weight of the pair loss on the flipped pairs "
+                         "(needs --evidence and an even --batch-size): both "
+                         "rows of a pair share a batch and the yes / no "
+                         "margin must flip between them (0 = off)")
     ap.add_argument("--gate-rollback", action="store_true",
                     help="T43: on a burst go back to the last snapshot and "
                          "re-open the floor more slowly and a little lower")
@@ -359,6 +365,32 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def pair_margin_loss(logits: torch.Tensor, labels: torch.Tensor,
+                     pairs: List[int], answers: List[str],
+                     yes_id: int, no_id: int) -> Tuple[torch.Tensor, int]:
+    """T63 (PairCFR-style, Qiu et al. ACL 2024): for every flipped pair whose
+    two rows are both in the batch, the decision margin m = logit(yes) -
+    logit(no) at the first answer token must be larger on the row whose
+    answer is yes than on its flipped twin: softplus(m_no_row - m_yes_row).
+    Plain cross-entropy trains each row alone; this term only pays when the
+    model gives both versions of the evidence the same answer.  Uses the
+    logits the forward already made - no extra pass.  Returns (mean loss,
+    pairs used); 0 when the batch holds no complete pair."""
+    first = (labels != -100).float().argmax(1)          # first answer token
+    rows: Dict[int, Dict[str, int]] = {}
+    for r, (p, a) in enumerate(zip(pairs, answers)):
+        if p >= 0 and a in ("yes", "no") and int(first[r]) > 0:
+            rows.setdefault(p, {})[a] = r
+    done = [(v["yes"], v["no"]) for v in rows.values() if len(v) == 2]
+    if not done:
+        return logits.new_zeros(()).float(), 0
+    y = torch.tensor([a for a, _ in done], device=logits.device)
+    n = torch.tensor([b for _, b in done], device=logits.device)
+    lg = logits[torch.arange(len(pairs), device=logits.device), first.long() - 1].float()
+    m = lg[:, yes_id] - lg[:, no_id]
+    return torch.nn.functional.softplus(m[n] - m[y]).mean(), len(done)
+
+
 def _batches(ds: GenDataset, bs: int, order: Optional[List[int]] = None):
     order = list(range(len(ds))) if order is None else order
     return [order[i:i + bs] for i in range(0, len(order), bs)]
@@ -381,6 +413,15 @@ def main(argv: Optional[List[str]] = None) -> None:
         raise SystemExit(1)
     if resume and not os.path.exists(last_path):
         log(f"error: {last_path} not found - nothing to resume/evaluate")
+        raise SystemExit(1)
+    if args.pair_loss < 0:
+        log("error: --pair-loss must be >= 0")
+        raise SystemExit(1)
+    if args.pair_loss and not args.evidence:
+        log("error: --pair-loss needs --evidence (the flipped pairs)")
+        raise SystemExit(1)
+    if args.pair_loss and args.batch_size % 2:
+        log("error: --pair-loss needs an even --batch-size (pairs share a batch)")
         raise SystemExit(1)
 
     device = pick_device(args.gpu, args.min_free_gb)
@@ -443,6 +484,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     autocast = (lambda: torch.autocast("cuda", dtype=torch.bfloat16)) \
         if use_bf16 else (lambda: torch.autocast(device.type, enabled=False))
     pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    yes_no = None
+    if args.pair_loss:          # T63: the answer tokens the margin compares
+        ids_ = [tok(" " + w, add_special_tokens=False)["input_ids"] for w in ("yes", "no")]
+        if any(len(i) != 1 for i in ids_):
+            log(f"error: --pair-loss needs ' yes' and ' no' to be one token each, got {ids_}")
+            raise SystemExit(1)
+        yes_no = (ids_[0][0], ids_[1][0])
     log(f"variant={args.variant} addon={cfg.addon} backbone={cfg.backbone} "
         f"params total={count_parameters(model, False)/1e6:.2f}M "
         f"trainable={count_parameters(model)/1e6:.2f}M lora_r={cfg.lora_r} "
@@ -581,14 +629,17 @@ def main(argv: Optional[List[str]] = None) -> None:
             f"{total_opt} opt steps ===")
         for epoch in range(st_epoch, epochs):
             g = torch.Generator().manual_seed(args.seed * 1000 + si * 100 + epoch)
+            paired = si == 0 and yes_no is not None        # T63
             batches = _batches(ds, args.batch_size,
-                               torch.randperm(len(ds), generator=g).tolist())
+                               pair_order(ds, g) if paired
+                               else torch.randperm(len(ds), generator=g).tolist())
             skip = st_done if (si, epoch) == (st_stage, st_epoch) else 0
             if si > 0 and epoch == 0 and skip == 0:
                 brake.rewarm()
             model.train()
             opt.zero_grad(set_to_none=True)
             t0, loss_ema, group_bad, l2_rms = time.time(), None, False, None
+            pair_ema, pair_n = None, 0
             l2_conf = None
             for bi in range(skip, nb):
                 # T44 warm-up: SmolLM2 frozen, only L2 learns
@@ -610,6 +661,16 @@ def main(argv: Optional[List[str]] = None) -> None:
                     out = model(ids, attention_mask=mask,
                                 labels=b["labels"].to(device))
                 loss = out.loss
+                if paired:
+                    ex_ = [ds.examples[int(i)] for i in b["idx"]]
+                    lp, n_ = pair_margin_loss(out.logits, b["labels"].to(device),
+                                              [e.pair for e in ex_],
+                                              [e.answer for e in ex_], *yes_no)
+                    if n_:
+                        pair_n += n_
+                        pv = lp.item()
+                        pair_ema = pv if pair_ema is None else 0.98 * pair_ema + 0.02 * pv
+                        loss = loss + args.pair_loss * lp
                 if "consensus_rms" in out.aux:
                     l2_rms = float(out.aux["consensus_rms"])
                 if "learned_confidence" in out.aux:      # L2 v3 (T51)
@@ -617,10 +678,10 @@ def main(argv: Optional[List[str]] = None) -> None:
                                float(out.aux["vote_support"]),
                                float(out.aux["token_gate"]))
                 tokens_seen += int(mask.sum())
-                lv = loss.item()
+                lv = out.loss.item()      # logged: the LM loss alone (T63)
                 # T32 guard: a non-finite loss or gradient never reaches the
                 # weights; the whole accumulation group is dropped.
-                if math.isfinite(lv):
+                if math.isfinite(lv) and math.isfinite(loss.item()):
                     (loss / args.grad_accum).backward()
                     loss_ema = lv if loss_ema is None else 0.98 * loss_ema + 0.02 * lv
                 else:
@@ -705,7 +766,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                             + (f"l2={l2_rms:.3g} brake={brake.factor:.2f} "
                                if l2_rms is not None else "")
                             + ("conf={:.3f} vote={:.3f} tgate={:.3f} ".format(*l2_conf)
-                               if l2_conf is not None else "") +
+                               if l2_conf is not None else "")
+                            + (f"pair={pair_ema:.4f} " if pair_ema is not None else "") +
                             f"eta={fmt_duration((nb - bi - 1) / max(rate, 1e-9))}")
                 if si == 0 and bi + 1 in eval_at:
                     r = score("pubmedqa_held")
@@ -724,6 +786,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                      if model.addon else 0.0,
                      "gate_per_site": model.addon.site_gate_magnitudes()
                      if model.addon else []}
+            if paired:
+                entry.update(pair_loss=pair_ema, pairs_used=pair_n)
             history.append(entry)
             log(f"[{stage}] ep{epoch} done loss={loss_ema or float('nan'):.4f} val {val_name} "
                 f"ppl={r['ppl']:.3f} time={fmt_duration(time.time()-t0)}")

@@ -100,7 +100,97 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
-## A3r. Train the decision from the evidence (T61) — **run this next**
+## A3s. Pair loss on the flipped pairs (T63) — **run this next**
+
+**Step 0 — finish A3r.** The MCQ benchmark is missing for four A3r runs
+(`mcq_evbase_s23/_s31`, `mcq_ev5_s31` were empty, `mcq_ev5_s23.log` was not
+there), so `gain_ev.md` failed (`runs/evbase_s23/mcq.json` not found).
+`reason_ev.md` is complete. First check nothing is still running
+(`ps aux | grep ekdant | grep -v grep`), then:
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+for r in evbase_s17 evbase_s23 evbase_s31 ev5_s17 ev5_s23 ev5_s31; do [ -f runs/$r/mcq.json ] || echo "missing $r"; done
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+[ -f runs/evbase_s23/mcq.json ] || python -m ekdant.gen_eval mcq runs/evbase_s23 > mcq_evbase_s23.log 2>&1;
+[ -f runs/evbase_s31/mcq.json ] || python -m ekdant.gen_eval mcq runs/evbase_s31 > mcq_evbase_s31.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+[ -f runs/ev5_s23/mcq.json ] || python -m ekdant.gen_eval mcq runs/ev5_s23 > mcq_ev5_s23.log 2>&1;
+[ -f runs/ev5_s31/mcq.json ] || python -m ekdant.gen_eval mcq runs/ev5_s31 > mcq_ev5_s31.log 2>&1" > /dev/null 2>&1 &
+```
+
+When both are done, run the two `gain` lines of A3r again (`gain_ev.md`,
+`gain_ev_vs_old.md`). `evbase_s17.log` was overwritten by a second launch
+("last.pt exists"); its run is fine, the training numbers are in
+`runs/evbase_s17/results.json`.
+
+**Why the pair loss (A7m):** with `--evidence` both arms follow flipped
+evidence on 79-80 % of the test-3 questions, but L2 adds nothing (ev5 -
+evbase: test 3 +1.22, CI includes 0; test 2 -1.07\*). Plain cross-entropy
+trains each row of a pair alone. PairCFR (Qiu et al., ACL 2024) shows that
+counterfactual pairs help more when a loss looks at both rows together.
+
+**What `--pair-loss W` changes (stage 1 only, needs `--evidence`):** the
+two rows of every flipped pair go into the same batch (`pair_order`), and
+the loss adds `W * softplus(m_no_row - m_yes_row)`, where `m = logit(yes) -
+logit(no)` at the first answer token. It is near 0 when the answer flips
+with the evidence and log 2 = 0.69 when both versions get the same answer.
+It uses the logits the forward already computed: **no extra forward pass,
+same cost**. W = 1.0 (same scale as the token loss). Both arms get it.
+
+**The comparison:** `pair5` against `pairbase` (does L2 help, same data
+and loss) and `pairbase` against `evbase` (does the pair loss help).
+Test 3 is trained-like for these runs (the same kind of flip, other
+questions); **test 2 ("uses the abstract") is the unseen check**.
+
+```bash
+cd ~/work/Ekdant-LLM/09-Code
+python -m pytest -q > pytest.log 2>&1; echo "pytest exit $?"; tail -1 pytest.log    # exit 0, 346 passed
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30 --evidence --pair-loss 1.0"
+V5="--variant sandbox --config configs/v5_final.json"
+BASE="--variant baseline --config configs/v2_baseline.json"
+
+CUDA_VISIBLE_DEVICES=0 nohup bash -c "
+python -m ekdant.train $FLAGS $BASE --out runs/pairbase_s17 > pairbase_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/pairbase_s17 > mcq_pairbase_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $V5 --out runs/pair5_s31 > pair5_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/pair5_s31 > mcq_pair5_s31.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=1 nohup bash -c "
+python -m ekdant.train $FLAGS $V5 --out runs/pair5_s17 > pair5_s17.log 2>&1;
+python -m ekdant.gen_eval mcq runs/pair5_s17 > mcq_pair5_s17.log 2>&1;
+python -m ekdant.train $FLAGS --seed 31 $BASE --out runs/pairbase_s31 > pairbase_s31.log 2>&1;
+python -m ekdant.gen_eval mcq runs/pairbase_s31 > mcq_pairbase_s31.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 $BASE --out runs/pairbase_s23 > pairbase_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/pairbase_s23 > mcq_pairbase_s23.log 2>&1" > /dev/null 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup bash -c "
+python -m ekdant.train $FLAGS --seed 23 $V5 --out runs/pair5_s23 > pair5_s23.log 2>&1;
+python -m ekdant.gen_eval mcq runs/pair5_s23 > mcq_pair5_s23.log 2>&1" > /dev/null 2>&1 &
+```
+
+Run each command **once** (a second launch stops with "last.pt exists" and
+overwrites the log). Check after a few minutes: each log shows `evidence
+data (T61): ...` and the step lines show `pair=...` (falling below 0.69).
+`grep -l Traceback pair*.log mcq_pair*.log` must print nothing.
+
+**When `ps aux | grep ekdant | grep -v grep` prints nothing:**
+
+```bash
+EB="runs/evbase_s17 runs/evbase_s23 runs/evbase_s31"
+E5="runs/ev5_s17 runs/ev5_s23 runs/ev5_s31"
+PB="runs/pairbase_s17 runs/pairbase_s23 runs/pairbase_s31"
+P5="runs/pair5_s17 runs/pair5_s23 runs/pair5_s31"
+CUDA_VISIBLE_DEVICES=1 nohup bash -c "
+python -m ekdant.gen_eval reason --baseline $PB --model pair5 $P5 --markdown reason_pair.md > reason_pair.log 2>&1;
+python -m ekdant.gen_eval reason --baseline $EB --model ev5 $E5 --model pairbase $PB --model pair5 $P5 --markdown reason_pair_vs_ev.md > reason_pair_vs_ev.log 2>&1;
+python -m ekdant.gen_eval gain --baseline $PB --model pair5 $P5 --markdown gain_pair.md > gain_pair.log 2>&1;
+python -m ekdant.gen_eval gain --baseline $EB --model ev5 $E5 --model pairbase $PB --model pair5 $P5 --markdown gain_pair_vs_ev.md > gain_pair_vs_ev.log 2>&1" > /dev/null 2>&1 &
+```
+
+Bring back the four `.md` files and every `pair*.log` / `mcq_pair*.log`.
+`reason_pair.md` answers the L2 question (pair5 against pairbase).
+
+## A3r. Train the decision from the evidence (T61) — done, results in A7m
 
 **Why (step 1, checked on the data, 2026-11-09):** the PubMedQA training set
 `pqa_artificial` has 211,269 rows: **196,144 yes (92.8 %), 15,125 no, no
@@ -593,7 +683,7 @@ ever trained with one pass. Two changes:
 | `sandbox_train_passes: 2` (`configs/v3c_sandbox_end.json` = v3b + this) | each training step runs L2's debate **1 or 2 times** (drawn at random), so the second pass learns to **improve** the first instead of breaking it; the model then answers thinking twice. The thinking test tries 0, 1 and 3 passes. |
 | the confidence test (every model, no retraining) | does L2's confidence know more than the model's **own probability**? Per next word (MedQuAD) and per question (PubMedQA, MedMCQA, MedQA): AUROC of each, and % right on the half of the questions each is surest about vs the other half. A big gap = the model can answer when sure and say "not sure" otherwise. New leaderboard table "Does the model know when it is right?" |
 
-Step 0 = the backbone exactly on SmolLM2 (checked); 338 tests. A training step
+Step 0 = the backbone exactly on SmolLM2 (checked); 346 tests. A training step
 runs up to twice L2's debate, so a v3c run takes longer than v3b (1.8 h) and
 uses more GPU memory.
 
@@ -1303,6 +1393,47 @@ How to read it:
 
 `addon` inside an evaluation holds the sandbox diagnostics (`anchor_energy`,
 `trajectory_variance`, `spread_ratio`, over answer tokens) for the sandbox arm.
+
+## A7m. Train the decision from the evidence, three seeds (2026-11-11)
+
+Sources: `reason_ev.md` (ev5 against evbase), `reason_ev_vs_old.md` (every
+arm against the old baseline), the six training logs, `mcq_ev5_s17.log`,
+`mcq_evbase_s17.log`. `gain_ev.md` / `gain_ev_vs_old.md` failed: the MCQ
+step is missing for four runs (A3s step 0).
+
+**1. The data change works, for both arms.** Against the old baseline
+(no `--evidence`):
+
+| Measure | old baseline | v5 (old data) | evbase | ev5 |
+|---|---|---|---|---|
+| PubMedQA % right | 58.0 | 60.0 (+2.07\*) | 61.3 (+3.30\*) | 61.2 (+3.20\*) |
+| % answers yes | 49.7 | 60.8 | 40.8 | 39.7 |
+| test 2: uses the abstract | 5.9 | 6.0 (+0.17) | 8.8 (+2.93, CI −0.13…+5.83) | 7.7 (+1.87) |
+| test 3: follows the evidence | 27.4 | 30.7 (+3.25) | 78.7 (+51.22\*) | 79.9 (+52.44\*) |
+| test 3: same answer both times | 69.3 | 65.7 | 13.8 (−55.49\*) | 12.2 (−57.11\*) |
+
+Without L2, the new data beats v5 on PubMedQA. Test 3 is no longer unseen
+for these runs (the same flip was trained on other questions), so its jump
+shows the training worked, not general reasoning. Test 2 is the unseen
+check: up but not starred. The preference turned around: both arms now
+say "no" 59-60 % of the time (true-no 87-88 % right, true-yes 57-58 %).
+
+**2. L2 adds nothing on top (ev5 − evbase, same data, `reason_ev.md`):**
+PubMedQA −0.10 [−0.70, +0.47]; test 2 "uses the abstract" **−1.07\***
+[−1.93, −0.27] (L2 uses the abstract *less*); test 3 "follows the
+evidence" +1.22 [−0.20, +2.85] (one seed starred); without the abstract
++0.97\*. **Pre-registered rule (starred gain on tests 2 and 3): not met.**
+
+**3. Writing answers (training logs):** MedQuAD benchmark ppl ev5 / evbase
+seed 23: 3.757 / 3.762, seed 31: 3.795 / 3.801 (seed 17 evbase log was
+overwritten; ev5 3.744); ROUGE-L 0.2962 / 0.2898 and 0.2864 / 0.2893 —
+no consistent difference. L2 off: MedQuAD ppl rises 4.5-6.6 % (3.744 →
+3.990, 3.757 → 3.934, 3.795 → 3.967), so ev5 does depend on L2. Stage 1
+is a fifth of the old text: the whole ev5_s17 run took 0.9 h. MCQ seed 17 only: MedMCQA 27.5 / 27.3,
+MedQA 26.5 / 27.1, PubMedQA 61.9 / 61.6 (ev5 / evbase); ev5 with L2 off
+PubMedQA 54.6.
+
+**Next:** the pair loss (T63, A3s), same cost.
 
 ## A7l. Reasoning tests, L2 warm-up and LoRA, three seeds (2026-11-09)
 
@@ -2190,7 +2321,7 @@ changing them shifts which epochs count as finished.
 ### 5.1 Unit suite (CPU, ~10 s)
 
 ```bash
-python -m pytest            # 338 tests
+python -m pytest            # 346 tests
 ```
 
 Covers: parameter accounting and config consistency; layer T (causal + window
