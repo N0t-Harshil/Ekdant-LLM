@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="250" viewBox="0 0 940 250" role="img" aria-label="One debate round for trajectory k: normalise, read the other trajectories by attention, propose a new state with an MLP, and a repair gate gamma decides how much of the proposal replaces the old state."><style>
+text{font-family:Segoe UI,Inter,Arial,sans-serif;font-size:12.5px;fill:#17191c}
+text.t{font-weight:600;font-size:13px} text.s{font-size:11.5px;fill:#575b62}
+text.m{font-family:Consolas,monospace;font-size:11.5px}
+.box{fill:#ffffff;stroke:#17191c;stroke-width:1.2} .l2box{fill:#e6f0fb;stroke:#2a78d6;stroke-width:1.6}
+.acc{stroke:#2a78d6} .accf{fill:#2a78d6} .lane{stroke:#2a78d6;stroke-width:2;fill:none}
+</style><rect width="940" height="250" fill="#ffffff"/>
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#17191c"/></marker>
+          </defs>
+          <text class="m" x="30" y="130" text-anchor="middle">Tₖ</text>
+          <line x1="48" y1="125" x2="90" y2="125" stroke="#17191c" stroke-width="1.4" marker-end="url(#a3)"/>
+          <rect class="box" x="90" y="100" width="100" height="50" rx="6"/>
+          <text class="t" x="140" y="129" text-anchor="middle">RMSNorm</text>
+          <line x1="190" y1="125" x2="240" y2="125" stroke="#17191c" stroke-width="1.4" marker-end="url(#a3)"/>
+          <text class="m" x="215" y="115" text-anchor="middle">xₖ</text>
+          <rect class="l2box" x="240" y="95" width="160" height="60" rx="6"/>
+          <text class="t" x="320" y="120" text-anchor="middle">Cross-read</text>
+          <text class="s" x="320" y="138" text-anchor="middle">attention over x_j, j ≠ k</text>
+          <line x1="320" y1="215" x2="320" y2="158" stroke="#17191c" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a3)"/>
+          <text class="s" x="320" y="232" text-anchor="middle">the other 3 trajectories (normalised)</text>
+          <line x1="400" y1="125" x2="460" y2="125" stroke="#17191c" stroke-width="1.4" marker-end="url(#a3)"/>
+          <text class="m" x="430" y="115" text-anchor="middle">crossₖ</text>
+          <rect class="box" x="460" y="95" width="150" height="60" rx="6"/>
+          <text class="t" x="535" y="120" text-anchor="middle">MLP</text>
+          <text class="s" x="535" y="138" text-anchor="middle">576 → 2,304 → 576, SiLU</text>
+          <line x1="610" y1="125" x2="700" y2="125" stroke="#17191c" stroke-width="1.4" marker-end="url(#a3)"/>
+          <text class="s" x="655" y="115" text-anchor="middle">proposal</text>
+          <!-- gate -->
+          <rect class="box" x="460" y="180" width="150" height="50" rx="6"/>
+          <text class="t" x="535" y="202" text-anchor="middle">Repair gate γ</text>
+          <text class="s" x="535" y="219" text-anchor="middle">σ(W[xₖ ; crossₖ])</text>
+          <polyline points="215,125 215,205 460,205" fill="none" stroke="#17191c" stroke-width="1.1" marker-end="url(#a3)"/>
+          <polyline points="430,125 430,190 460,190" fill="none" stroke="#17191c" stroke-width="1.1" marker-end="url(#a3)"/>
+          <polyline points="610,205 720,205 720,145" fill="none" stroke="#17191c" stroke-width="1.2" marker-end="url(#a3)"/>
+          <text class="m" x="735" y="190">γ</text>
+          <!-- skip -->
+          <polyline points="60,125 60,40 720,40 720,105" fill="none" stroke="#17191c" stroke-width="1.2" marker-end="url(#a3)"/>
+          <text class="s" x="390" y="32" text-anchor="middle">old state Tₖ</text>
+          <circle cx="720" cy="125" r="20" class="box"/>
+          <text class="t" x="720" y="130" text-anchor="middle">mix</text>
+          <line x1="740" y1="125" x2="800" y2="125" stroke="#17191c" stroke-width="1.4" marker-end="url(#a3)"/>
+          <text class="m" x="868" y="121" text-anchor="middle">new Tₖ</text>
+          <text class="s" x="868" y="139" text-anchor="middle">(1−γ)⊙Tₖ + γ⊙proposal</text>
+        </svg>
