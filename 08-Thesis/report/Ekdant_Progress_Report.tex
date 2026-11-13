@@ -48,7 +48,7 @@
 \pagestyle{scrheadings}
 \clearpairofpagestyles
 \ihead{\small\color{muted}Ekdant -- progress report}
-\ohead{\small\color{muted}11 November 2026}
+\ohead{\small\color{muted}13 November 2026}
 \cfoot{\small\pagemark}
 
 \tikzset{
@@ -84,7 +84,7 @@
   \vspace{0.8cm}
   {\large\sffamily Harshil Gorasiya\par}
   \vspace{0.2cm}
-  {\sffamily\color{muted} Status: 11 November 2026\par}
+  {\sffamily\color{muted} Status: 13 November 2026 -- revised after the supervisor's comments\par}
   \vfill
   \begin{keybox}[title={In one paragraph}]
   L2 is a 19.6\,M-parameter add-on attached to the pretrained language model
@@ -133,6 +133,141 @@ SmolLM2 alone, when both are trained on exactly the same data? ``Reason
 better'' must mean more than higher accuracy; Section~\ref{sec:eval} defines
 how it is tested.
 \end{keybox}
+
+% =====================================================================
+\section{Working hypothesis}
+\label{sec:hypothesis}
+
+\subsection{The idea in one sentence}
+
+A language model commits to \emph{one} internal state per token and predicts
+from it. Methods that make large models reason better -- self-consistency,
+multi-agent debate -- work by producing \emph{several} candidate answers,
+letting them check each other, and reconciling them; but they do this in
+text, at $K$ times the inference cost (Section~\ref{sec:related}).
+
+\begin{keybox}[title={Working hypothesis (H)}]
+The benefit of ``consider several alternatives, cross-check them, reconcile
+them'' can be obtained \emph{inside one forward pass, at the level of hidden
+states}. If a token's final state is expanded into $K$ diverse hypotheses that
+read and revise each other and are then reconciled towards an anchor derived
+from the evidence-bearing state, the resulting consensus state supports a
+decision that depends \emph{more on the evidence} and \emph{less on surface
+priors} than the single state -- at a fixed cost of one extra module, with no
+extra tokens.
+\end{keybox}
+
+\subsection{Why each part of L2 should help (the assumed mechanism)}
+
+\begin{enumerate}
+  \item \textbf{Diversity} (diverse start): $K$ different projections of the same
+  state emphasise different aspects of it, like several readers of the same
+  abstract. Without diversity there is nothing to reconcile.
+  \item \textbf{Error correction by cross-reading} (debate): a hypothesis that
+  is wrong in one aspect can be corrected by the others; the repair gate lets a
+  correct minority resist being overruled. This is the representation-level
+  analogue of multi-agent debate~\cite{du2023debate}.
+  \item \textbf{Grounding} (anchored descent): pulling every hypothesis towards
+  an anchor computed from the backbone state keeps the debate tied to what was
+  read and prevents drift into a self-consistent but wrong consensus.
+  \item \textbf{Aggregation} (average): averaging reduces the variance of
+  individual hypotheses, as voting does in self-consistency~\cite{wang2023sc}.
+  \item \textbf{Honesty signal}: when the hypotheses disagree, the model should
+  be less sure; trajectory agreement should therefore predict correctness.
+\end{enumerate}
+
+\subsection{Testable predictions and what happened}
+
+The hypothesis was written as falsifiable predictions before the decisive runs.
+The prior-art audit had already found a compute-matched study reporting
+\emph{no reliable gain} from recursive latent refinement in small
+models~\cite{rauba2026tiny}, so a negative outcome was considered from the start.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}p{0.6cm}YYp{4.1cm}@{}}
+\toprule
+& If H is true \dots & Test & Outcome\\
+\midrule
+P1 & accuracy rises on \emph{both} yes- and no-questions & test 1 (Section~\ref{sec:eval}) & \textbf{not met}: gain only on yes-questions; ``yes'' answers +11.0\sig\\
+P2 & the answer depends more on the abstract & test 2 (unseen) & \textbf{not met}: +0.17 (old data), $-1.07$\sig{} (evidence data)\\
+P3 & the answer follows flipped evidence more often & test 3 & \textbf{not met}: +3.25, +1.22, +1.02, never starred\\
+P4 & L2 does the work at test time & L2-off test & partly: the model leans on L2, but is no better than without it\\
+P5 & trajectory agreement predicts correctness better than the model's own probability & AUROC (v3c, T54) & \textbf{not met}: next word 0.81 vs 0.906; PubMedQA 0.52--0.53 vs 0.60--0.62\\
+\bottomrule
+\end{tabularx}
+\caption{Predictions of the working hypothesis. None of the reasoning predictions was met.}
+\end{table}
+
+% =====================================================================
+\section{Related work}
+\label{sec:related}
+
+L2 combines ideas from five lines of work. A prior-art audit (vault note 29,
+papers stored locally) concluded that \textbf{every single ingredient has been
+implemented before; the combination in one independent module after a
+pretrained backbone has not}. The contribution claimed is therefore a
+combination, and the closest competitors are named below.
+
+\subsection{Multi-path reasoning in text}
+Chain-of-thought prompting~\cite{wei2022cot} lets a model write intermediate
+steps; in L2's terms it is a single path ($K=1$). Self-consistency~\cite{wang2023sc}
+samples several reasoning paths and takes a majority vote -- the direct
+inspiration for L2's aggregation. Multi-agent debate~\cite{du2023debate} lets
+several model instances read and revise each other's answers over rounds; L2's
+debate rounds are its blueprint. Divergent-thinking debate~\cite{liang2023divergent}
+shows that diverse starting points matter, which motivated the diverse start.
+Mixture-of-Agents~\cite{wang2025moa} stacks layers of agents that read the
+previous layer's answers. A critical evaluation~\cite{smit2024mad} finds that
+debate often does not beat self-consistency at equal cost. All of these
+operate on generated \emph{text}; L2 moves the same pattern into hidden states.
+
+\subsection{Reasoning in latent space}
+Coconut~\cite{hao2024coconut} feeds the model's hidden state back as a
+``continuous thought'' instead of a word. Tiny Recursive Models~\cite{jolicoeur2025trm}
+reason by repeatedly refining a latent state with a very small network.
+\textbf{The most important related result is negative:} a compute-matched
+comparison of recursive latent models~\cite{rauba2026tiny} found that the full
+autoregressive recursive model gives \emph{no reliable gain} over simpler
+variants; only a flat two-stream split with a weighted readout helped. Our
+results agree with this finding.
+
+\subsection{Several streams inside one network}
+Multi-Stream Transformers~\cite{burtsev2021multistream} split a network into
+parallel streams merged at the end -- the closest architectural ancestor of L2.
+Talking-Heads Attention~\cite{shazeer2020talking} lets attention heads depend on
+each other, comparable to trajectories reading each other. The Dual-Stream
+Transformer~\cite{kerce2026dual} separates the residual stream into functional
+parts and is evaluated at a similar small scale (29\,M parameters). L2 differs in
+that its streams are full-width copies of a token's state that cross-read,
+are anchored and are averaged, after a pretrained backbone.
+
+\subsection{Energy-based refinement and collapse}
+The Energy Transformer~\cite{hoover2023energy} computes its output by descending
+an energy function for a fixed number of steps; L2's anchored descent is a
+minimal version of this. Work on agreement objectives shows they tend to
+collapse diversity~\cite{li2026collapse}; we found the same defect in an early
+L2 version and replaced the agreement loss by the spread floor. Internalising
+debate into one model has also been done by \emph{distillation}~\cite{yi2026latent};
+L2 does it architecturally, without a teacher.
+
+\subsection{Calibration, answer bias and counterfactual data}
+Neural networks are often miscalibrated~\cite{guo2017calibration}, and language
+models show a \emph{majority-label bias}: they over-predict answers that were
+frequent in their training or prompt, which can be corrected by shifting the
+output log-odds (``contextual calibration'')~\cite{zhao2021calibrate}. This is
+the lens for the ``yes'' preference in Section~\ref{sec:calib}.
+Counterfactually augmented data~\cite{kaushik} -- minimally edited
+examples with flipped labels -- teach a model which part of the input decides
+the label; PairCFR~\cite{paircfr} adds a loss over both rows of a pair. These
+are the basis of T61 and T63.
+
+\subsection{Medical question answering}
+PubMedQA~\cite{pubmedqa}, MedMCQA~\cite{medmcqa}, MedQA~\cite{medqa} and
+MedQuAD~\cite{medquad} are the standard public benchmarks used here; scoring
+follows lm-evaluation-harness~\cite{lmeval}. Small models such as
+SmolLM2-135M~\cite{smollm2} stay near chance on the exam-style sets, which limits
+what they can show (Section~\ref{sec:scale}).
 
 % =====================================================================
 \section{The model}
@@ -639,9 +774,75 @@ L2 lowers perplexity slightly (under 2\,\%, consistently across seeds), but \tex
 
 In v5, L2 only reshapes each token's final state (Section~\ref{sec:l2}); it has no access to evidence that SmolLM2 has not already encoded, and nothing downstream reads its output except the output layer. A module in this position can re-weight the final decision -- which is exactly the answer preference we measured -- but it has little room to add reasoning. The versions that let L2 read the text and sit inside the network (v3--v4) were not better either, so position alone does not explain the result. This interpretation is not separately tested.
 
+\subsection{The ``yes'' preference is a calibration effect}
+\label{sec:calib}
+
+\paragraph{What was measured} (test 1, \code{reason\_v5.md}, three seeds). The benchmark has 552 ``yes'', 338 ``no'' and 110 ``maybe'' questions.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{6.4cm}rrR@{}}
+\toprule
+PubMedQA, old data & baseline & v5 (+ L2) & difference [95\,\% CI]\\
+\midrule
+\% right, true answer ``yes'' (552) & 62.1 & 73.1 & +10.99 [+8.88, +12.98]\sig\\
+\% right, true answer ``no'' (338) & 70.1 & 58.3 & $-11.83$ [$-14.50$, $-9.47$]\sig\\
+\% right, true answer ``maybe'' (110) & 0.0 & 0.0 & 0.00\\
+\% of answers that are ``yes'' & 49.7 & 60.8 & +11.03\sig\\
+\% right \emph{without} the abstract & 52.1 & 54.0 & +1.90 [+0.73, +3.10]\sig\\
+\midrule
+\% right, all questions & 58.0 & 60.0 & +2.07\sig\\
+balanced accuracy, yes/no (mean of the two rows above) & 66.1 & 65.7 & $-0.4$\\
+\bottomrule
+\end{tabularx}
+\caption{Where v5's PubMedQA gain comes from. Balanced accuracy is computed from the per-class rows (no separate CI).}
+\end{table}
+
+\paragraph{The gain is exactly a threshold shift.} L2 moved the model's yes/no decision boundary towards ``yes'': it gained 10.99 points on yes-questions and lost 11.83 on no-questions. Because the benchmark has 1.63 times more yes- than no-questions, this trade is a net gain:
+\[
+  0.552 \times (+10.99) \;+\; 0.338 \times (-11.83) \;=\; +6.07 - 4.00 \;=\; +2.07 \text{ points}.
+\]
+This is the entire gain. Weighting both classes equally (balanced accuracy), v5 is not better ($-0.4$). It is a \emph{calibration} change -- a different prior over the answers -- not a better use of the evidence. Two more observations support this. (i) The same gain appears \emph{without} the abstract (+1.90\sig), so it does not come from reading the evidence. (ii) It grows with how much the model relies on L2: with L2 dropped on 30\,\% of training steps (v5drop), the ``yes'' share moves by only +2.77\sig{} and the gain shrinks to +0.97\sig.
+
+\paragraph{Why it occurred -- our explanation (to discuss).}
+\begin{enumerate}
+  \item \textbf{The decision was never trained, so its threshold is arbitrary.} In the old data the target was only the conclusion text; the yes/no word that the benchmark scores was never a training target (Section~\ref{sec:data}). Nothing anchors the model's yes-versus-no log-odds, so the baseline lands at 49.7\,\% ``yes'' more or less by accident, and any change in the output distribution moves the threshold freely. ``Maybe'' never appears in training, so it is never answered correctly.
+  \item \textbf{The training text is affirmative.} 92.8\,\% of the training labels are ``yes'', and their conclusions are written in affirmative language (``X improves Y''). Fitting this text better means making affirmative continuations more likely, which also raises the probability of the word ``yes'' after \code{Answer:}. This is the majority-label bias known from language models~\cite{zhao2021calibrate}.
+  \item \textbf{L2's position makes this the easiest thing for it to learn.} L2 sits directly before the output layer and works per token. The cheapest way for such a module to lower the loss on affirmative conclusion text is a near-global shift of the output distribution -- which shifts the yes/no log-odds on every question by a similar amount. That is a change of prior, not of reasoning, and it matches both observations above.
+  \item \textbf{When the decision is trained, the effect disappears.} With balanced evidence data (T61), the yes/no decision becomes a training target: ev5 and evbase answer ``yes'' equally often (39.7 vs 40.8\,\%) and L2's gain vanishes ($-0.10$). These models are now miscalibrated in the \emph{other} direction (about 40\,\% ``yes'' against a true 55.2\,\%), because training was 50/50 and the benchmark is not.
+\end{enumerate}
+
+\paragraph{A cheap check we propose (no training).} Fit one yes/no log-odds offset per model on half of the 1,000 PubMedQA questions and score the other half, swapping the halves (contextual calibration~\cite{zhao2021calibrate}). If v5's advantage over the baseline disappears after both are calibrated, the +2.07 was purely calibration. We also propose reporting balanced accuracy next to accuracy from now on.
+
+\subsection{Only one backbone: would a larger model change the picture?}
+\label{sec:scale}
+
+\paragraph{Where we stand.} All L2 results use one backbone, SmolLM2-135M (plus a 50\,M from-scratch pilot, v1). We used several \emph{datasets} but only one \emph{model}. The reasons: compute (three seeds for every variant on a shared GPU server), and the step from training from scratch to a pretrained model. The cost is that at 135\,M parameters MedMCQA and MedQA stay near chance, so only PubMedQA can show an effect. A negative result at this scale does not show that L2 fails at every scale.
+
+\paragraph{Why scale could matter.} A larger model encodes more of the evidence in its final state, so there is more for L2 to work with. It is also further from chance on the exam-style benchmarks, so effects become measurable there. On the other hand, the related work~\cite{rauba2026tiny,smit2024mad} and the calibration finding above suggest that what L2 learned is a prior shift, which a larger, better-calibrated model may need even less.
+
+\paragraph{How L2 grows with the model.} L2's size is $59d^2 + 35d$ parameters for hidden size $d$, so it stays at about 15\,\% of the backbone:
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}YrrR@{}}
+\toprule
+Backbone (same family, same tokenizer) & hidden size $d$ & L2 parameters & share of backbone\\
+\midrule
+SmolLM2-135M (used) & 576 & 19.6\,M & 14.6\,\%\\
+SmolLM2-360M & 960 & 54.4\,M & $\approx$ 15\,\%\\
+SmolLM2-1.7B & 2048 & 247.5\,M & $\approx$ 15\,\%\\
+\bottomrule
+\end{tabularx}
+\caption{L2 size for larger members of the same model family.}
+\end{table}
+
+\paragraph{Proposal.} Repeat only the decisive comparison -- baseline vs.\ + L2 on the evidence data, three seeds, all reasoning tests, the L2-off test and the calibration check -- on SmolLM2-360M, and on SmolLM2-1.7B if 360M shows any signal. Staying in one family changes only the scale, not the tokenizer or training recipe. Larger models (7\,B and up) would need LoRA, and LoRA collapsed to a single answer in T60, so they would be a separate study. This is a decision for the meeting.
+
 \subsection{Limitations}
 \begin{itemize}
-  \item \textbf{Scale.} A 135\,M backbone stays near chance on MedMCQA and MedQA, so only PubMedQA can show differences.
+  \item \textbf{One backbone, small scale.} Only SmolLM2-135M was tested; it stays near chance on MedMCQA and MedQA, so only PubMedQA can show differences (Section~\ref{sec:scale}).
+  \item \textbf{Calibration.} No model's yes/no threshold was calibrated, and accuracy on an unbalanced benchmark rewards a shifted threshold (Section~\ref{sec:calib}).
   \item \textbf{Parameter matching.} The comparison is architecture-matched, not parameter-matched: the L2 arm has 19.6\,M more parameters and does more work per token. This favours L2, which strengthens the negative result.
   \item \textbf{Test 3 after T61.} Flipped conclusions are in the training data from T61 on (other questions); test 3 then measures training success, and test 2 is the unseen check.
   \item \textbf{Rule-based flips.} Negations are added or removed by a rule; some flipped sentences may be unnatural. The full list was written out for manual checking.
@@ -659,10 +860,28 @@ What the thesis can claim:
   \item \textbf{A careful negative result for L2}, measured against a same-data baseline on three seeds with confidence intervals.
 \end{enumerate}
 
-\section{Questions for discussion}
+\section{Supervisor's comments and points for the meeting}
+
+\begin{rulebox}[title={1. ``Only a single model -- have you tried a larger LM?''}]
+No: every L2 result uses SmolLM2-135M. This is a real limitation; at this scale only PubMedQA is informative. We propose repeating the decisive comparison on SmolLM2-360M and, if there is any signal, on SmolLM2-1.7B (same family, L2 stays at about 15\,\% of the model). See Section~\ref{sec:scale}.
+\end{rulebox}
+
+\begin{rulebox}[title={2. ``The `yes' boost looks like a calibration problem -- why did it occur?''}]
+Agreed, and the numbers confirm it: the +2.07 is exactly a threshold shift (+10.99 on yes-questions, $-11.83$ on no-questions, weighted 552:338), balanced accuracy does not improve, and the gain appears even without the abstract. Our explanation: the yes/no word was never trained, the training text is 92.8\,\% ``yes'' and affirmative, and L2's position before the output layer makes a global prior shift the easiest thing for it to learn. A calibration check without training is proposed. See Section~\ref{sec:calib}.
+\end{rulebox}
+
+\begin{rulebox}[title={3. ``What is the working hypothesis behind L2?''}]
+That the benefit of considering several alternatives, cross-checking and reconciling them -- what self-consistency and debate do in text -- can be obtained inside one forward pass on hidden states, making the decision depend more on the evidence and less on priors. It is stated with five testable predictions in Section~\ref{sec:hypothesis}; none of the reasoning predictions was met.
+\end{rulebox}
+
+\begin{rulebox}[title={4. ``Related work is missing.''}]
+Added as Section~\ref{sec:related}: multi-path reasoning in text, latent-space reasoning (including a negative result that matches ours), multi-stream architectures, energy-based refinement, calibration and counterfactual data, and the medical benchmarks. The contribution is a combination of known ingredients, not a new ingredient.
+\end{rulebox}
+
+\paragraph{Further questions from our side.}
 \begin{enumerate}
-  \item Should the thesis be framed as a careful negative result for L2, with the data finding and the evaluation method as the positive contributions?
-  \item Stop experimenting and start writing, or run one more check (for example an unseen flipped-evidence format, since test 3 is now trained-like)?
+  \item Should the thesis be framed as a careful negative result for L2, with the data finding, the evaluation method and the calibration analysis as the positive contributions?
+  \item Which next step: the larger-backbone run (Section~\ref{sec:scale}), the calibration check (Section~\ref{sec:calib}), or stop experimenting and start writing?
   \item Final model: the proposal is the evidence-data recipe \textbf{without} L2 (evbase) -- it scores the same as ev5 with 19.6\,M fewer parameters.
 \end{enumerate}
 
@@ -709,6 +928,23 @@ perplexity & $\exp$ of the mean negative log-likelihood per token; lower is bett
 \bibitem{rouge} C.-Y.~Lin. \emph{ROUGE: A Package for Automatic Evaluation of Summaries.} ACL Workshop Text Summarization Branches Out, 2004.
 \bibitem{rmsnorm} B.~Zhang, R.~Sennrich. \emph{Root Mean Square Layer Normalization.} NeurIPS 2019.
 \bibitem{bootstrap} B.~Efron, R.~J.~Tibshirani. \emph{An Introduction to the Bootstrap.} Chapman \& Hall, 1993.
+\bibitem{wei2022cot} J.~Wei et al. \emph{Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.} NeurIPS 2022.
+\bibitem{wang2023sc} X.~Wang et al. \emph{Self-Consistency Improves Chain of Thought Reasoning in Language Models.} ICLR 2023.
+\bibitem{du2023debate} Y.~Du, S.~Li, A.~Torralba, J.~B.~Tenenbaum, I.~Mordatch. \emph{Improving Factuality and Reasoning in Language Models through Multiagent Debate.} arXiv:2305.14325, 2023.
+\bibitem{liang2023divergent} T.~Liang et al. \emph{Encouraging Divergent Thinking in Large Language Models through Multi-Agent Debate.} arXiv:2305.19118, 2023.
+\bibitem{wang2025moa} J.~Wang et al. \emph{Mixture-of-Agents Enhances Large Language Model Capabilities.} ICLR 2025.
+\bibitem{smit2024mad} A.~Smit et al. \emph{Should We Be Going MAD? A Look at Multi-Agent Debate Strategies for LLMs.} ICML 2024.
+\bibitem{hao2024coconut} S.~Hao et al. \emph{Training Large Language Models to Reason in a Continuous Latent Space.} arXiv:2412.06769, 2024.
+\bibitem{jolicoeur2025trm} A.~Jolicoeur-Martineau. \emph{Less is More: Recursive Reasoning with Tiny Networks.} arXiv:2510.04871, 2025.
+\bibitem{rauba2026tiny} P.~Rauba, C.~Fanconi, M.~van der Schaar. \emph{Tiny Autoregressive Recursive Models.} arXiv:2603.08082, 2026.
+\bibitem{burtsev2021multistream} M.~Burtsev, A.~Rumshisky. \emph{Multi-Stream Transformers.} arXiv:2107.10342, 2021.
+\bibitem{shazeer2020talking} N.~Shazeer et al. \emph{Talking-Heads Attention.} arXiv:2003.02436, 2020.
+\bibitem{kerce2026dual} Kerce, Fox. \emph{Dual-Stream Transformer.} arXiv:2603.07461, 2026.
+\bibitem{hoover2023energy} B.~Hoover et al. \emph{Energy Transformer.} NeurIPS 2023.
+\bibitem{li2026collapse} Li et al. \emph{KL-Regularized Reinforcement Learning is Designed to Mode Collapse.} arXiv:2510.20817, 2026.
+\bibitem{yi2026latent} Yi et al. \emph{Latent Agents.} ACL 2026, arXiv:2604.24881.
+\bibitem{guo2017calibration} C.~Guo, G.~Pleiss, Y.~Sun, K.~Q.~Weinberger. \emph{On Calibration of Modern Neural Networks.} ICML 2017.
+\bibitem{zhao2021calibrate} Z.~Zhao, E.~Wallace, S.~Feng, D.~Klein, S.~Singh. \emph{Calibrate Before Use: Improving Few-Shot Performance of Language Models.} ICML 2021.
 \end{thebibliography}
 
 \end{document}
