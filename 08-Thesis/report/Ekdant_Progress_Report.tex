@@ -471,6 +471,24 @@ it costs nothing.
 $\mathcal{L} = \mathcal{L}_{\text{CE}} + \lambda\, \max(0,\ \rho_{\min} - \rho)^2$ with
 $\rho = \operatorname{Var}_k(T_k)/\overline{h^2}$, $\rho_{\min}=0.05$, $\lambda = 1$.
 
+\subsection{Watching all steps: a toy run}
+
+Figure~\ref{fig:toyrun} runs the same formulas on a toy example and shows what
+happens to the four reviewers at every step. To make it drawable it uses 2
+numbers instead of 576 and hand-picked weights; the steps are those of the code.
+The four views start far apart (1), drift towards each other but stay different
+during the discussion (2), are pulled towards the anchor by different amounts
+(3), and are averaged into the verdict (4). With the trained gate $g\approx0.027$
+the final state moves only about 3\,\% of the way from $h$ towards the verdict
+(the verdict in the last panel is shown after the output norm, i.e.\ at the size of $h$).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{../figures/l2_filmstrip_grid.png}
+\caption{A toy run of L2, step by step. Dots are the four reviewers, lines their paths. An interactive version of this run (step through or play it) was published as a private web page alongside this report.}
+\label{fig:toyrun}
+\end{figure}
+
 \subsection{The whole layer in one technical picture}
 
 Figures~\ref{fig:inside} and~\ref{fig:round} show the same four steps as they
