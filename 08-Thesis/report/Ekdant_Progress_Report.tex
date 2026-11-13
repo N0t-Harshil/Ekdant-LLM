@@ -337,12 +337,144 @@ $|g| \approx 0.025$--$0.028$, i.e.\ L2 replaces roughly 3\,\% of the final state
 \section{The L2 layer in detail}
 \label{sec:l2}
 
-L2 works on \textbf{one token at a time}. It takes that token's final state
-$h$ and runs four steps: \emph{diverse start} $\rightarrow$ \emph{4 debate
-rounds} $\rightarrow$ \emph{8 anchored descent steps} $\rightarrow$
-\emph{average} (Figure~\ref{fig:inside}). All settings are those of the final
-model v5 (\code{configs/v5\_final.json}; code in
+This section first explains L2 in plain words, one step at a time with a
+picture for each step, and then gives the same steps as formulas. All
+settings are those of the final model v5 (\code{configs/v5\_final.json}; code in
 \code{09-Code/src/ekdant/sandbox.py} and \code{model.py}).
+
+\subsection{L2 in plain words: a committee of four}
+
+Without L2, SmolLM2 forms \emph{one} understanding of each word -- its state
+$h$, a list of 576 numbers -- and answers from it straight away. Nothing checks
+that understanding. L2 adds a small \textbf{committee of four reviewers}
+between SmolLM2's understanding and the answer: they look at the understanding
+from four angles, discuss it, are kept close to what the text said by a
+moderator, and agree on a verdict. A dial (the gate) then decides how much of
+the verdict is used. All of this happens with numbers inside one forward pass;
+no extra text is written.
+
+\begin{figure}[H]
+\centering
+\includegraphics[page=1,width=0.98\linewidth]{../figures/l2_steps.pdf}
+\caption{L2 as a committee. (1) four viewpoints of the same word, (2) four rounds of discussion, (3) a moderator keeps them grounded, (4) the verdict is the average, and the gate decides how much of it reaches the answer. The model's own understanding always reaches the gate too.}
+\label{fig:committee}
+\end{figure}
+
+\begin{keybox}[title={One important limit}]
+L2 works \textbf{one word at a time} and only sees SmolLM2's final state of that
+word. It never reads the abstract itself: everything it knows is what SmolLM2
+has already put into $h$.
+\end{keybox}
+
+\subsection{Step 1 -- four viewpoints (diverse start)}
+
+L2 makes four versions of the same state $h$, each turned to a different angle
+by its own learned transformation. They are called \emph{trajectories} $T_1,\dots,T_4$ --
+in the analogy, four reviewers who each focus on something different. They
+are built to start clearly different, because four identical reviewers would
+have nothing to discuss.
+
+\begin{figure}[H]
+\centering
+\includegraphics[page=2,width=0.92\linewidth]{../figures/l2_steps.pdf}
+\caption{Step 1. The same word is turned into four different views.}
+\label{fig:step1}
+\end{figure}
+
+\emph{In formulas:} $T_k = W_k h + b_k$ for $k=1,\dots,4$, where
+$W_1,\dots,W_4 \in \mathbb{R}^{576\times576}$ start mutually orthogonal (Frobenius
+inner product 0) with gains spread from 0.8 to 1.25.
+
+\subsection{Step 2 -- discussion, four rounds (debate)}
+
+In every round each reviewer (i) reads what the other three currently think --
+never itself, (ii) forms a proposal for how to update its view, and (iii)
+decides with a dial, the \textbf{repair gate} $\gamma$, how much of the proposal
+to accept: near 0 it keeps its own view, near 1 it takes the proposal. The
+dial starts cautious, at about 0.12. Its purpose is to let a reviewer who is
+right \emph{resist the crowd}, so a correct minority can survive a round. Each
+of the four rounds has its own weights.
+
+\begin{figure}[H]
+\centering
+\includegraphics[page=3,width=0.92\linewidth]{../figures/l2_steps.pdf}
+\caption{Step 2, one reviewer's turn in one round. All four reviewers do this in each of the four rounds.}
+\label{fig:step2}
+\end{figure}
+
+\emph{In formulas} (round $r=1,\dots,4$):
+\begin{align}
+  x_k &= \mathrm{RMSNorm}(T_k),\\
+  \mathrm{cross}_k &= \sum_{j\neq k} \operatorname{softmax}_j\!\left(\frac{(Q x_k)^{\!\top}(K x_j)}{\sqrt{576}}\right) V x_j,\\
+  \gamma_k &= \sigma\big(W_\gamma [x_k ; \mathrm{cross}_k] + b_\gamma\big), \qquad b_\gamma = -2 \text{ at the start},\\
+  T_k &\leftarrow (1-\gamma_k)\odot T_k + \gamma_k \odot \mathrm{MLP}(\mathrm{cross}_k).
+\end{align}
+The attention runs across the four trajectories of the same word, never across words.
+
+\subsection{Step 3 -- staying grounded (anchored descent)}
+
+A discussion can drift away from the facts. L2 therefore computes an
+\textbf{anchor} $a$ from the original state $h$ -- a reference point for ``what
+the text said'' -- and moves every reviewer a little towards it, in 8 small
+steps. Each reviewer has its own pull strength (a second learned dial), so they
+move by different amounts and do not collapse into one point. In the analogy,
+this is the moderator saying ``remember what the abstract actually says''.
+
+\begin{figure}[H]
+\centering
+\includegraphics[page=4,width=0.82\linewidth]{../figures/l2_steps.pdf}
+\caption{Step 3. Each reviewer takes 8 small steps towards the anchor, each with its own pull strength.}
+\label{fig:step3}
+\end{figure}
+
+\emph{In formulas} (8 steps, $\eta = 0.0625$): $a = W_a h$ and
+$T_k \leftarrow T_k - \eta\; \sigma\big(W_s [T_k ; a]\big) \odot (T_k - a)$.
+The anchor must come from outside the committee: pulling the reviewers towards
+their own average provably changes nothing (vault note 29).
+
+\subsection{Step 4 -- the verdict and the gate}
+
+The four views are averaged into one \textbf{verdict} $c$. The model does not
+simply replace its own understanding with it: the \textbf{gate} $g$ (one dial per
+number, 576 in total) decides how much of the verdict is mixed in. The gate
+starts at 0, so at the start of training the model is exactly SmolLM2 and every
+difference is learned. In the final model it ended at $g\approx0.027$: the
+committee changes about 3\,\% of the final state.
+
+\begin{figure}[H]
+\centering
+\includegraphics[page=5,width=0.92\linewidth]{../figures/l2_steps.pdf}
+\caption{Step 4. The verdict is the average of the four views; the gate decides how much of it reaches the answer.}
+\label{fig:step4}
+\end{figure}
+
+\emph{In formulas:}
+\begin{equation}
+  c = \frac{1}{4}\sum_{k=1}^{4} T_k, \qquad y = \mathrm{RMSNorm}(c), \qquad h' = h + g\odot(y-h), \qquad \text{logits} = \mathrm{lm\_head}(h').
+\end{equation}
+
+\subsection{A safety rule during training: the spread floor}
+
+If the four reviewers became identical, the committee would be pointless --
+L2 would be one ordinary network. Training therefore adds a penalty, but
+\emph{only} when the views come too close together; as long as they stay apart
+it costs nothing.
+
+\begin{figure}[H]
+\centering
+\includegraphics[page=6,width=0.55\linewidth]{../figures/l2_steps.pdf}
+\caption{The spread floor: no penalty while the four views stay apart, a growing penalty once they collapse.}
+\label{fig:floor}
+\end{figure}
+
+\emph{In formulas:}
+$\mathcal{L} = \mathcal{L}_{\text{CE}} + \lambda\, \max(0,\ \rho_{\min} - \rho)^2$ with
+$\rho = \operatorname{Var}_k(T_k)/\overline{h^2}$, $\rho_{\min}=0.05$, $\lambda = 1$.
+
+\subsection{The whole layer in one technical picture}
+
+Figures~\ref{fig:inside} and~\ref{fig:round} show the same four steps as they
+are wired in the code.
 
 \begin{figure}[H]
 \centering
@@ -411,52 +543,6 @@ model v5 (\code{configs/v5\_final.json}; code in
 \caption{One debate round, for trajectory $k$. The repair gate $\gamma_k$ lets a trajectory keep its own state instead of following the others. Its bias starts at $-2$, so initially $\gamma_k \approx 0.12$ and each round changes little.}
 \label{fig:round}
 \end{figure}
-
-\subsection{The computation, step by step}
-
-Let $h \in \mathbb{R}^{576}$ be the final state of one token, $K=4$ trajectories, $R=4$ debate rounds, $S=8$ descent steps.
-
-\paragraph{1. Diverse start.} For $k=1,\dots,K$:
-\begin{equation}
-  T_k = W_k h + b_k ,
-\end{equation}
-where $W_1,\dots,W_4 \in \mathbb{R}^{576\times576}$ are initialised mutually orthogonal (Frobenius inner product 0) with gains spread logarithmically from 0.8 to 1.25. The four trajectories therefore begin as four different ``views'' of $h$.
-
-\paragraph{2. Debate rounds} ($r=1,\dots,R$, each with its own weights):
-\begin{align}
-  x_k &= \mathrm{RMSNorm}(T_k),\\
-  \mathrm{cross}_k &= \sum_{j\neq k} \operatorname{softmax}_j\!\left(\frac{(Q x_k)^{\!\top}(K x_j)}{\sqrt{576}}\right) V x_j,\\
-  \gamma_k &= \sigma\big(W_\gamma [x_k ; \mathrm{cross}_k] + b_\gamma\big), \qquad b_\gamma = -2 \text{ at init},\\
-  T_k &\leftarrow (1-\gamma_k)\odot T_k + \gamma_k \odot \mathrm{MLP}(\mathrm{cross}_k).
-\end{align}
-The attention runs \emph{across trajectories of the same token} (never across tokens), and a trajectory never attends to itself.
-
-\paragraph{3. Anchored descent} ($S=8$ steps, $\eta = 0.0625$):
-\begin{align}
-  a &= W_a h, \\
-  T_k &\leftarrow T_k - \eta\; \sigma\big(W_s [T_k ; a]\big) \odot (T_k - a).
-\end{align}
-
-\paragraph{4. Consensus and output.}
-\begin{equation}
-  c = \frac{1}{K}\sum_{k=1}^{K} T_k, \qquad y = \mathrm{RMSNorm}(c), \qquad h' = h + g\odot(y-h), \qquad \text{logits} = \mathrm{lm\_head}(h').
-\end{equation}
-
-\paragraph{Training loss.} Next-token cross-entropy on the answer tokens plus a \emph{spread floor} that keeps the trajectories apart:
-\begin{equation}
-  \mathcal{L} = \mathcal{L}_{\text{CE}} + \lambda\, \max(0,\ \rho_{\min} - \rho)^2, \qquad
-  \rho = \frac{\operatorname{Var}_k(T_k)}{\overline{h^2}}, \quad \rho_{\min}=0.05,\ \lambda = 1 .
-\end{equation}
-
-\subsection{Why each part is there}
-\begin{itemize}
-  \item \textbf{Diverse start} -- if all trajectories started equal, the debate would have nothing to argue about.
-  \item \textbf{Debate} -- each trajectory reads the others and proposes an update; the \textbf{repair gate} lets it decline the crowd, so a correct minority can survive a round.
-  \item \textbf{Anchored descent} -- pulls every trajectory back towards an anchor computed from the original state, so the debate cannot drift away from what the model read. A second gate decides per channel how strongly to pull.
-  \item \textbf{Average} -- the consensus is the plain mean (\code{readout = mean}).
-  \item \textbf{Spread floor} -- without it the four trajectories could collapse into one, and L2 would be a single MLP.
-  \item \textbf{Zero gate at start} -- both arms begin with exactly SmolLM2's output; the comparison is fair from step 0.
-\end{itemize}
 
 \subsection{Parameter count}
 
@@ -770,6 +856,13 @@ L2 lowers perplexity slightly (under 2\,\%, consistently across seeds), but \tex
 \end{itemize}
 \end{keybox}
 
+\begin{figure}[H]
+\centering
+\includegraphics[page=8,width=0.95\linewidth]{../figures/l2_steps.pdf}
+\caption{What we hoped L2 would do, and what it actually learned.}
+\label{fig:hoped}
+\end{figure}
+
 \subsection{A likely reason (interpretation)}
 
 In v5, L2 only reshapes each token's final state (Section~\ref{sec:l2}); it has no access to evidence that SmolLM2 has not already encoded, and nothing downstream reads its output except the output layer. A module in this position can re-weight the final decision -- which is exactly the answer preference we measured -- but it has little room to add reasoning. The versions that let L2 read the text and sit inside the network (v3--v4) were not better either, so position alone does not explain the result. This interpretation is not separately tested.
@@ -803,6 +896,13 @@ balanced accuracy, yes/no (mean of the two rows above) & 66.1 & 65.7 & $-0.4$\\
   0.552 \times (+10.99) \;+\; 0.338 \times (-11.83) \;=\; +6.07 - 4.00 \;=\; +2.07 \text{ points}.
 \]
 This is the entire gain. Weighting both classes equally (balanced accuracy), v5 is not better ($-0.4$). It is a \emph{calibration} change -- a different prior over the answers -- not a better use of the evidence. Two more observations support this. (i) The same gain appears \emph{without} the abstract (+1.90\sig), so it does not come from reading the evidence. (ii) It grows with how much the model relies on L2: with L2 dropped on 30\,\% of training steps (v5drop), the ``yes'' share moves by only +2.77\sig{} and the gain shrinks to +0.97\sig.
+
+\begin{figure}[H]
+\centering
+\includegraphics[page=7,width=0.8\linewidth]{../figures/l2_steps.pdf}
+\caption{Why accuracy rose without better reasoning: L2 moved the yes/no boundary towards ``yes''.}
+\label{fig:threshold}
+\end{figure}
 
 \paragraph{Why it occurred -- our explanation (to discuss).}
 \begin{enumerate}
@@ -882,6 +982,7 @@ Added as Section~\ref{sec:related}: multi-path reasoning in text, latent-space r
 \begin{enumerate}
   \item Should the thesis be framed as a careful negative result for L2, with the data finding, the evaluation method and the calibration analysis as the positive contributions?
   \item Which next step: the larger-backbone run (Section~\ref{sec:scale}), the calibration check (Section~\ref{sec:calib}), or stop experimenting and start writing?
+  \item A candidate new design, for discussion: let the model write \textbf{four candidate answers} (or explanations) and use an L2-style module at the end to \textbf{pick the best one} -- a learned version of best-of-$N$ / self-consistency~\cite{wang2023sc}. It tests the original idea in text rather than in hidden states, but costs about four times as much at answer time, and on yes/no questions the choice reduces to the calibration problem above; it fits the explanation-writing benchmark better. (Placing L2 at the very start is not promising: L2 works one word at a time, and before the first layers a word's state holds no context yet; earlier placements, v2.1--v4, already helped less than the end.)
   \item Final model: the proposal is the evidence-data recipe \textbf{without} L2 (evbase) -- it scores the same as ev5 with 19.6\,M fewer parameters.
 \end{enumerate}
 
