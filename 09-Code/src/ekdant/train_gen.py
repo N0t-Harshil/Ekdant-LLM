@@ -30,17 +30,20 @@ from ekdant.backbone import apply_hf_token, load_backbone, load_tokenizer
 from ekdant.gen_data import (
     GenDataset,
     evidence_examples,
+    exclude_questions,
     gen_collate,
     holdout,
+    load_medlfqa,
     load_medquad,
     load_pubmedqa,
+    load_reasoning,
     pair_order,
     pubmedqa_test_keys,
     question_key,
     split_by_question,
 )
-from ekdant.gen_eval import (_rows, answer_nll, by_type, generate_greedy,
-                             paired_bootstrap, score_generations)
+from ekdant.gen_eval import (NLIJudge, _rows, answer_nll, by_type, factuality_scores,
+                             generate_greedy, paired_bootstrap, score_generations)
 from ekdant.model import EkdantLM, V2Config, count_parameters, is_lora_param
 from ekdant.train import fmt_duration, log, lr_at
 
@@ -86,7 +89,7 @@ RUN_KEYS = ("variant", "batch_size", "grad_accum", "lr", "addon_lr", "gate_lr",
             "floor_step_down", "gate_floor_min", "l2_warmup", "l2_drop", "lora_r", "evidence", "pair_loss",
             "lora_alpha", "warmup",
             "epochs", "ft_epochs", "eval_fraction", "pubmed_holdout", "limit",
-            "seed")
+            "seed", "stage1", "medlfqa")
 
 
 def phase1_eval_points(nb: int, eval_fraction: float, grad_accum: int) -> set:
@@ -265,9 +268,59 @@ def save_checkpoint(state: Dict, path: str) -> None:
     os.replace(tmp, path)
 
 
+def apply_addon_layer(cfg: V2Config, layer: Optional[int]) -> V2Config:
+    """``--addon-layer``: one insertion depth for this run (after decoder
+    layer k, -1 = after the final norm), so every depth of the placement study
+    runs from the same config file."""
+    if layer is not None:
+        cfg.addon_layer = int(layer)
+        cfg.addon_layers = []
+    return cfg
+
+
+def check_addon_layer_on_resume(cfg: V2Config, layer: Optional[int]) -> None:
+    """A resumed run keeps its depth; another ``--addon-layer`` is an error."""
+    if layer is not None and int(layer) != cfg.addon_layer:
+        log(f"error: this run was started with --addon-layer {cfg.addon_layer} "
+            f"(now {layer}) - resume with the original depth")
+        raise SystemExit(1)
+
+
+def explore_weight(step: int, weight: float, steps: int) -> float:
+    """Early-exploration bonus of the sandbox 0.1.0: ``weight`` at step 0,
+    fading linearly to 0 at ``steps`` (stage 1 only)."""
+    if weight <= 0 or steps <= 0:
+        return 0.0
+    return weight * max(0.0, 1.0 - step / steps)
+
+
+def apply_role_objectives(cfg: V2Config, args) -> V2Config:
+    """``--r3-loss`` / ``--cand-loss`` / ``--explore`` / ``--explore-steps``
+    (fresh runs): written into the config, so a resume and gen_eval rebuild
+    the same model."""
+    for flag, key in (("r3_loss", "sandbox_r3_loss"), ("cand_loss", "sandbox_cand_loss"),
+                      ("explore", "sandbox_explore"), ("explore_steps", "sandbox_explore_steps")):
+        v = getattr(args, flag, None)
+        if v is not None:
+            setattr(cfg, key, v)
+    return cfg
+
+
+def v01_stats(aux: Dict) -> Optional[Dict]:
+    """Sandbox v0.1.0 diagnostics of the last forward, as plain lists."""
+    if "sel_p" not in aux:
+        return None
+    return {k: aux[k].detach().float().cpu().tolist()
+            for k in ("sel_p", "sel_top", "sel_entropy", "cand_cos", "delta_rms")}
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m ekdant.train --task gen")
     ap.add_argument("--variant", choices=sorted(ADDON), required=True)
+    ap.add_argument("--addon-layer", type=int, default=None,
+                    help="insertion depth for this run: after decoder layer k "
+                         "(1-based), -1 = after the final norm; default: the "
+                         "config's addon_layer (Ekdant v0.1.0 placement study)")
     ap.add_argument("--config", default=None,
                     help="default: configs/v2_<variant>.json")
     ap.add_argument("--out", required=True)
@@ -330,6 +383,29 @@ def build_parser() -> argparse.ArgumentParser:
                     help="T57: L2 switched off for this share of the optimiser "
                          "steps (e.g. 0.3), so SmolLM2 cannot hand its own job "
                          "to L2 and L2 must add on top (0 = off)")
+    ap.add_argument("--r3-loss", type=float, default=None,
+                    help="sandbox 0.1.0 role objective: R3 predicts whether the next "
+                         "token is right (BCE weight; default: the config's, 0)")
+    ap.add_argument("--cand-loss", type=float, default=None,
+                    help="sandbox 0.1.0 role objective: each candidate's own next-token "
+                         "loss (weight; end placement only; default: the config's, 0)")
+    ap.add_argument("--explore", type=float, default=None,
+                    help="sandbox 0.1.0: gate-entropy bonus, fading to 0 over "
+                         "--explore-steps stage-1 steps (default: the config's, 0)")
+    ap.add_argument("--explore-steps", type=int, default=None)
+    ap.add_argument("--stage1", choices=("pubmedqa", "reasoning"), default="pubmedqa",
+                    help="stage-1 data: PubMedQA pqa_artificial (v0.0.x protocol) or "
+                         "medical-o1-reasoning-SFT, question -> reasoning -> final "
+                         "answer (Ekdant v0.1.0; rows longer than max_answer are "
+                         "dropped, not cut)")
+    ap.add_argument("--medlfqa", action="store_true",
+                    help="Ekdant v0.1.0 benchmark: MedLFQA reference-answer "
+                         "perplexity, generated answers (ROUGE-L, F1) and their "
+                         "factuality (comprehensiveness, hallucination) judged by "
+                         "an NLI model; its questions are removed from training")
+    ap.add_argument("--gen-subset-medlfqa", type=int, default=1000)
+    ap.add_argument("--max-new-medlfqa", type=int, default=256)
+    ap.add_argument("--nli-batch", type=int, default=32)
     ap.add_argument("--evidence", action="store_true",
                     help="T61: phase 1 trains the yes / no decision from the "
                          "evidence - balanced yes / no rows (decision + "
@@ -420,6 +496,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.pair_loss and not args.evidence:
         log("error: --pair-loss needs --evidence (the flipped pairs)")
         raise SystemExit(1)
+    if args.stage1 != "pubmedqa" and (args.evidence or args.pair_loss):
+        log("error: --evidence / --pair-loss rebuild PubMedQA: they need --stage1 pubmedqa")
+        raise SystemExit(1)
     if args.pair_loss and args.batch_size % 2:
         log("error: --pair-loss needs an even --batch-size (pairs share a batch)")
         raise SystemExit(1)
@@ -438,6 +517,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 "with the original ones: " + ", ".join(diff))
             raise SystemExit(1)
         cfg = V2Config.from_dict(ckpt["cfg"])
+        check_addon_layer_on_resume(cfg, args.addon_layer)
     else:
         cfg_path = args.config or os.path.join("configs",
                                                f"v2_{args.variant}.json")
@@ -449,6 +529,9 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1)
         cfg = V2Config.from_dict({**V2Config().to_dict(), **raw})
         cfg.addon = ADDON[args.variant]
+        apply_addon_layer(cfg, args.addon_layer)
+        apply_role_objectives(cfg, args)
+        cfg.validate()       # the arm and depth are set now (one config, both arms)
         if args.l2_warmup > 0 and cfg.addon == "none":
             log("error: --l2-warmup needs L2 (the baseline would train nothing)")
             raise SystemExit(1)
@@ -497,20 +580,36 @@ def main(argv: Optional[List[str]] = None) -> None:
         f"addon={model.addon_params()/1e6:.2f}M device={device}")
 
     # ---- data (identical for every arm: same seed, same splits) ----
-    pub = load_pubmedqa(args.limit, args.seed)
+    # Ekdant v0.1.0: the MedLFQA benchmark's questions never reach training
+    lfqa = load_medlfqa(args.limit, args.seed) if args.medlfqa else []
+    lfqa_keys = {question_key(e.question) for e in lfqa}
+    protocol: Dict = {"stage1": args.stage1, "medlfqa": bool(lfqa)}
+    pub = (load_reasoning if args.stage1 == "reasoning" else load_pubmedqa)(
+        args.limit, args.seed)
+    if lfqa:
+        pub, protocol["removed_stage1"] = exclude_questions(pub, lfqa_keys)
     pub_train, pub_held = holdout(pub, min(args.pubmed_holdout, len(pub) // 10),
                                   args.seed)
     ev = None
     if args.evidence:      # T61: train the decision, from the evidence
         pub_train, ev = evidence_examples(pub_train, args.seed, pubmedqa_test_keys())
         log("evidence data (T61): " + " ".join(f"{k}={v}" for k, v in ev.items()))
-    ft, val, bench = split_by_question(load_medquad(args.limit, args.seed),
-                                       args.seed)
-    mk = lambda ex: GenDataset(ex, tok, cfg.max_seq_len, cfg.max_answer)  # noqa: E731
-    data = {"pubmedqa": mk(pub_train), "pubmedqa_held": mk(pub_held),
+    mq = load_medquad(args.limit, args.seed)
+    if lfqa:
+        mq, protocol["removed_medquad"] = exclude_questions(mq, lfqa_keys)
+    ft, val, bench = split_by_question(mq, args.seed)
+    mk = lambda ex, cut=True: GenDataset(ex, tok, cfg.max_seq_len, cfg.max_answer,  # noqa: E731
+                                         cut_long=cut)
+    cut1 = args.stage1 != "reasoning"     # a cut reasoning row loses its answer
+    data = {"pubmedqa": mk(pub_train, cut1), "pubmedqa_held": mk(pub_held, cut1),
             "medquad_ft": mk(ft), "medquad_val": mk(val),
             "medquad_bench": mk(bench)}
-    log("rows " + " ".join(f"{k}={len(v)}(-{v.dropped})" for k, v in data.items()))
+    if lfqa:
+        data["medlfqa"] = mk(lfqa)
+    protocol["dropped_long"] = {k: v.dropped_long for k, v in data.items()}
+    log("rows " + " ".join(f"{k}={len(v)}(-{v.dropped})" for k, v in data.items())
+        + f" | stage1={args.stage1}" + (f" medlfqa removed from training: stage1 "
+        f"{protocol['removed_stage1']}, medquad {protocol['removed_medquad']}" if lfqa else ""))
 
     def collate(rows):
         return gen_collate(rows, pad)
@@ -542,6 +641,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                     "params_addon": model.addon_params()})
     if ev is not None:
         results["evidence_data"] = ev
+    results["protocol"] = protocol
 
     def write() -> None:
         with open(res_path, "w", encoding="utf-8") as f:
@@ -641,6 +741,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             t0, loss_ema, group_bad, l2_rms = time.time(), None, False, None
             pair_ema, pair_n = None, 0
             l2_conf = None
+            v01 = None              # sandbox v0.1.0 diagnostics (spec 8.2)
+            v01_grad: Dict = {}
             for bi in range(skip, nb):
                 # T44 warm-up: SmolLM2 frozen, only L2 learns
                 warm = si == 0 and opt_step < args.l2_warmup
@@ -655,6 +757,9 @@ def main(argv: Optional[List[str]] = None) -> None:
                 # only L2 trains)
                 drop = (model.addon is not None and not warm
                         and l2_dropped(args.seed, si, opt_step, l2_drop))
+                model.set_explore(explore_weight(opt_step, cfg.sandbox_explore,
+                                                 cfg.sandbox_explore_steps)
+                                  if si == 0 else 0.0)
                 b = collate([ds[i] for i in batches[bi]])
                 ids, mask = b["input_ids"].to(device), b["attention_mask"].to(device)
                 with autocast(), (model.l2_off() if drop else contextlib.nullcontext()):
@@ -673,6 +778,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                         loss = loss + args.pair_loss * lp
                 if "consensus_rms" in out.aux:
                     l2_rms = float(out.aux["consensus_rms"])
+                v01 = v01_stats(out.aux) or v01
+                if v01 is not None:
+                    v01["role_losses"] = {k: float(out.aux[k]) for k in
+                                          ("loss_r3", "loss_cand", "explore_entropy")
+                                          if k in out.aux}
                 if "learned_confidence" in out.aux:      # L2 v3 (T51)
                     l2_conf = (float(out.aux["learned_confidence"]),
                                float(out.aux["vote_support"]),
@@ -687,6 +797,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 else:
                     group_bad = True
                 if (bi + 1) % args.grad_accum == 0 or bi + 1 == nb:
+                    v01_grad = model.role_grad_norms() or v01_grad
                     gn_backbone, gn_addon = clip_grads(model, 1.0)
                     if group_bad or not (math.isfinite(gn_backbone)
                                          and math.isfinite(gn_addon)):
@@ -767,7 +878,16 @@ def main(argv: Optional[List[str]] = None) -> None:
                                if l2_rms is not None else "")
                             + ("conf={:.3f} vote={:.3f} tgate={:.3f} ".format(*l2_conf)
                                if l2_conf is not None else "")
-                            + (f"pair={pair_ema:.4f} " if pair_ema is not None else "") +
+                            + (f"pair={pair_ema:.4f} " if pair_ema is not None else "")
+                            + ("sel=" + "/".join(f"{v:.2f}" for v in v01["sel_top"])
+                               + f" H={v01['sel_entropy']:.3f} gr="
+                               + "/".join(f"{v01_grad.get(k, 0.0):.2g}" for k in
+                                          ("R1_explore", "R2_consistency", "R3_uncertainty",
+                                           "R4_supported", "gate")) + " "
+                               if v01 is not None else "")
+                            + ("".join(f"{k.split('_')[-1]}={v:.3f} " for k, v in
+                                       v01["role_losses"].items())
+                               if v01 is not None and v01.get("role_losses") else "") +
                             f"eta={fmt_duration((nb - bi - 1) / max(rate, 1e-9))}")
                 if si == 0 and bi + 1 in eval_at:
                     r = score("pubmedqa_held")
@@ -786,6 +906,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                      if model.addon else 0.0,
                      "gate_per_site": model.addon.site_gate_magnitudes()
                      if model.addon else []}
+            if v01 is not None:
+                entry["sandbox_v01"] = {**v01, "grad": v01_grad}
             if paired:
                 entry.update(pair_loss=pair_ema, pairs_used=pair_n)
             history.append(entry)
@@ -830,9 +952,37 @@ def main(argv: Optional[List[str]] = None) -> None:
     p = _strip_rows(score("pubmedqa_held"))
     p.update(gen_scores("pubmedqa_held", args.gen_subset_pubmed,
                         args.max_new_pubmed))
+    lf = None
+    if "medlfqa" in data:
+        # Ekdant v0.1.0 benchmark: perplexity, generation, factuality
+        dl = data["medlfqa"]
+        lf = score("medlfqa")
+        lf["row_group"] = [question_key(dl.examples[i].question) for i in lf["row_idx"]]
+        rows = sorted(random.Random(args.seed).sample(
+            range(len(dl)), min(args.gen_subset_medlfqa, len(dl))))
+        outs = generate_greedy(model, [dl.prompt_ids(i) for i in rows],
+                               args.max_new_medlfqa, device, tok.eos_token_id, pad,
+                               args.gen_batch, autocast)
+        preds = [tok.decode(o, skip_special_tokens=True).strip() for o in outs]
+        exs = [dl.example(i) for i in rows]
+        g = score_generations(preds, [e.answer for e in exs])
+        lf["rouge_l"], lf["token_f1"], lf["gen_n"] = g["rouge_l"], g["token_f1"], g["n"]
+        judge = NLIJudge(device=device, batch_size=args.nli_batch)
+        fact = factuality_scores(preds, exs, judge)
+        del judge
+        fact["fact_n"] = fact.pop("n")
+        lf.update(fact)
+        lf["gen_idx"] = rows
+        lf["gen_group"] = [question_key(e.question) for e in exs]
+        with open(os.path.join(args.out, "medlfqa_generations.jsonl"), "w",
+                  encoding="utf-8") as f:
+            for i, e, pr in zip(rows, exs, preds):
+                f.write(json.dumps({"row": i, "question": e.question,
+                                    "reference": e.answer, "generated": pr}) + "\n")
     wall = wall_prev + time.time() - t_start
     results["history"] = history
     results["test"] = {"medquad_bench": b, "pubmedqa_held": p,
+                       **({"medlfqa": lf} if lf is not None else {}),
                        "gate_magnitude": model.addon.gate_magnitude()
                        if model.addon else 0.0,
                        "gate_per_site": model.addon.site_gate_magnitudes()
@@ -851,6 +1001,16 @@ def main(argv: Optional[List[str]] = None) -> None:
                                weights=[on[k][1] for k in keys])
         results["test"]["l2_off"] = {"medquad_bench": _strip_rows(bo),
                                      "pubmedqa_held": po, "importance": imp}
+        if lf is not None:
+            with model.l2_off():
+                lo = score("medlfqa")
+            on, off = _rows(lf), _rows(lo)
+            keys = sorted(set(on) & set(off))
+            lgrp = dict(zip(lf["row_idx"], lf["row_group"]))
+            results["test"]["l2_off"]["medlfqa"] = _strip_rows(lo)
+            results["test"]["l2_off"]["importance_medlfqa"] = paired_bootstrap(
+                [on[k][0] for k in keys], [off[k][0] for k in keys],
+                [lgrp[k] for k in keys], weights=[on[k][1] for k in keys])
         log(f"[test L2 off] medquad_bench ppl={bo['ppl']:.3f} (with L2 {b['ppl']:.3f}): "
             f"per-token NLL {imp['diff']:+.4f} 95% CI [{imp['lo']:+.4f}, "
             f"{imp['hi']:+.4f}]; pubmedqa_held ppl={po['ppl']:.3f}")
@@ -877,5 +1037,10 @@ def main(argv: Optional[List[str]] = None) -> None:
             f"something only if it beats this)")
     log(f"[test pubmedqa_held] ppl={p['ppl']:.3f} rouge_l={p['rouge_l']:.4f} "
         f"token_f1={p['token_f1']:.4f}")
+    if lf is not None:
+        log(f"[test medlfqa] ppl={lf['ppl']:.3f} rouge_l={lf['rouge_l']:.4f} "
+            f"token_f1={lf['token_f1']:.4f} comprehensiveness={lf['comprehensiveness']:.2f} "
+            f"hallucination={lf['hallucination']:.2f} (generated {lf['gen_n']}, "
+            f"{lf['n_statements']} statements judged)")
     write()
     log(f"\nwrote {res_path}")

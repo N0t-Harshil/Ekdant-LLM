@@ -24,7 +24,8 @@ import torch.utils.checkpoint
 import torch.nn.functional as F
 
 from ekdant.output_head import OutputHead
-from ekdant.sandbox import Sandbox, SandboxOutput, masked_mean_bt
+from ekdant.sandbox import (Sandbox, SandboxOutput, SandboxV01, build_sandbox,
+                             masked_mean_bt)
 from ekdant.transformer_stack import RMSNorm, TransformerStack
 
 RHO_MIN_DEFAULT = 0.05
@@ -336,11 +337,18 @@ class GatedAddOn(nn.Module):
         # (zero-init: an untrained read is the plain v3 memory)
         self.read_w = nn.Parameter(torch.zeros(n_read, dim)) if n_read else None
         # ``sandbox`` given = one L2 shared by several sites (v2.2, spec §14)
-        self.sandbox = sandbox if sandbox is not None else Sandbox(dim, **sandbox_kwargs)
+        self.sandbox = sandbox if sandbox is not None else build_sandbox(dim, **sandbox_kwargs)
+        # the sandbox v0.1.0 (Ekdant v0.1.0): it returns the selected change
+        # itself; this site sizes it to the stream (no outer gate)
+        self.v01 = isinstance(self.sandbox, SandboxV01)
+        # set by EkdantLM when the candidate loss is on: keep R1-R4's own
+        # candidate states (stream units) of the last training forward
+        self.keep_candidates = False
+        self.last_candidates: Optional[torch.Tensor] = None
         self.out_norm = RMSNorm(dim)
         if force:
             self.out_norm.weight.requires_grad_(False)
-        if mode == "mid":
+        if mode == "mid" or self.v01:
             self.in_norm = RMSNorm(dim)
 
     def forward(self, h: torch.Tensor, mask: Optional[torch.Tensor] = None,
@@ -352,7 +360,7 @@ class GatedAddOn(nn.Module):
         if not self.enabled:
             self.last_ctx = None
             return h, {}
-        x = self.in_norm(h) if self.mode == "mid" else h
+        x = self.in_norm(h) if (self.mode == "mid" or self.v01) else h
         now = x
         if self.read_w is not None and deep:
             # T56: what the model knew about each word at earlier depths,
@@ -364,6 +372,8 @@ class GatedAddOn(nn.Module):
         # what L2 reads: the model's states of every token so far
         ctx = now if past_ctx is None else torch.cat([past_ctx.type_as(x), now], dim=1)
         self.last_ctx = ctx.detach()
+        if self.v01:
+            return self._forward_v01(h, x, mask, attn_mask, ctx)
         g = self.effective_gate()
         # drawn here, outside the checkpoint, so the recompute in the
         # backward pass runs the same number of passes (T54)
@@ -413,6 +423,25 @@ class GatedAddOn(nn.Module):
             return h + g * add, aux
         return h + g * (y - h), aux
 
+    def _forward_v01(self, h, x, mask, attn_mask, ctx):
+        """Sandbox v0.1.0: h + (selected change) x rms(h).  The change is
+        computed from the normalised state, so its size follows the stream at
+        every depth (rms ~2 at the end, ~100 inside); at init it is 0."""
+        if self.checkpoint and torch.is_grad_enabled():
+            out = torch.utils.checkpoint.checkpoint(
+                self.sandbox, x, mask, attn_mask, ctx, None, use_reentrant=False)
+        else:
+            out = self.sandbox(x, mask=mask, attn_mask=attn_mask, ctx=ctx)
+        aux = dict(out.aux)
+        aux["consensus_rms"] = masked_mean_bt(
+            out.consensus.detach().float().pow(2).mean(-1), mask).sqrt()
+        scale = h.float().pow(2).mean(-1, keepdim=True).sqrt().detach()
+        self.last_candidates = None
+        if self.keep_candidates and torch.is_grad_enabled():
+            deltas = out.trajectories[1:] - x.unsqueeze(0)                  # [4,B,T,D]
+            self.last_candidates = h.unsqueeze(0) + (deltas.float() * scale).type_as(h)
+        return h + (out.consensus.float() * scale).type_as(h), aux
+
     def effective_gate(self) -> torch.Tensor:
         g = (self.gate_cap * torch.tanh(self.gate / self.gate_cap)
              if self.gate_cap > 0 else self.gate)
@@ -453,7 +482,7 @@ class MultiAddOn(nn.Module):
                  aligned: bool = False, token_gate_min: float = 0.0,
                  stream_scale: bool = False, n_reads: Optional[list] = None):
         super().__init__()
-        one = Sandbox(dim, **sandbox_kwargs) if shared else None
+        one = build_sandbox(dim, **sandbox_kwargs) if shared else None
         # T56: n_reads = how many earlier depths each site reads (mid sites,
         # then the end)
         n_reads = list(n_reads) if n_reads else [0] * (n_sites + int(final))
@@ -593,8 +622,58 @@ class V2Config:
     # learn (with --l2-warmup: L2 first, then L2 + the adapters).
     lora_r: int = 0
     lora_alpha: float = 32.0
+    # Ekdant v0.1.0 (spec 04-Model-DeepDive/30): the sandbox version.
+    # "0.0.5" = the sandbox of v1-v5 (every setting above); "0.1.0" = the
+    # original state + four role generators, one communication round and a
+    # learned soft selection gate (``SandboxV01``), at one insertion point.
+    sandbox_version: str = "0.0.5"
+    sandbox_rounds_v01: int = 1
+    sandbox_hidden_ratio_v01: float = 4.0
+    sandbox_gate_hidden_v01: int = 256
+    # "soft" = weighted selection; hard selection is a later phase
+    sandbox_select: str = "soft"
+    # Role objectives of the sandbox 0.1.0 (Phase 5, spec 8.3), 0 = off.
+    # sandbox_r3_loss: weight of the BCE with which a probe on R3's proposal
+    # predicts whether the model's next token is right (R3 learns uncertainty).
+    # sandbox_cand_loss: weight of the mean next-token loss of each role's own
+    # candidate (R1-R4), so a candidate the gate ignores still learns; end
+    # placement only (addon_layer -1).  sandbox_explore: weight of a bonus on
+    # the gate's entropy, fading linearly to 0 over the first
+    # sandbox_explore_steps optimiser steps of stage 1 (set by the trainer).
+    sandbox_r3_loss: float = 0.0
+    sandbox_cand_loss: float = 0.0
+    sandbox_explore: float = 0.0
+    sandbox_explore_steps: int = 1000
 
     def validate(self) -> "V2Config":
+        if self.sandbox_version not in ("0.0.5", "0.1.0"):
+            raise ValueError(f"sandbox_version must be 0.0.5|0.1.0, got {self.sandbox_version!r}")
+        if self.sandbox_version == "0.1.0":
+            if self.sandbox_select != "soft":
+                raise ValueError(f"sandbox_select must be 'soft' for now, got {self.sandbox_select!r}")
+            if self.addon_layers:
+                raise ValueError("sandbox 0.1.0 runs at one insertion point: use addon_layer")
+            if self.sandbox_rounds_v01 < 0:
+                raise ValueError(f"sandbox_rounds_v01 must be >= 0, got {self.sandbox_rounds_v01}")
+            old = [k for k, on in (("sandbox_confidence", self.sandbox_confidence),
+                                   ("sandbox_aligned", self.sandbox_aligned),
+                                   ("sandbox_train_passes", self.sandbox_train_passes > 1),
+                                   ("gate_force", self.gate_force),
+                                   ("sandbox_free_views", self.sandbox_free_views),
+                                   ("sandbox_out_from_backbone", self.sandbox_out_from_backbone))
+                   if on]
+            if old:
+                raise ValueError(f"{old} belong to sandbox 0.0.5, not 0.1.0")
+            if self.sandbox_cand_loss > 0 and (self.addon_layer != -1 or self.addon_layers):
+                raise ValueError("sandbox_cand_loss scores each candidate with the output "
+                                 "layer: needs the end placement (addon_layer -1)")
+        for k in ("sandbox_r3_loss", "sandbox_cand_loss", "sandbox_explore"):
+            if getattr(self, k) < 0:
+                raise ValueError(f"{k} must be >= 0, got {getattr(self, k)}")
+            if getattr(self, k) > 0 and self.sandbox_version != "0.1.0":
+                raise ValueError(f"{k} is a role objective of the sandbox 0.1.0")
+        if self.sandbox_explore_steps < 0:
+            raise ValueError(f"sandbox_explore_steps must be >= 0, got {self.sandbox_explore_steps}")
         if self.lora_r < 0:
             raise ValueError(f"lora_r must be >= 0, got {self.lora_r}")
         if self.lora_r > 0 and self.lora_alpha <= 0:
@@ -644,6 +723,12 @@ class V2Config:
         return [self.addon_layer] if self.addon_layer > 0 else []
 
     def sandbox_kwargs(self) -> Dict:
+        if self.sandbox_version == "0.1.0":
+            return dict(version="0.1.0", heads=self.sandbox_heads,
+                        hidden_ratio=self.sandbox_hidden_ratio_v01,
+                        rounds=self.sandbox_rounds_v01,
+                        gate_hidden=self.sandbox_gate_hidden_v01,
+                        r3_probe=self.sandbox_r3_loss > 0)
         return dict(K=self.n_sandbox, rounds=self.debate_rounds,
                     steps=self.descent_steps, eta=self.eta,
                     rho_min=self.rho_min, readout=self.readout,
@@ -745,6 +830,9 @@ class EkdantLM(nn.Module):
                     functools.partial(self._site_hook, i))
         self._ctx: Dict = {"mask": None, "attn": None, "aux": [], "l2_past": None,
                            "deep": {}}
+        if cfg.addon == "sandbox" and cfg.sandbox_cand_loss > 0:
+            for s in self._all_sites():
+                s.keep_candidates = True
         # T51: L2 reads the model's own states, which are cached with the
         # backbone's (``L2Cache``), so generation keeps the KV cache
         self.needs_full_context = False
@@ -824,9 +912,12 @@ class EkdantLM(nn.Module):
                     [F.relu(self.cfg.rho_min - r).pow(2).mean() for r in rhos]).mean()
             if self.cfg.sandbox_confidence and self.cfg.lambda_conf > 0:
                 loss = loss + self.cfg.lambda_conf * self._conf_loss(logits, labels)
+            if self.training and self.cfg.addon == "sandbox":
+                loss = loss + self._role_losses(logits, labels, aux)
         if use_cache:
             aux["past_key_values"] = out.past_key_values
-            if self.cfg.addon == "sandbox" and self.cfg.sandbox_context:
+            if self.cfg.addon == "sandbox" and (self.cfg.sandbox_context
+                                                or self.cfg.sandbox_version == "0.1.0"):
                 aux["past_key_values"] = L2Cache(
                     out.past_key_values, [s.last_ctx for s in self._all_sites()])
         return ModelOutput(logits=logits, loss=loss, aux=aux)
@@ -838,6 +929,56 @@ class EkdantLM(nn.Module):
         if isinstance(self.addon, MultiAddOn):
             return self.addon._all()
         return [self.addon]
+
+    def _role_losses(self, logits: torch.Tensor, labels: torch.Tensor,
+                     aux: Dict) -> torch.Tensor:
+        """Role objectives of the sandbox 0.1.0 (Phase 5, spec 8.3), training
+        only; each term is logged in ``aux`` (detached).  0 when all are off."""
+        total = logits.new_zeros(()).float()
+        cfg = self.cfg
+        keep = (labels[:, 1:] != -100)
+        boxes = [b for b in self.sandboxes() if isinstance(b, SandboxV01)]
+        if cfg.sandbox_r3_loss > 0:
+            right = (logits[:, :-1].argmax(-1) == labels[:, 1:]).float().detach()
+            k = keep.float()
+            terms = []
+            for b in boxes:
+                if b.last_r3_logit is not None:
+                    bce = F.binary_cross_entropy_with_logits(
+                        b.last_r3_logit[:, :-1].float(), right, reduction="none")
+                    terms.append((bce * k).sum() / k.sum().clamp_min(1.0))
+            if terms:
+                r3 = torch.stack(terms).mean()
+                aux["loss_r3"] = r3.detach()
+                total = total + cfg.sandbox_r3_loss * r3
+        if cfg.sandbox_cand_loss > 0 and bool(keep.any()):
+            tgt = labels[:, 1:][keep]
+            terms = []
+            for s in self._all_sites():
+                c = s.last_candidates
+                if c is None:
+                    continue
+                for i in range(c.shape[0]):        # one candidate at a time: memory
+                    lg = self.lm.lm_head(c[i][:, :-1][keep])
+                    terms.append(F.cross_entropy(lg.float(), tgt))
+                s.last_candidates = None
+            if terms:
+                cl = torch.stack(terms).mean()
+                aux["loss_cand"] = cl.detach()
+                total = total + cfg.sandbox_cand_loss * cl
+        ents = [b.last_entropy for b in boxes
+                if b.explore_weight > 0 and b.last_entropy is not None]
+        if ents:
+            ent = torch.stack(ents).mean()
+            aux["explore_entropy"] = ent.detach()
+            total = total - boxes[0].explore_weight * ent
+        return total
+
+    def set_explore(self, weight: float) -> None:
+        """The trainer's current early-exploration weight (0 = off)."""
+        for b in self.sandboxes():
+            if isinstance(b, SandboxV01):
+                b.explore_weight = float(weight)
 
     def _conf_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """T51: binary cross-entropy of the confidence head against "is the
@@ -890,6 +1031,35 @@ class EkdantLM(nn.Module):
         finally:
             for b, (p, s) in zip(boxes, saved):
                 b.debate_passes, b.steps = p, s
+
+    @contextlib.contextmanager
+    def force_candidate(self, i: int):
+        """Sandbox v0.1.0 candidate ablation: every site's gate picks
+        candidate ``i`` (0 = h, 1-4 = R1-R4); soft selection afterwards."""
+        boxes = [b for b in self.sandboxes() if isinstance(b, SandboxV01)]
+        if not boxes:
+            raise ValueError("force_candidate needs the sandbox 0.1.0")
+        if not 0 <= int(i) < 5:
+            raise ValueError(f"candidate must be 0..4, got {i}")
+        for b in boxes:
+            b.force = int(i)
+        try:
+            yield self
+        finally:
+            for b in boxes:
+                b.force = None
+
+    def role_grad_norms(self) -> Dict[str, float]:
+        """Sandbox v0.1.0: L2 norm of the current gradient of each role's
+        parameters (and the gate's, the communication round's); {} otherwise."""
+        out: Dict[str, float] = {}
+        for b in self.sandboxes():
+            if not isinstance(b, SandboxV01):
+                continue
+            for name, ps in b.role_parameters().items():
+                sq = sum(float(p.grad.float().pow(2).sum()) for p in ps if p.grad is not None)
+                out[name] = out.get(name, 0.0) + sq
+        return {k: math.sqrt(v) for k, v in out.items()}
 
     @contextlib.contextmanager
     def l2_off(self):

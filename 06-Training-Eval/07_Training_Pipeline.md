@@ -14,6 +14,8 @@
 6. **Divergence guard (T32):** an optimiser step whose loss or gradient is non-finite is skipped (whole accumulation group dropped) and counted in `cost.skipped_steps`; `--max-bad-steps` (20) consecutive skips stop the run with a clear message.
 7. **Resume:** `last.pt` stores the optimiser state, the stage/epoch and the batch position; each epoch's order comes from a generator seeded by (seed, stage, epoch), so `--resume` continues exactly (`test_resume_mid_epoch_matches_uninterrupted`); a resume with changed flags or variant is refused, zero-shot is never measured on loaded weights, and wall-clock accumulates across resumes.
 
+**Ekdant v0.1.0 (2026-11-18, T64):** the same runner with `--config configs/ekdant_v0.1.0.json --stage1 reasoning --medlfqa`; `--addon-layer K` sets the sandbox's depth per run (placement study, `run.md` A3t). Stage 1 trains on medical reasoning text; the final benchmark adds MedLFQA (perplexity, generations, comprehensiveness / hallucination by the NLI judge, L2-off CI), with the generated answers saved in `medlfqa_generations.jsonl`. Log lines add `sel=` / `H=` / `gr=` (selection, gate entropy, per-role gradients) and every epoch's history the full sandbox v0.1.0 diagnostics.
+
 Sections 1–5 below describe the v1 runner.
 
 ## 1. Design history (superseded)

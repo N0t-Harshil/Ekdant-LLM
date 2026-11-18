@@ -3,7 +3,22 @@
 
 # Data Pipeline (Ekdant) — Thesis Ch. 4 source
 
-## v2 data (current, `gen_data.py`)
+## Ekdant v0.1.0 data (2026-11-18, `--stage1 reasoning --medlfqa`)
+
+```
+MedLFQA (dmis-lab/MedLFQA, test split) ── benchmark only: reference answer + must-have / nice-to-have statements
+        └─ its questions are removed from stage 1 and from MedQuAD before any split (exclude_questions)
+medical-o1-reasoning-SFT (en) ─ seeded hold-out ─┬─ stage 1: question → "<reasoning>\nFinal answer: <response>"
+                                                  └─ 2,000 held out (validation)
+        rows whose target is longer than max_answer (768 tokens in ekdant_v0.1.0.json) are dropped, not cut (a cut row loses
+        its final answer). Measured on all 19,704 rows with SmolLM2's tokenizer: target median 535 tokens, p90 712, p99 935,
+        max 1,472; <= 512: 8,164 (41.4 %), <= 768: 18,596 (94.4 %), <= 1,024: 19,638 (99.7 %)
+MedQuAD ── as below (stage 2 + its benchmark half)
+```
+
+Counts (rows, removed, dropped) are logged at the start of every run and saved in `results.json` `protocol`; they are not written here until a real run measures them. The multiple-choice sets below are not used by v0.1.0 (the code stays).
+
+## v2 data (`gen_data.py`)
 
 ```
 PubMedQA pqa_artificial (211,269) ─ seeded hold-out ─┬─ 209,269 ── phase 1: question + abstract → conclusion

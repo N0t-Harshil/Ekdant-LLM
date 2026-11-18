@@ -28,6 +28,22 @@ One file per arm, identical except `addon` (`test_shipped_v2_configs_differ_only
 
 Flags (`python -m ekdant.train --task gen …`): `--variant {baseline,sandbox}`, `--batch-size 8`, `--grad-accum 4`, `--lr 5e-5` (backbone), `--addon-lr 1e-4` (was 1e-3, T34), `--gate-lr 1e-3` (the gate alone, T35), `--gate-boost 10`, `--gate-boost-steps 1000`, `--brake-spike 3`, `--brake-l2-max 50`, `--brake-warmup 20` (T37), `--gate-floor 0` (e.g. 0.7: force the gates open by a ramp, T39), `--gate-floor-start 200`, `--gate-floor-steps 2000`, `--gate-force` (with `--gate-floor`: L2 must be used — hard minimum gate, frozen output scale, stream-sized mid output, T42), `--l2-warmup 0` (e.g. 2000: SmolLM2 frozen for the first N phase-1 steps, only L2 learns, T44), `--gate-rollback` (on a burst go back to the last snapshot, re-open slower and lower, T43), `--max-rollbacks 3` (rollbacks to one snapshot before the brake takes over, T45), `--snapshot-every 100`, `--floor-slowdown 2`, `--floor-step-down 0.05`, `--gate-floor-min -1` (= 0.8 × `--gate-floor`), `--warmup 200`, `--epochs 1` (PubMedQA), `--ft-epochs 3` (MedQuAD), `--eval-fraction 0.25`, `--pubmed-holdout 2000`, `--gen-subset 1000`, `--gen-subset-pubmed 500`, `--max-new 256`, `--max-new-pubmed 128`, `--gen-batch 32`, `--limit`, `--seed 17`, `--log-every 50`, `--gpu auto`, `--min-free-gb 20`, `--max-bad-steps 20` (T32), `--resume`, `--eval-only`.
 
+**Ekdant v0.1.0 (`configs/ekdant_v0.1.0.json`, 2026-11-18):** one file for both arms (it has no `addon` key; `--variant` sets it, so the arms differ only in L2; tested by `test_v010_config_serves_both_arms`). It is `v5_final.json` plus:
+
+| Key | Value | Meaning |
+|---|---|---|
+| `sandbox_version` | `"0.1.0"` (default `"0.0.5"` = every earlier config) | which sandbox: `Sandbox` (v1–v5) or `SandboxV01` (spec [30](../04-Model-DeepDive/30_L2_v6_Roles_Spec.md)) |
+| `sandbox_rounds_v01` | 1 | communication rounds between the candidates |
+| `sandbox_hidden_ratio_v01` | 4.0 | width of each role generator / H |
+| `sandbox_gate_hidden_v01` | 256 | width of the selection gate |
+| `sandbox_select` | `"soft"` | weighted selection (hard selection is a later phase; anything else is refused) |
+| `max_answer` | **768** in `ekdant_v0.1.0.json` (512 elsewhere) | 512 kept only 41.4 % of the reasoning rows, 768 keeps 94.4 % |
+| `sandbox_r3_loss`, `sandbox_cand_loss`, `sandbox_explore`, `sandbox_explore_steps` | 0, 0, 0, 1000 (set by `--r3-loss`, `--cand-loss`, `--explore`, `--explore-steps`) | role objectives (spec 30, "Role objectives"); `cand_loss` needs `addon_layer` −1; all three need `sandbox_version` 0.1.0 |
+
+With `sandbox_version` 0.1.0 the debate keys above are unused, and `validate()` refuses `addon_layers`, `sandbox_confidence`, `sandbox_aligned`, `sandbox_train_passes` > 1, `gate_force`, `sandbox_free_views`, `sandbox_out_from_backbone`.
+
+New flags: `--addon-layer K` (this run's insertion depth: after decoder layer K, −1 = after the final norm; refused on `--resume` with another depth), `--stage1 {pubmedqa,reasoning}` (default `pubmedqa`), `--medlfqa` (the v0.1.0 benchmark), `--gen-subset-medlfqa 1000`, `--max-new-medlfqa 256`, `--nli-batch 32`. Log lines of a v0.1.0 run add `sel=` (how often h / R1 / R2 / R3 / R4 wins), `H=` (gate entropy) and `gr=` (gradient norm of R1–R4 and the gate).
+
 Sections 1–5 below are the v1 (`--task mcq`) configs.
 
 ## 1. Model configs (`09-Code/configs/*.json`)

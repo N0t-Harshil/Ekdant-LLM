@@ -5,6 +5,7 @@ import copy
 import json
 import os
 
+import pytest
 import torch
 import torch.nn.functional as F
 
@@ -155,3 +156,33 @@ def test_hub_offline_toggle_reaches_transformers():
         assert th.is_offline_mode() is True
     finally:
         _hub_offline(True)
+
+
+class _Tok:
+    def __init__(self, n):
+        self.n = n
+
+    def __len__(self):
+        return self.n
+
+
+def test_incomplete_offline_tokenizer_is_downloaded_again(monkeypatch):
+    """T65: with only config.json cached, transformers 5 builds an empty
+    tokenizer offline (5 tokens, every word [UNK]) instead of raising, so the
+    online fallback never ran and the NLI judge scored garbage."""
+    import ekdant.backbone as B
+
+    calls = []
+    monkeypatch.setattr(B, "_hub_offline", lambda off: calls.append(off))
+    sizes = iter([5, 30522])
+    tok = B.load_complete_tokenizer(lambda: _Tok(next(sizes)), min_size=1000)
+    assert len(tok) == 30522
+    assert calls == [False, True]          # one online attempt, then back offline
+
+
+def test_tokenizer_still_incomplete_online_is_refused(monkeypatch):
+    import ekdant.backbone as B
+
+    monkeypatch.setattr(B, "_hub_offline", lambda off: None)
+    with pytest.raises(ValueError):
+        B.load_complete_tokenizer(lambda: _Tok(5), min_size=1000)

@@ -100,6 +100,87 @@ The comparison is architecture-matched, not parameter-matched: the sandbox arm
 has 19.59M more parameters and does more work per token. Say so next to every
 number.
 
+## A3t. Ekdant v0.1.0: the sandbox v0.1.0 and the text-generation protocol (T64) — built, not yet trained
+
+**What changed (2026-11-18, spec [30](04-Model-DeepDive/30_L2_v6_Roles_Spec.md), plan [30a](04-Model-DeepDive/30a_L2_v6_Roles_Plan.md)):**
+the sandbox v0.1.0 keeps the model's own state as candidate 0 and builds four
+role proposals (R1 explore, R2 consistency, R3 uncertainty, R4 best-supported),
+lets them read each other once, and a learned gate weighs the five per token.
+It runs at one insertion point chosen by `--addon-layer` (after decoder layer
+k, or -1 = after the final norm). Measured size: 23,686,785 add-on parameters
+(v0.0.5: 19,594,944). The multiple-choice benchmarks are no longer used for
+v0.1.0: stage 1 is medical reasoning text (`--stage1 reasoning`,
+medical-o1-reasoning-SFT, question -> reasoning -> final answer; rows longer
+than 768 answer tokens are dropped, not cut: `max_answer` is 768 in this
+config, which keeps 94.4 % of the 19,704 rows; 512 kept 41.4 %), stage 2 is MedQuAD as before,
+and the benchmark is **MedLFQA** (`--medlfqa`): reference-answer perplexity,
+ROUGE-L / F1 and the factuality of 1,000 generated answers (comprehensiveness,
+hallucination; judged by `pritamdeka/PubMedBERT-MNLI-MedNLI`). MedLFQA's
+questions are removed from all training data. Both arms use the one config
+`configs/ekdant_v0.1.0.json`; only `--variant` (and `--addon-layer`) differ.
+
+**Phase 3 — sanity run (one seed, end placement and layer 20, SmolLM2 frozen
+for the first 2,000 steps).** It must train without non-finite steps, every
+role must get a gradient (`gr=` in the log, five non-zero numbers), the gate
+must not pick one candidate everywhere (`sel=` = how often each of h / R1 /
+R2 / R3 / R4 wins; `H=` = gate entropy, ln 5 = 1.609 is "undecided"), and the
+candidates must not be identical (`cand_cos` in `results.json` history).
+The warm-up gives the sandbox arms fewer full-model steps than the baseline,
+so Phase 3 is a health check, **not** the comparison; the comparison is
+Phase 4.
+
+```bash
+cd ~/work/Ekdant-LLM && git pull && cd 09-Code
+python -m pytest -q > pytest.log 2>&1; echo "pytest exit $?"; tail -1 pytest.log
+FLAGS="--task gen --batch-size 8 --grad-accum 4 --epochs 1 --ft-epochs 3 --min-free-gb 30 --stage1 reasoning --medlfqa --config configs/ekdant_v0.1.0.json"
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS --variant baseline --out runs/v010_base_s17 > v010_base_s17.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS --variant sandbox --addon-layer -1 --l2-warmup 2000 --out runs/v010_end_s17 > v010_end_s17.log 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup python -m ekdant.train $FLAGS --variant sandbox --addon-layer 20 --l2-warmup 2000 --out runs/v010_l20_s17 > v010_l20_s17.log 2>&1 &
+```
+
+Then compare and run the candidate ablation (which candidate carries the
+change; `candidates.json` in the run):
+
+```bash
+python -m ekdant.gen_eval compare runs/v010_base_s17 runs/v010_end_s17 runs/v010_l20_s17
+python -m ekdant.gen_eval candidates runs/v010_end_s17 --gpu 0
+python -m ekdant.gen_eval candidates runs/v010_l20_s17 --gpu 0
+```
+
+**Phase 4 — placement study (only after Phase 3 is healthy).** One sandbox
+per run, the same config, seed, data and flags; only `--addon-layer`
+changes: after layers 5, 10, 15, 20, 25 and the end (-1). One seed first,
+then three seeds (17, 23, 31) for the best two depths. No warm-up here: the
+whole model trains from step 0, exactly like the baseline arm (fairness,
+RULES §0.4; the sandbox starts as a no-op, so step 0 equals SmolLM2).
+
+```bash
+for L in 5 10 15 20 25 end; do
+  D=$L; [ "$L" = end ] && D=-1
+  CUDA_VISIBLE_DEVICES=<free gpu> nohup python -m ekdant.train $FLAGS --variant sandbox --addon-layer $D --out runs/v010_p${L}_s17 > v010_p${L}_s17.log 2>&1 &
+done
+python -m ekdant.gen_eval compare runs/v010_base_s17 runs/v010_p5_s17 runs/v010_p10_s17 runs/v010_p15_s17 runs/v010_p20_s17 runs/v010_p25_s17 runs/v010_pend_s17
+```
+
+**Phase 5 — role objectives, one at a time (only after Phase 4).** At the
+best depth (the candidate loss only at the end), each objective alone
+against the same run without it, same seed:
+
+```bash
+BEST="--variant sandbox --addon-layer -1"
+CUDA_VISIBLE_DEVICES=1 nohup python -m ekdant.train $FLAGS $BEST --r3-loss 0.1 --out runs/v010_r3_s17 > v010_r3_s17.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -m ekdant.train $FLAGS $BEST --cand-loss 0.1 --out runs/v010_cand_s17 > v010_cand_s17.log 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup python -m ekdant.train $FLAGS $BEST --explore 0.05 --explore-steps 1000 --out runs/v010_explore_s17 > v010_explore_s17.log 2>&1 &
+```
+
+The log shows each term (`r3=`, `cand=`, `entropy=`). Weights 0.1 / 0.1 /
+0.05 are first settings, not tuned; the candidate loss adds about four
+output-layer passes over the answer tokens per step.
+
+A depth counts as better only if its MedLFQA perplexity CI against
+`v010_base` excludes 0 **and** comprehensiveness or hallucination improves
+with a CI that excludes 0; perplexity alone is not reasoning (RULES §1).
+
 ## A3s. Pair loss on the flipped pairs (T63) — done, results in A7n
 
 **Step 0 — finish A3r.** The MCQ benchmark is missing for four A3r runs

@@ -6,6 +6,13 @@
               is trained and must follow the evidence
     bench     MedQuAD benchmark half, split by unique question
 
+Ekdant v0.1.0 protocol (text generation, 2026-11-18):
+    stage 1   ``load_reasoning``: medical-o1-reasoning-SFT (en), question ->
+              step-by-step reasoning -> final answer (``--stage1 reasoning``)
+    bench     ``load_medlfqa``: MedLFQA (OLAPH), reference answer plus the
+              must-have / nice-to-have statements its factuality scores use;
+              its questions are removed from every training set
+
 The loss covers answer tokens only (prompt labels are -100).  Answers are
 cut at ``max_answer`` tokens (no EOS when cut); a too-long context is
 trimmed from its end so the row fits ``max_len``.
@@ -15,7 +22,7 @@ from __future__ import annotations
 
 import random
 from array import array
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import torch
@@ -25,6 +32,8 @@ from ekdant.backbone import _offline_first
 
 PUBMEDQA = ("qiaojin/PubMedQA", "pqa_artificial")
 MEDQUAD = "keivalya/MedQuad-MedicalQnADataset"
+REASONING = ("FreedomIntelligence/medical-o1-reasoning-SFT", "en")
+MEDLFQA = "dmis-lab/MedLFQA"
 
 
 @dataclass
@@ -35,6 +44,9 @@ class GenExample:
     qtype: str = ""
     label: str = ""        # PubMedQA final_decision (yes / no), T61
     pair: int = -1         # T63: id shared by the two rows of a flipped pair
+    # MedLFQA (v0.1.0): the statements an answer must / may contain
+    must_have: tuple = ()
+    nice_to_have: tuple = ()
 
 
 def format_gen_prompt(ex: GenExample) -> str:
@@ -51,8 +63,8 @@ def _rows_to_examples(rows: Iterable[Dict],
     for r in rows:
         ex = convert(r)
         if ex.question.strip() and ex.answer.strip():
-            out.append(GenExample(ex.question.strip(), ex.answer.strip(),
-                                  ex.context.strip(), ex.qtype, ex.label))
+            out.append(replace(ex, question=ex.question.strip(),
+                               answer=ex.answer.strip(), context=ex.context.strip()))
     return out
 
 
@@ -156,21 +168,64 @@ def load_medquad(limit: Optional[int] = None, seed: int = 17) -> List[GenExample
     return _subsample(ex, limit, seed)
 
 
+def load_reasoning(limit: Optional[int] = None, seed: int = 17) -> List[GenExample]:
+    """Stage 1 of Ekdant v0.1.0: the model learns to write its reasoning
+    before the answer.  Target = ``<reasoning>\nFinal answer: <response>``."""
+    from datasets import load_dataset
+
+    ds = _offline_first(lambda: load_dataset(*REASONING, split="train"))
+    ex = _rows_to_examples(ds, lambda r: GenExample(
+        r["Question"] or "",
+        f"{(r['Complex_CoT'] or '').strip()}\nFinal answer: {(r['Response'] or '').strip()}"
+        if (r["Response"] or "").strip() else ""))
+    return _subsample(ex, limit, seed)
+
+
+def load_medlfqa(limit: Optional[int] = None, seed: int = 17) -> List[GenExample]:
+    """The v0.1.0 benchmark (never trained on): reference answer, must-have and
+    nice-to-have statements."""
+    from datasets import load_dataset
+
+    ds = _offline_first(lambda: load_dataset(MEDLFQA, split="test"))
+    ex = _rows_to_examples(ds, lambda r: GenExample(
+        r["Question"] or "", r["Free_form_answer"] or "",
+        must_have=tuple(r.get("Must_have") or ()),
+        nice_to_have=tuple(r.get("Nice_to_have") or ())))
+    return _subsample(ex, limit, seed)
+
+
+def exclude_questions(examples: List[GenExample], keys: Iterable[str]
+                      ) -> Tuple[List[GenExample], int]:
+    """Drop every row whose question (``question_key``) is in ``keys`` - a
+    benchmark question must never reach a training set.  (rows kept, removed)"""
+    keys = set(keys)
+    kept = [e for e in examples if question_key(e.question) not in keys]
+    return kept, len(examples) - len(kept)
+
+
 class GenDataset(Dataset):
     """Tokenizes each row once.  Item: ``input_ids``, ``labels`` (-100 on the
     prompt), ``idx`` (row index into ``examples``).  Rows that cannot fit
     ``max_len`` even with the context removed are dropped (``dropped``)."""
 
     def __init__(self, examples: List[GenExample], tokenizer,
-                 max_len: int = 1024, max_answer: int = 512):
+                 max_len: int = 1024, max_answer: int = 512, cut_long: bool = True):
+        """``cut_long=False`` (v0.1.0 reasoning rows): an answer longer than
+        ``max_answer`` drops the row (``dropped_long``) instead of cutting it,
+        because a cut reasoning row loses its final answer."""
         self.examples = examples
         # ids as array('i'): 209k PubMedQA rows as Python int lists would
         # take ~3.4 GB per process (three arms run in parallel)
         self.rows: List[Tuple[array, int, int]] = []  # ids, n_prompt, idx
         self.dropped = 0
+        self.dropped_long = 0
         enc = lambda s: tokenizer(s, add_special_tokens=False)["input_ids"]  # noqa: E731
         for i, ex in enumerate(examples):
             ans = enc(" " + ex.answer)
+            if not cut_long and len(ans) > max_answer:
+                self.dropped += 1
+                self.dropped_long += 1
+                continue
             ans = ans[:max_answer] if len(ans) > max_answer \
                 else ans + [tokenizer.eos_token_id]
             if ex.context:

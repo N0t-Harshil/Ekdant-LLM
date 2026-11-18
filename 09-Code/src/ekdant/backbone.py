@@ -26,6 +26,26 @@ def _offline_first(load: Callable[[], T]) -> T:
             _hub_offline(True)
 
 
+def load_complete_tokenizer(load: Callable[[], T], min_size: int) -> T:
+    """Offline-first tokenizer load that refuses an incomplete tokenizer
+    (T65).  With only ``config.json`` cached, transformers 5 builds an empty
+    tokenizer offline (5 tokens, every word ``[UNK]``) instead of raising, so
+    ``_offline_first`` never went online.  Fewer than ``min_size`` tokens:
+    one online attempt; still too small: an error, never a silent result."""
+    tok = _offline_first(load)
+    if len(tok) >= min_size:
+        return tok
+    _hub_offline(False)
+    try:
+        tok = load()
+    finally:
+        _hub_offline(True)
+    if len(tok) < min_size:
+        raise ValueError(f"tokenizer has {len(tok)} tokens (< {min_size}): its "
+                         f"files are missing from the cache and could not be downloaded")
+    return tok
+
+
 def apply_hf_token(path: str) -> str:
     """Make a Hugging Face token available to downloads without ever
     logging or storing it.  ``HF_TOKEN`` in the environment wins; otherwise
@@ -57,7 +77,8 @@ def load_tokenizer(model_id: str):
     """The backbone's own tokenizer; ``pad_token`` falls back to EOS."""
     from transformers import AutoTokenizer
 
-    tok = _offline_first(lambda: AutoTokenizer.from_pretrained(model_id))
+    # SmolLM2 has 49,152 tokens; an incomplete cache gives a handful (T65)
+    tok = load_complete_tokenizer(lambda: AutoTokenizer.from_pretrained(model_id), 1000)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
     return tok

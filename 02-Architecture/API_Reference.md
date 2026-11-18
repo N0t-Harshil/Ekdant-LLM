@@ -92,6 +92,18 @@ Methods: `validate()` (divisibility + readout + eta default), `to_dict()`, `from
 | `AnchoredDescent(dim)` | `forward(traj, hT, steps, eta, mask=None) -> (traj, a_t, energy[K,B,T], retention[K])` |
 | `Sandbox(dim, K=4, rounds=2, steps=8, eta=None→0.5/steps, rho_min=0.05, readout="mean"\|"lowest_energy", gain_lo=0.8, gain_hi=1.25)` | `forward(hT[B,T,H], mask=None)`: init → debate×R → descent×S → consensus (mean, or per-position lowest-anchor-energy pick); aux statistics over real tokens |
 
+**Sandbox v0.1.0 (Ekdant v0.1.0, spec [30](../04-Model-DeepDive/30_L2_v6_Roles_Spec.md)):**
+
+| API | Signature / notes |
+|---|---|
+| `CANDIDATES` | `("h", "R1_explore", "R2_consistency", "R3_uncertainty", "R4_supported")` |
+| `SandboxV01(dim, heads=0, hidden_ratio=4.0, rounds=1, gate_hidden=256)` | `forward(hT, mask=None, attn_mask=None, ctx=None, passes=None) -> SandboxOutput`: `consensus` = selected change Σ p_i Δ_i `[B,T,H]`, `trajectories` = the five candidates `[5,B,T,H]`, `features` = gate weights p `[B,T,5]` (float32). `force` = i picks candidate i; `role_parameters()` -> {role: params, "gate", "comm"}. aux: `sel_p[5]`, `sel_top[5]`, `sel_entropy`, `cand_cos[5,5]`, `delta_rms[4]` (real tokens only) |
+| `CandidateRound(dim, roles=4)` | one communication round: cross-read of the five candidates, per-role repair gate and zero-init output; h never changed |
+| `build_sandbox(dim, version="0.0.5", **kw)` | `Sandbox` for 0.0.x, `SandboxV01` for 0.1.0 |
+| `EkdantLM.force_candidate(i)` / `role_grad_norms()` | candidate ablation context; per-role gradient norms (v0.1.0 only) |
+| `gen_data.load_reasoning` / `load_medlfqa` / `exclude_questions` | v0.1.0 stage-1 data, benchmark, benchmark questions removed from training; `GenDataset(..., cut_long=False)` drops too-long rows (`dropped_long`) |
+| `gen_eval.NLIJudge` / `factuality_scores` / `candidates_main` | NLI judge (`pritamdeka/PubMedBERT-MNLI-MedNLI`), MedLFQA comprehensiveness / hallucination, `python -m ekdant.gen_eval candidates <run>` |
+
 `aux` keys: `anchor_energy` (mean ½‖T_k − a_t‖²), `trajectory_variance`, `spread_ratio` (ρ = variance / mean(hT²)), `per_trajectory_retention[K]`, `anchor_distance[K]` — all means over real tokens when a mask is given. Helper: `masked_mean_bt(x, mask)`. Extras: `spread_floor(rho)`, `@no_grad post_round_state(hT) -> List[[K,B,T,H]]`.
 
 ## `ekdant.output_head`

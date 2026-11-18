@@ -2,6 +2,9 @@
 
 > Prev: [26b](26b_Dense_Transformer_for_T.md) · Next: [07](../06-Training-Eval/07_Training_Pipeline.md) · Map: [README](../README.md) · Spec: [02](../02-Architecture/02_System_Architecture.md) §5
 
+> [!note] Ekdant v0.1.0 (2026-11-18)
+> This note describes the sandbox of v1–v5 (**v0.0.x**, `Sandbox`). The sandbox **v0.1.0** (`SandboxV01`: the original state + four role generators, one communication round, a learned selection gate) is specified and explained, in plain words and technically, in [30_L2_v6_Roles_Spec.md](30_L2_v6_Roles_Spec.md).
+
 > [!important] Debate + energy + consensus are ==plain tensor ops== in `sandbox.py`. No agent frameworks, no transcripts, no orchestrator — K explicit trajectories, cost-matched by construction.
 
 > [!important] **v2 build (current).** Same modules, two knobs and one wrapper: `Sandbox(576, K=4, rounds=4, steps=8, eta=0.0625, mlp_ratio=4.0)` = 19,591,488 params; wrapped by `GatedAddOn` (`model.py`), which adds the per-channel gate `g` (576 params, zeros) and an output RMSNorm (576 params) and returns `h + g ⊙ (RMSNorm(consensus) − h)` (T32). v2 also turns on pre-norm in every debate round (`norm_inputs=True`, T33), so the chained debate matrices cannot compound weight growth. Tests: `tests/test_addon.py`, `tests/test_backbone.py`, `test_prenorm_debate_stops_size_compounding_across_rounds`. Spec: [30](../07-Management/30_Design_v2_Pretrained_Backbone.md).

@@ -63,6 +63,8 @@ Debugging: see [13_Debugging_Guide](06-Training-Eval/13_Debugging_Guide.md). Iss
 | ✅ 4 design defects found + proven + fixed | ❌ Phase-1 epoch count to re-pick from the validation curve (T25) |
 | ✅ Leakage-free protocol (T20), training-loop fixes (T21–T23), sandbox readout/diagnostics fixes (T24) | ❌ L2 size open item (6.56M measured vs 2.8M estimate) |
 
+**Ekdant v0.1.0 (2026-11-18):** the redesigned sandbox (original state + four role generators + a learned selection gate) and the text-generation protocol (MedLFQA) are built and tested, not yet trained — spec and explanation [30](04-Model-DeepDive/30_L2_v6_Roles_Spec.md), plan [30a](04-Model-DeepDive/30a_L2_v6_Roles_Plan.md), runs [run.md](run.md) A3t. Supervisor report: [Ekdant_v0.1.0_Report.pdf](08-Thesis/report/Ekdant_v0.1.0_Report.pdf).
+
 Readiness: **7.0/10** — details in [STATUS](01-Introduction/STATUS.md). Fix order: [11_Future_Work](07-Management/11_Future_Work.md).
 
 ## Executive summary

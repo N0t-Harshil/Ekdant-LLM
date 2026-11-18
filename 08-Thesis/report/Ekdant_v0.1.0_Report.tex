@@ -1,0 +1,872 @@
+% Ekdant v0.1.0 -- progress report after the supervisor meeting of 2026-11-18
+% Build: tectonic Ekdant_v0.1.0_Report.tex   (XeLaTeX engine)
+% Sources of every number: 04-Model-DeepDive/30_L2_v6_Roles_Spec.md (design,
+% measured size), run.md A3t (protocol), 07-Management/10_Known_Issues.md T64/T65,
+% 09-Code (code, configs, tests: 404 passed), the 2026-11-13 progress report
+% (v0.0.x results).  v0.1.0 has not been trained: no performance number of it
+% appears here.
+\documentclass[a4paper,12pt,parskip=half,headsepline]{scrartcl}
+
+\usepackage{amsmath}
+\usepackage{fontspec}
+% TeX Gyre Pagella (text and maths) and Heros (headings), loaded by file name
+\setmainfont{texgyrepagella}[Extension=.otf,UprightFont=*-regular,
+  BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]
+\setsansfont{texgyreheros}[Extension=.otf,UprightFont=*-regular,
+  BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]
+\usepackage{unicode-math}
+\setmathfont{texgyrepagella-math.otf}
+\linespread{1.08}
+\usepackage[a4paper,margin=2.5cm,top=2.8cm,bottom=2.8cm,headsep=0.6cm]{geometry}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs,tabularx,array,multirow}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric}
+\usepackage[font=small,labelfont=bf,margin=0.5cm]{caption}
+\usepackage{enumitem}
+\usepackage[most]{tcolorbox}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage{scrlayer-scrpage}
+
+\definecolor{lblue}{HTML}{2A78D6}
+\definecolor{lsoft}{HTML}{E6F0FB}
+\definecolor{lorange}{HTML}{EB6834}
+\definecolor{lgreen}{HTML}{1F7A46}
+\definecolor{ink}{HTML}{17191C}
+\definecolor{muted}{HTML}{575B62}
+\definecolor{rule}{HTML}{DEDFDC}
+\definecolor{rA}{HTML}{2A78D6}
+\definecolor{rB}{HTML}{7B4FB8}
+\definecolor{rC}{HTML}{C2185B}
+\definecolor{rD}{HTML}{1F8A80}
+\definecolor{plainbg}{HTML}{F3F7EE}
+\definecolor{plainfr}{HTML}{1F7A46}
+\definecolor{techbg}{HTML}{F4F4F6}
+
+\addtokomafont{disposition}{\color{ink}}
+\addtokomafont{section}{\Large}
+\addtokomafont{subsection}{\large}
+\addtokomafont{caption}{\small}
+\addtokomafont{captionlabel}{\sffamily\bfseries}
+\setkomafont{pageheadfoot}{\normalfont\sffamily\small\color{muted}}
+\setkomafont{pagenumber}{\normalfont\sffamily\small}
+\setlist{itemsep=2pt,topsep=3pt}
+\renewcommand{\arraystretch}{1.18}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\newcommand{\sig}{\ensuremath{^{\ast}}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\newtcolorbox{keybox}[1][]{enhanced,colback=lsoft,colframe=lblue,boxrule=0.6pt,
+  arc=2pt,left=8pt,right=8pt,top=6pt,bottom=6pt,fonttitle=\bfseries,#1}
+\newtcolorbox{rulebox}[1][]{enhanced,colback=white,colframe=ink,boxrule=0.5pt,
+  arc=2pt,left=8pt,right=8pt,top=6pt,bottom=6pt,fonttitle=\bfseries,
+  colbacktitle=ink!8,coltitle=ink,#1}
+% the two ways of explaining every part (author's request)
+\newtcolorbox{plain}[1][]{enhanced,breakable,colback=plainbg,colframe=plainfr,boxrule=0.5pt,
+  arc=2pt,left=8pt,right=8pt,top=5pt,bottom=5pt,fonttitle=\bfseries\small,
+  title={In plain words},fonttitle=\sffamily\bfseries\small,
+  before upper={\setlength{\parskip}{5pt}},#1}
+\newtcolorbox{tech}[1][]{enhanced,breakable,colback=techbg,colframe=muted,boxrule=0.5pt,
+  arc=2pt,left=8pt,right=8pt,top=5pt,bottom=5pt,fonttitle=\bfseries\small,
+  title={Technical explanation},fonttitle=\sffamily\bfseries\small,
+  before upper={\setlength{\parskip}{5pt}},#1}
+
+\pagestyle{scrheadings}
+\clearpairofpagestyles
+\ihead{Ekdant v0.1.0 \textbullet{} the sandbox with four role agents}
+\ohead{H.~Gorasiya \textbullet{} 18 November 2026}
+\cfoot{\pagemark}
+
+\tikzset{
+  >={Stealth[length=2.4mm]},
+  blk/.style={draw=ink,thick,rounded corners=3pt,fill=white,align=center,
+              minimum height=1.0cm,inner sep=4pt,font=\small},
+  sbx/.style={blk,draw=lblue,fill=lsoft,very thick},
+  role/.style={draw=#1,fill=#1!10,thick,rounded corners=3pt,align=center,
+               minimum width=3.4cm,minimum height=0.95cm,font=\small,inner sep=3pt},
+  cand/.style={draw=#1,fill=#1!15,thick,circle,minimum size=0.62cm,inner sep=0pt,font=\footnotesize},
+  lab/.style={font=\footnotesize,color=muted,align=center},
+  flow/.style={->,thick,ink},
+  bflow/.style={->,very thick,lblue},
+  thin/.style={->,semithick,muted},
+}
+
+\hypersetup{pdftitle={Ekdant v0.1.0: the sandbox with four role agents},
+  pdfauthor={Harshil Gorasiya}}
+
+\begin{document}
+
+% =====================================================================
+\begin{titlepage}
+  \thispagestyle{empty}
+  \vspace*{0.6cm}
+  {\color{muted}\large\sffamily MSc thesis \textbullet{} Hochschule Heilbronn}\par
+  \vspace{0.6cm}
+  {\color{ink}\fontsize{25}{30}\selectfont\sffamily\bfseries Ekdant v0.1.0:\\[3pt] a sandbox of four role agents\\[3pt] inside a small language model\par}
+  \vspace{0.6cm}
+  {\Large\sffamily\color{lblue} Architecture, new evaluation and status after the meeting of 18 November 2026\par}
+  \vspace{0.7cm}
+  \begin{tikzpicture}\draw[lblue,line width=2pt] (0,0) -- (14,0);\end{tikzpicture}\par
+  \vspace{0.5cm}
+  {\large\sffamily Harshil Gorasiya\par}
+  \vspace{0.2cm}
+  {\sffamily\color{muted} Status: 18 November 2026\par}
+  \vfill
+  \begin{keybox}[title={In one paragraph}]
+  \small
+  The first sandbox (v0.0.1--v0.0.5) placed four copies of each word's state at
+  \emph{random} positions, let them debate and averaged them; it never improved
+  reasoning, and its best gain was a preference for answering ``yes''.
+  Following the meeting, \textbf{Ekdant v0.1.0} rebuilds the sandbox as a small team
+  of agents \emph{inside} the model: the model's own state is kept, four reviewers
+  with \textbf{different jobs and rules} (explore, check consistency, express
+  uncertainty, build the best-supported alternative) each propose a corrected
+  state, they read each other once, and a \textbf{learned judge} decides word by
+  word whose version to use --- including ``keep the original''. Each reviewer can
+  also get its own training signal. The evaluation moves from multiple choice to
+  \textbf{text generation}: the model trains on written medical reasoning and is
+  judged on whether its answers contain the key medical facts (MedLFQA).
+  \textbf{Status:} built, tested (404 automated tests) and checked end-to-end on
+  CPU; \textbf{not trained yet} (no GPU access at the moment), so this report
+  contains no performance result of v0.1.0.
+  \end{keybox}
+  \vspace{0.3cm}
+  {\footnotesize\color{muted} Every section explains each part twice: a green box \emph{in plain words}, and a grey box with the \emph{technical explanation}. v0.0.x numbers are means over seeds 17, 23, 31 with a paired bootstrap 95\,\% CI; \sig{} = interval excludes 0.\par}
+\end{titlepage}
+
+\tableofcontents
+
+\begin{rulebox}[title={What is new in v0.1.0, at a glance}]
+\begin{tabularx}{\linewidth}{@{}p{3.6cm}Y@{}}
+\textbf{Roles, not copies} & Four reviewers with different inputs and rules (R1 explore, R2 consistency, R3 uncertainty, R4 best-supported) instead of four random projections.\\[2pt]
+\textbf{The original is kept} & The model's own state is candidate 0; the sandbox can decide to change nothing.\\[2pt]
+\textbf{A judge, not an average} & A learned gate weighs the five candidates per word; its weights say \emph{which} reviewer shaped the word.\\[2pt]
+\textbf{Training per role} & Optional objectives push each reviewer towards its job and stop ignored reviewers from fading out.\\[2pt]
+\textbf{Placement is measured} & One insertion point per run, chosen by a flag; a study over depths 5, 10, 15, 20, 25 and the end.\\[2pt]
+\textbf{New benchmark} & Text generation: reasoning-text training; MedLFQA scored for comprehensiveness and hallucination.
+\end{tabularx}
+\end{rulebox}
+
+% =====================================================================
+\section{Where we stand and what the meeting changed}
+
+\subsection{The versions}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}lY@{}}
+\toprule
+\textbf{Name} & \textbf{What}\\
+\midrule
+v0.0.1 & the from-scratch pilot (50\,M parameters, multiple-choice protocol)\\
+v0.0.2 -- v0.0.5 & SmolLM2-135M + the first sandbox (``L2''); v0.0.5 = the final model of the 13 November report\\
+\textbf{v0.1.0} & \textbf{this report: the redesigned sandbox and the text-generation protocol}\\
+v1.0.0 & reserved for the version that is shown to work\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{What v0.0.x showed (13 November report)}
+
+\begin{plain}
+The first sandbox did not make the model reason better. Its accuracy gain on
+PubMedQA came from answering ``yes'' more often, not from reading the evidence.
+When the training data was fixed so that the yes/no answer had to come from the
+evidence, the model without any sandbox improved, and the sandbox added nothing on top.
+\end{plain}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}Ylll@{}}
+\toprule
+\textbf{Setting (PubMedQA, \% right)} & \textbf{Baseline} & \textbf{v0.0.5 sandbox} & \textbf{Difference}\\
+\midrule
+Original data & 58.0 & 60.0 & +2.07\sig{} (a ``yes'' preference)\\
+Evidence data (T61) & 61.3 & 61.2 & $-0.10$\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Why the first sandbox could not help --- and the answer of v0.1.0}
+
+\begin{plain}
+In the meeting we agreed that the old design had no direction: the four copies
+were thrown to random places, nobody had a job, and the result was a plain average.
+The model's own understanding was barely used, and the layer could not say why it
+chose anything. v0.1.0 keeps the idea of a team working on each word's state, but
+gives every member a job and adds a judge.
+\end{plain}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}YY@{}}
+\toprule
+\textbf{Problem in v0.0.x} & \textbf{Answer in v0.1.0}\\
+\midrule
+Four random projections $T_k = W_k h$, all built the same way; no role & Four generators with different inputs and rules (R1--R4, Section~\ref{sec:roles})\\
+Output = mean of the four; the model's own state is not a choice & Five candidates including $h$ itself; a learned judge weighs them per word\\
+The gate settled at $g \approx 0.027$: the model used about 3\,\% of L2 & The change is sized to the model's stream; the judge, not a fixed gate, decides how much each candidate counts\\
+No reason for a choice & The judge's weights per word show which reviewer won (logged, and testable by forcing one candidate)\\
+Placed after the last layer, where it can only tilt the final word scores & One configurable insertion point; a placement study over six depths\\
+Multiple-choice benchmark rewards a yes/no tilt & Text-generation benchmark that checks the facts in written answers\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% =====================================================================
+\section{The architecture of the sandbox v0.1.0}
+
+\subsection{The whole model}
+
+\begin{plain}
+SmolLM2 reads the text word by word through 30 layers. At \emph{one} chosen point
+between these layers, every word has a ``state'' --- 576 numbers holding what the
+model currently thinks about it. The sandbox sits exactly there: it takes each
+word's state, lets a small team of agents work on it, and hands an improved state
+to the remaining layers. Because the rest of the model reads the improved state,
+a correction can influence everything that comes after it, including later words.
+Nothing else in SmolLM2 changes, and with the sandbox switched off the model is
+exactly SmolLM2.
+\end{plain}
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=0.55cm]
+  \node[blk] (txt) {text\\(question)};
+  \node[blk,right=of txt] (emb) {embedding};
+  \node[blk,right=of emb,minimum width=2.4cm] (low) {decoder layers\\$1 \dots k$};
+  \node[sbx,right=1.0cm of low,minimum width=3.0cm,minimum height=1.5cm] (sb) {\textbf{sandbox v0.1.0}\\[-1pt]{\footnotesize h + four role agents}\\[-1pt]{\footnotesize + judge}};
+  \node[blk,right=1.0cm of sb,minimum width=2.4cm] (high) {decoder layers\\$k{+}1 \dots 30$};
+  \node[blk,right=of high] (norm) {final norm\\+ output head};
+  \node[blk,right=of norm] (out) {next\\word};
+  \draw[flow] (txt) -- (emb); \draw[flow] (emb) -- (low);
+  \draw[bflow] (low) -- node[above,lab]{state $h$} (sb);
+  \draw[bflow] (sb) -- node[above,lab]{state $h'$} (high);
+  \draw[flow] (high) -- (norm); \draw[flow] (norm) -- (out);
+  \node[lab,below=0.35cm of sb] {$k$ is set per run (\code{--addon-layer}):\\after layer 5, 10, 15, 20, 25 or at the end};
+  \draw[muted,dashed,rounded corners] ($(low.north west)+(-0.25,0.45)$) rectangle ($(norm.south east)+(0.25,-1.75)$);
+  \node[lab,anchor=south west] at ($(low.north west)+(-0.2,0.47)$) {SmolLM2-135M (unchanged)};
+\end{tikzpicture}}
+\caption{Where the sandbox sits. With the sandbox off (or at step 0 of training) $h' = h$ and the model is exactly SmolLM2.}
+\label{fig:whole}
+\end{figure}
+
+\begin{tech}
+\textbf{Where it is attached.} SmolLM2-135M is a decoder-only transformer with 30
+pre-norm decoder layers and hidden size $d = 576$. Each layer adds its result to the
+\emph{residual stream} $h \in \mathbb{R}^{B \times T \times d}$ ($B$ sequences of $T$
+tokens). The sandbox is inserted with a PyTorch forward hook on decoder layer $k$: the
+hook receives the layer's output $h$ and returns $h' = h + \text{Sandbox}(h)$, which is
+what layer $k+1$ reads. $k$ is a configuration value (\code{addon\_layer}; $1 \le k \le 30$,
+or $k = -1$ for ``after the final norm'', directly before the output head) and can be
+overridden per run with \code{--addon-layer}; the transformer's own code is not changed.
+
+\textbf{Why the input is normalised.} The size of the stream differs strongly between
+depths: its root-mean-square (rms) is about 2 after the final norm and about 100 inside
+the network, with single channels near $2\cdot10^4$. A module that read $h$ directly would
+see completely different inputs at different depths. The sandbox therefore reads
+$x = \text{RMSNorm}(h)$ (with a learned per-channel weight), computes its change in these
+normalised units, and scales the change back by $\text{rms}(h)$ before adding it. The same
+weights thus work at every depth, and a change of a given size always means the same
+\emph{relative} change of the model's state.
+
+\textbf{Causality.} Every operation is either per token or attends only to earlier tokens
+of the same sequence (causal mask, padding excluded). Token $t$ therefore never sees
+tokens $> t$, batch rows never mix, and generation with the key--value cache gives
+exactly the same output as recomputing the whole sequence (verified by tests at layer 2
+and at the end).
+\end{tech}
+
+\subsection{Inside the sandbox}
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+  % input
+  \node[blk,minimum width=1.6cm] (h) at (-2.6,-1.9) {word\\state $h$};
+  \node[blk,minimum width=2.0cm] (x) at (0,-1.9) {$x = $\\RMSNorm$(h)$};
+  \draw[flow] (h) -- (x);
+  \node[blk,minimum width=2.4cm,fill=ink!4] (mem) at (0,-4.3) {earlier words\\(causal memory)};
+  \draw[thin] (x) -- (mem);
+  % roles
+  \node[role=rA] (r1) at (5.0,1.3) {\textbf{R1 explore}\\{\footnotesize new direction, $\perp x$}};
+  \node[role=rB] (r2) at (5.0,-0.2) {\textbf{R2 consistency}\\{\footnotesize reads earlier words}};
+  \node[role=rD] (r4) at (5.0,-1.7) {\textbf{R4 best-supported}\\{\footnotesize words + R1, R2}};
+  \node[role=rC] (r3) at (5.0,-3.2) {\textbf{R3 uncertainty}\\{\footnotesize their disagreement}};
+  \foreach \r in {r1,r2,r4,r3} \draw[thin] (x.east) -- (\r.west);
+  \draw[thin,dashed] (mem.east) to[out=0,in=200] (r2.west);
+  \draw[thin,dashed] (mem.east) to[out=0,in=200] (r4.west);
+  \draw[thin,rA] (r1.east) to[out=-20,in=20] (r4.east);
+  \draw[thin,rB] (r2.east) to[out=-20,in=20] (r4.east);
+  \draw[thin,rC] (r4.south) -- node[right,lab]{spread} (r3.north);
+  % candidates
+  \node[cand=ink] (c0) at (8.6,2.0) {$C_0$};
+  \node[cand=rA] (c1) at (8.6,1.0) {$C_1$};
+  \node[cand=rB] (c2) at (8.6,0.0) {$C_2$};
+  \node[cand=rC] (c3) at (8.6,-1.0) {$C_3$};
+  \node[cand=rD] (c4) at (8.6,-2.0) {$C_4$};
+  \draw[thin] (x.north) |- (c0.west);
+  \draw[thin,rA] (r1.east) -- (c1.west);
+  \draw[thin,rB] (r2.east) -- (c2.west);
+  \draw[thin,rC] (r3.east) to[out=0,in=180] (c3.west);
+  \draw[thin,rD] (r4.east) to[out=0,in=180] (c4.west);
+  \node[lab] at (8.6,-2.85) {$C_0 = x$,\\$C_i = x + \Delta_i$};
+  % round
+  \node[blk,minimum width=2.5cm,minimum height=4.6cm,fill=ink!3] (rnd) at (11.2,0.0) {\textbf{communication}\\\textbf{round}\\[4pt]{\footnotesize each reads}\\{\footnotesize the other four,}\\{\footnotesize adjusts its own}\\{\footnotesize $\Delta_i$; $C_0$ fixed}};
+  \foreach \c in {c0,c1,c2,c3,c4} \draw[thin] (\c.east) -- (\c.east -| rnd.west);
+  % judge
+  \node[sbx,minimum width=2.6cm,minimum height=2.2cm] (gate) at (14.4,0.0) {\textbf{judge}\\{\footnotesize scores $s_0..s_4$}\\{\footnotesize $p = \text{softmax}(s)$}};
+  \draw[bflow] (rnd) -- (gate);
+  \node[blk,minimum width=3.4cm,minimum height=1.3cm] (out) at (14.4,-3.2) {$h' = h + \text{rms}(h)\sum_{i} p_i \Delta_i$};
+  \draw[bflow] (gate) -- (out);
+  \node[lab] at (14.75,1.75) {reads each candidate,\\$x$ and the text so far};
+\end{tikzpicture}}
+\caption{Inside the sandbox v0.1.0. Coloured boxes are the four role generators; circles are the five candidate states; the judge decides per word how much each candidate counts. Dashed: reads the earlier words.}
+\label{fig:inside}
+\end{figure}
+
+The sandbox works in four steps. Each is explained below twice: in plain words, and
+in a technical explanation with the exact computation. Notation used throughout:
+$h_t \in \mathbb{R}^{d}$ is the residual-stream state of token $t$ at the insertion
+point ($d = 576$ for SmolLM2-135M), $x_t$ its normalised copy, $\Delta_{t,i}$ the change
+proposed by reviewer $i$, $C_{t,i}$ the five candidate states, $p_{t,i}$ the judge's
+weights; the token index $t$ is dropped where it is clear.
+
+\subsubsection*{Step 1 --- four reviewers propose a corrected state}
+\label{sec:roles}
+
+\begin{plain}
+Four reviewers each look at the word's state and propose a slightly different
+version of it. They do \emph{not} do the same thing --- each has its own job and is
+only allowed to look at certain things:
+\begin{itemize}
+\item \textbf{R1, the explorer}, looks only at the word itself and proposes \emph{another
+reading} of it --- something the model may have under-weighted. Its rule: its
+proposal must point in a new direction; it cannot just repeat or enlarge the original.
+\item \textbf{R2, the checker}, also reads the earlier words of the question and
+proposes the version that \emph{fits what was said before}.
+\item \textbf{R4, the best-supported alternative}, reads the earlier words and the
+proposals of R1 and R2, and combines them into the version \emph{with the most support}.
+\item \textbf{R3, the doubter}, looks at how much R1, R2 and R4 \emph{disagree}. When
+they disagree a lot, it proposes a version that keeps the question open instead of
+committing too early.
+\end{itemize}
+At the start of training every reviewer proposes ``no change''; what they propose is
+learned.
+\end{plain}
+
+\begin{tech}
+\textbf{The generators.} Each reviewer $i$ owns a two-layer network
+$F_i(z) = W_{2,i}\,\text{SiLU}(W_{1,i} z + b_{1,i}) + b_{2,i}$ with a hidden width of
+$4d = 2304$. The output layer $W_{2,i}, b_{2,i}$ is initialised to zero, so every reviewer
+proposes $\Delta_i = 0$ at the start of training and the model is exactly SmolLM2. Because
+the gradient still reaches $W_{2,i}$ (its input $\text{SiLU}(\cdot)$ is not zero), the
+reviewers start learning from the first step, in the same way as the zero-initialised
+matrix of LoRA adapters.
+
+\textbf{The text memory.} R2 and R4 may read the earlier tokens. Their keys are
+$K = W_K\,\text{RMSNorm}(x_{\le t})$ and their values are the normalised states
+$\text{RMSNorm}(x_{\le t})$ themselves, so the reviewers read \emph{the model's own
+representation} of the context rather than a re-encoded copy. $\text{Attn}(q)$ denotes
+multi-head attention (9 heads of 64 dimensions) of a query $q$ over this memory under a
+causal mask; each reviewer has its own query matrix, so R2 and R4 can look for different
+things in the same text.
+
+\textbf{The four rules.}
+\begin{align*}
+\text{R1 (explore):}\quad & u = F_1(x),\qquad \Delta_1 = u - (u\cdot\hat x)\,\hat x, \qquad \hat x = x/\lVert x\rVert\\
+\text{R2 (consistency):}\quad & \Delta_2 = F_2\big([\,x;\ \text{Attn}(W_{Q2}x)\,]\big)\\
+\text{R4 (best-supported):}\quad & \Delta_4 = F_4\big([\,x;\ \text{Attn}(W_{Q4}x);\ \Delta_1;\ \Delta_2\,]\big)\\
+\text{R3 (uncertainty):}\quad & \Delta_3 = F_3\big([\,x;\ \sigma\,]\big),\qquad \sigma = \sqrt{\text{Var}(\Delta_1,\Delta_2,\Delta_4) + \epsilon}
+\end{align*}
+$[\,\cdot\,;\,\cdot\,]$ is concatenation. R1's projection removes the component of its
+proposal along $x$, so $\Delta_1 \perp x$ always holds: R1 can change the
+\emph{direction} of the state (its reading) but can never just rescale or repeat it. R4
+receives R1's and R2's proposals as inputs and is computed after them. R3's input
+$\sigma$ is the per-channel standard deviation of the other three proposals, i.e.\ how
+much they disagree in each of the 576 channels; $\epsilon = 10^{-6}$ keeps the gradient
+finite at the start, where all proposals are equal. The candidates are
+$C_0 = x$ (the model's own state, never changed) and $C_i = x + \Delta_i$ for
+$i = 1, \dots, 4$.
+\end{tech}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.0]
+  \draw[->,muted] (-0.3,0) -- (4.6,0); \draw[->,muted] (0,-0.3) -- (0,3.4);
+  \fill[ink] (3.0,1.6) circle (2.6pt) node[below right,font=\small]{$x$ (model's state)};
+  \draw[->,very thick,rA] (3.0,1.6) -- (2.2,3.1) node[above,font=\small]{$C_1 = x + \Delta_1$};
+  \draw[dashed,muted] (0,0) -- (4.2,2.24);
+  \draw[rA] (2.80,1.98) -- (3.17,2.18) -- (3.37,1.80);
+  \node[lab,anchor=west] at (4.2,2.6) {$\Delta_1$ is at a right angle to $x$:\\R1 cannot simply stretch\\or copy the model's state};
+\end{tikzpicture}
+\caption{R1's rule, drawn in two of the 576 dimensions: whatever R1 learns, its change is orthogonal to the model's own state.}
+\label{fig:r1}
+\end{figure}
+
+\subsubsection*{Step 2 --- the reviewers read each other once}
+
+\begin{plain}
+Before the judge decides, every reviewer sees the other proposals (and the original)
+once and may adjust its own a little --- like a short discussion round. Each reviewer
+adjusts in its own way, so they stay different. The original state takes part as a
+reference but is never changed.
+\end{plain}
+
+\begin{tech}
+\textbf{One communication round} (the number is configurable,
+\code{sandbox\_rounds\_v01} $= 1$; each round has its own weights). All five candidates
+are normalised, $n_i = \text{RMSNorm}(C_i)$, and every candidate reads the other four with
+single-head attention, $\text{cross}_i = \sum_{j \ne i} a_{ij} V n_j$ with
+$a_{i\cdot} = \text{softmax}_j\big((Q n_i)^\top (K n_j)/\sqrt d\big)$; the diagonal is
+masked, so no candidate reads itself. Each reviewer then updates its own proposal:
+\[
+\Delta_i \leftarrow \Delta_i + \gamma_i \odot W_{o,i}\,\text{cross}_i,\qquad
+\gamma_i = \sigma\big(W_{\gamma,i}[\,n_i;\ \text{cross}_i\,] + b_{\gamma,i}\big).
+\]
+$\gamma_i \in (0,1)^d$ is a per-channel \emph{repair gate}: it decides how much of what the
+reviewer read it takes over. Its bias starts at $-2$ ($\gamma \approx 0.12$), so a reviewer
+initially keeps its own position and only moves towards the others where training shows
+that this helps. $W_{o,i}$ starts at zero (no change at step 0). The read is shared, but
+$W_{\gamma,i}$ and $W_{o,i}$ belong to reviewer $i$, so each reacts to the discussion in its
+own way and the roles do not merge. $C_0 = x$ is part of what is read but is never
+updated: the original state stays available to the judge unchanged.
+\end{tech}
+
+\subsubsection*{Step 3 --- the judge decides, word by word}
+
+\begin{plain}
+A judge looks at all five versions --- the original and the four proposals --- together
+with the word itself and the text so far, and gives each a weight. The weights add up
+to 1. If no proposal helps, the judge can put almost all weight on the original, and
+the word stays as SmolLM2 understood it. Because the judge decides per word, the
+explorer may win at one word and the checker at the next. The weights are written
+down during training, so we can see \emph{which} reviewer shaped a word --- a reason
+for the choice, which the old average could never give.
+\end{plain}
+
+\begin{tech}
+\textbf{Scoring.} The judge is a small network
+$G = \text{Linear}(3d \to 256) \to \text{SiLU} \to \text{Linear}(256 \to 1)$ that scores
+each candidate from three pieces of information:
+\[
+s_i = G\big([\,\text{RMSNorm}(C_i);\ x;\ \bar x_t\,]\big),\qquad i = 0,\dots,4,
+\]
+the candidate itself, the model's own state $x$ (what is being corrected), and
+$\bar x_t$, the mean of the normalised states of tokens $1..t$ (a summary of the text so
+far, computed causally). The same $G$ scores all five candidates, so the scores are
+comparable.
+
+\textbf{Weights.} $p = \text{softmax}(s_0,\dots,s_4)$, computed in 32-bit floating point
+also under bf16 mixed precision, so the weights are always finite, non-negative and sum to
+1 (tested). The last layer of $G$ starts at zero, so $p_i = 0.2$ for every candidate at
+step 0. The decision is made independently for every token, so the dominant candidate can
+change from word to word.
+
+\textbf{Soft versus hard selection.} v0.1.0 uses \emph{soft} selection: the new state is
+the $p$-weighted mixture (next step), which is differentiable, so the judge and all
+reviewers receive gradients. \emph{Hard} selection (only the $\arg\max$ candidate) is not
+differentiable and would need a straight-through or Gumbel-softmax estimator; it is
+planned as a separate, controlled experiment. For analysis, \code{force\_candidate(i)}
+replaces $p$ by a one-hot vector, which measures what each candidate alone does.
+\end{tech}
+
+\subsubsection*{Step 4 --- the improved state goes on}
+
+\begin{plain}
+The weighted mixture of the five versions becomes the word's new state, sized to fit
+the model at that depth, and SmolLM2 continues with it.
+\end{plain}
+
+\begin{tech}
+\textbf{Output.} The new state is the weighted mixture of the candidates, mapped back to
+the scale of the stream:
+\[
+h'_t = h_t + \text{rms}(h_t)\sum_{i=1}^{4} p_{t,i}\,\Delta_{t,i}.
+\]
+Since $\sum_i p_{t,i} C_{t,i} = x_t + \sum_{i \ge 1} p_{t,i}\Delta_{t,i}$ (with $\Delta_0 = 0$),
+this is exactly the spec's weighted selection $\sum_i p_i C_i$ in the normalised space,
+added to the stream as a residual change. $\text{rms}(h_t)$ is treated as a constant
+(no gradient), so the sandbox cannot learn to inflate the stream. The original state
+always contributes with weight $p_0$, and when the judge puts all weight on $C_0$ the
+token passes unchanged. With every $\Delta_i = 0$ at step 0, $h' = h$ bit for bit; the tests
+check this after layer 1, after layer 2 and at the end, and also that switching the
+sandbox off gives exactly SmolLM2.
+\end{tech}
+
+\subsection{An example of the intended behaviour}
+
+\begin{plain}
+\emph{Illustration of what the design is built for --- not a measured trace.}
+Question: ``Is aspirin safe for children with a fever?'' At the word \emph{safe}, the
+model's first reading leans towards ``a common painkiller, so yes''. R1 proposes the
+other reading (``a risk''). R2 reads the earlier words \emph{children} and
+\emph{fever} and proposes the version that fits them. R4 combines R1's alternative
+with R2's context into the best-supported state. R1 and R2 disagree with the
+original, so R3 proposes to keep the answer open. The judge gives most weight to R4
+and R2 at this word, and the later layers continue from ``a risk for children''
+instead of ``yes''. The sandbox can only use what SmolLM2 already knows --- it adds
+no new medical facts --- but it gives the model a chance to question its first
+reading before the error spreads to the rest of the answer.
+\end{plain}
+
+\subsection{How the reviewers evolve during training}
+
+\begin{plain}
+The reviewers are not fixed rules; they \textbf{learn while the model trains}. Two
+things never change: \emph{what each reviewer may look at}, and R1's ``new
+direction'' rule. Everything else --- what each one proposes, how they react to each
+other, and how much the judge trusts each one --- is learned. After every batch,
+each reviewer is nudged so that its proposal would have helped predict the next word,
+\emph{in proportion to how much the judge used it}; the judge is nudged towards
+reviewers that helped.
+
+The weak point is a feedback loop: a reviewer the judge ignores gets almost no
+nudge, stops improving, and is ignored even more (Figure~\ref{fig:loop}). That is
+why every training log line shows how often each reviewer wins, how undecided the
+judge is, and how strongly each reviewer is still learning.
+\end{plain}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.9cm]
+  \node[blk,minimum width=3.4cm] (a) {judge gives\\reviewer $i$ weight $p_i$};
+  \node[blk,minimum width=3.4cm,right=1.6cm of a] (b) {reviewer $i$ learns\\at a rate $\propto p_i$};
+  \node[blk,minimum width=3.4cm,below=1.0cm of $(a)!0.5!(b)$] (c) {reviewer $i$ helps\\more or less};
+  \draw[flow] (a) -- (b); \draw[flow] (b) |- (c); \draw[flow] (c) -| (a);
+  \node[blk,draw=lgreen,fill=plainbg,right=1.2cm of b,minimum width=4.2cm,align=left,font=\footnotesize] (fix) {\textbf{breaks the loop (optional):}\\candidate loss --- every reviewer\\learns even when ignored;\\early exploration --- the judge\\spreads its trust at first};
+  \draw[->,thick,lgreen,dashed] (fix.west) -- (b.east);
+\end{tikzpicture}
+\caption{The training feedback loop that can make one reviewer dominate (spec \S8), and the two objectives built to break it.}
+\label{fig:loop}
+\end{figure}
+
+\begin{tech}
+\textbf{What is learned.} All parameters of the four generators, the two reviewer
+queries, the memory key, the communication round and the judge are trained by
+back-propagation together with SmolLM2 (or with SmolLM2 frozen during an optional
+warm-up). Phase 1 uses only the next-token loss $\mathcal L$ on the answer tokens.
+
+\textbf{How strongly each reviewer learns.} Differentiating the output equation gives
+\begin{align*}
+\frac{\partial\mathcal L}{\partial \Delta_i} &= p_i\,\text{rms}(h)\,\frac{\partial\mathcal L}{\partial h'}\quad (+\ \text{terms via R3, R4 and the round}),\\
+\frac{\partial\mathcal L}{\partial s_i} &= p_i\,\text{rms}(h)\Big(\Delta_i - \textstyle\sum_j p_j\Delta_j\Big)\cdot\frac{\partial\mathcal L}{\partial h'} .
+\end{align*}
+The first line shows that reviewer $i$ is updated in proportion to its weight $p_i$: a
+reviewer the judge uses gets a strong signal, an ignored one almost none. The second line
+shows how the judge learns: it raises the score of a candidate whose change
+$\Delta_i$ points further in the loss-reducing direction $-\partial\mathcal L/\partial h'$
+than the current mixture $\sum_j p_j\Delta_j$, and lowers it otherwise. Together these
+create the reinforcing loop of Figure~\ref{fig:loop}, the collapse risk named in spec \S8.
+
+\textbf{What is monitored.} Every log line reports \code{sel} (the fraction of tokens on
+which each of the five candidates has the largest weight), \code{H} (the mean entropy of
+$p$; $\ln 5 = 1.609$ means undecided, $0$ means always the same candidate) and \code{gr}
+(the gradient norm of each reviewer and of the judge). Each epoch additionally records
+the mean weights, the $5\times5$ matrix of mean cosine similarities between candidates
+(collapse $=$ off-diagonal values approaching 1) and the size of each $\Delta_i$.
+\end{tech}
+
+\subsection{Training each reviewer for its job (role objectives)}
+
+\begin{plain}
+On its own, training only says ``help predict the next word''; it does not tell R3
+to be the doubter. Three extra training signals were built, each switched on
+separately and \textbf{off by default}, so their effect can be measured one at a time:
+\begin{enumerate}
+\item \textbf{R3 learns uncertainty:} a tiny probe reads only R3's proposal and must
+guess whether the model is about to get the next word right --- so R3's proposal has
+to carry ``the model is unsure here''.
+\item \textbf{No reviewer is starved:} each reviewer's own version is also scored on
+the next word directly, even when the judge ignores it.
+\item \textbf{The judge explores first:} for the first steps the judge is rewarded for
+spreading its trust; the reward fades to zero.
+\end{enumerate}
+\end{plain}
+
+\begin{tech}
+The three objectives are added to the next-token loss with their own weights (all 0 by
+default) and are computed only during training, on the answer tokens:
+\[
+\mathcal L_{total} = \mathcal L_{CE} + \lambda_{R3}\,\mathcal L_{R3} + \lambda_{cand}\,\mathcal L_{cand} - \lambda_t\,\bar H(p).
+\]
+\textbf{R3 correctness} (\code{--r3-loss} $\lambda_{R3}$). A linear probe $w^\top\Delta_3 + b$
+(577 parameters, created only when the objective is on) reads R3's proposal and is trained
+with binary cross-entropy against the target $\mathbb 1[\arg\max \text{logits}_t = y_{t+1}]$
+--- whether the model's top prediction for the next token is correct. The target is
+computed from the model's own output and detached (no gradient flows into it). Because
+the probe sees only $\Delta_3$, the gradient forces R3's proposal to encode how likely the
+model is to be wrong at this token --- a definition of ``uncertainty'' that can be checked.
+
+\textbf{Candidate loss} (\code{--cand-loss} $\lambda_{cand}$).
+$\mathcal L_{cand} = \tfrac14\sum_{i=1}^{4}\text{CE}\big(\text{head}(h + \text{rms}(h)\Delta_i),\ y\big)$:
+each reviewer's \emph{own} candidate is passed through the output head and scored on the
+next token, independent of $p_i$. A reviewer that the judge ignores still receives a full
+learning signal, which breaks the loop described above. Scoring a candidate requires the
+layers after the sandbox; at the end placement that is only the output head, so the
+objective is limited to $k = -1$ (other depths would multiply the cost). The four
+candidates are scored one after another to bound memory.
+
+\textbf{Early exploration} (\code{--explore} $\lambda$, \code{--explore-steps} $N$).
+$\bar H(p)$ is the mean entropy of the judge's weights over the answer tokens; subtracting
+$\lambda_t\bar H(p)$ rewards spreading the weight over several candidates. The weight
+decays linearly, $\lambda_t = \lambda\max(0, 1 - t/N)$, over the first $N$ optimiser steps of
+stage 1 (default $N = 1000$), so it only prevents an early lock-in and does not force equal
+use later (the spec explicitly rejects a fixed 20\,\% share per candidate).
+
+Each objective is tested alone against the same run without it before any combination
+(spec \S8.3); all three are logged per step (\code{r3=}, \code{cand=}, \code{entropy=}).
+\end{tech}
+
+\subsection{Size and cost}
+
+\begin{center}
+\begin{tabularx}{0.85\linewidth}{@{}Yr@{}}
+\toprule
+\textbf{Part (measured with \code{addon\_params()} on SmolLM2-135M)} & \textbf{Parameters}\\
+\midrule
+R1 explore & 2{,}657{,}088\\
+R2 consistency (with its query) & 4{,}315{,}968\\
+R3 uncertainty & 3{,}984{,}192\\
+R4 best-supported (with its query) & 6{,}970{,}176\\
+judge & 443{,}457\\
+text memory + communication round & 5{,}314{,}176\\
+norms of the insertion site & 1{,}728\\
+\midrule
+\textbf{sandbox v0.1.0} & \textbf{23{,}686{,}785}\\
+sandbox v0.0.5, for comparison & 19{,}594{,}944\\
+SmolLM2-135M backbone & 134{,}515{,}008\\
+whole model v0.1.0 & 158{,}201{,}793\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The sandbox is 20.9\,\% larger than v0.0.5 (within the $\pm$25\,\% agreed) and
+17.6\,\% of the backbone. It runs once per token inside the normal forward pass ---
+no second pass of SmolLM2, no generated drafts. The candidate loss is the only
+part with a noticeable training cost (four extra output-layer evaluations on the
+answer tokens), and it is optional.
+
+\subsection{What changed compared with v0.0.5}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}p{3.0cm}YY@{}}
+\toprule
+ & \textbf{v0.0.5} & \textbf{v0.1.0}\\
+\midrule
+Starting points & $T_k = W_k h$, random orthogonal projections & $h + \Delta_i$, $\Delta_i = 0$ at start; R1 orthogonal by rule\\
+Members & 4 identical structures & 4 roles with different inputs\\
+Context & none (one word at a time) & R2 and R4 read the earlier words; the judge reads the text so far\\
+Interaction & 4 debate rounds + 8 descent steps & 1 communication round (h is read, not changed)\\
+Readout & mean of the four & learned judge over five, incl.\ the original\\
+Output & $h + g(\text{RMSNorm}(c) - h)$, $g \approx 0.027$ & $h + \text{rms}(h)\sum p_i\Delta_i$\\
+Placement & after the final norm & any depth (flag), study over six depths\\
+Training per role & spread floor only & three optional role objectives\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% =====================================================================
+\section{The new evaluation: text generation}
+
+\begin{plain}
+Multiple-choice tests reward a model that leans towards one answer, which is
+exactly what fooled us with v0.0.5. The new protocol asks the model to \emph{write}
+answers. It first learns from examples that write out their reasoning step by step
+before the answer, then from patient-style medical questions and answers, and is
+finally judged on new questions: does its answer contain the key medical facts an
+expert expects, and does it contradict any of them?
+\end{plain}
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=0.7cm]
+  \node[blk,minimum width=3.6cm] (s1) {\textbf{stage 1}\\medical-o1-reasoning-SFT\\{\footnotesize question $\to$ reasoning $\to$ answer}};
+  \node[blk,minimum width=3.0cm,right=of s1] (s2) {\textbf{stage 2}\\MedQuAD\\{\footnotesize fine-tune half}};
+  \node[blk,minimum width=3.0cm,right=of s2] (sel) {checkpoint\\selection\\{\footnotesize MedQuAD validation}};
+  \node[sbx,minimum width=3.6cm,right=of sel] (b) {\textbf{benchmark}\\MedLFQA\\{\footnotesize + MedQuAD bench half}};
+  \draw[flow] (s1) -- (s2); \draw[flow] (s2) -- (sel); \draw[flow] (sel) -- (b);
+  \node[blk,draw=lorange,fill=lorange!8,font=\footnotesize,below=0.7cm of s2,minimum width=6.4cm] (rm) {MedLFQA questions removed from stage 1 and MedQuAD\\before any split --- never trained on};
+  \draw[->,thick,lorange,dashed] (b.south) |- (rm.east);
+  \node[blk,font=\footnotesize,below=0.7cm of b,minimum width=3.6cm,align=left] (m) {perplexity of the reference\\ROUGE-L, token F1\\comprehensiveness, hallucination\\L2-off test, candidate forcing};
+  \draw[flow] (b) -- (m);
+\end{tikzpicture}}
+\caption{The v0.1.0 protocol (\code{--stage1 reasoning --medlfqa}). Both arms use the same configuration file and flags; only \code{--variant} decides whether the sandbox is present.}
+\label{fig:protocol}
+\end{figure}
+
+\begin{tech}
+\begin{tabularx}{\linewidth}{@{}p{3.2cm}Y@{}}
+\toprule
+\textbf{Stage 1 data} & \code{FreedomIntelligence/medical-o1-reasoning-SFT} (en), 19{,}704 rows; target \code{<reasoning>\textbackslash nFinal answer: <response>}; 2{,}000 rows held out.\\
+\textbf{Answer length} & SmolLM2 tokens of the targets, all 19{,}704 rows: median 535, p90 712, p99 935, max 1{,}472. A row longer than \code{max\_answer} is dropped, never cut (a cut row loses its final answer). 512 kept 8{,}164 rows (41.4\,\%); \textbf{768} (chosen) keeps 18{,}596 (94.4\,\%).\\
+\textbf{Benchmark} & \code{dmis-lab/MedLFQA} (OLAPH, Jeong et al.\ 2024; LiveQA, MedicationQA, HealthSearchQA, K-QA): question, reference answer, \emph{must-have} and \emph{nice-to-have} statements.\\
+\textbf{Factuality} & Following Manes et al.\ (2024): comprehensiveness = \% of must-have statements the answer \emph{entails}; hallucination = \% of all statements it \emph{contradicts}. Judge: \code{pritamdeka/PubMedBERT-MNLI-MedNLI}, used only for scoring, never trained; 1{,}000 seeded answers of up to 256 tokens.\\
+\textbf{Statistics} & Paired bootstrap 95\,\% CI between the arms, resampling questions; a depth counts as better only if both the perplexity CI and a factuality CI exclude 0.\\
+\bottomrule
+\end{tabularx}
+\end{tech}
+
+% =====================================================================
+\section{Results so far}
+
+\begin{plain}
+v0.1.0 has not been trained, because there is no GPU access at the moment. So
+there is \textbf{no result yet on whether it reasons better}. What has been
+established is that the new model and the new evaluation are correct and ready to
+run: the code passes all automated tests, every part starts as an exact copy of
+SmolLM2, and short runs on a laptop go through every stage without errors. These
+checks also found and fixed one serious bug in the evaluation.
+\end{plain}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}p{4.2cm}Y@{}}
+\toprule
+\textbf{Check} & \textbf{Result}\\
+\midrule
+Automated tests & 404 passed (346 before v0.1.0; 58 new for the sandbox v0.1.0, the role objectives, the data, the benchmark and the bug fix)\\
+Start equals SmolLM2 & identical outputs at step 0 after layer 1, 2 and at the end; with the sandbox off always\\
+Causality / cached generation & a later word never changes an earlier one; a cached step equals the full forward\\
+Each reviewer learns & gradients reach all four roles and the judge (unit tests and every smoke-run log line)\\
+CPU pipeline runs & four short runs (64 rows, 1 epoch each; after layer 20, at the end, baseline, end with all role objectives): no non-finite step; every stage and the MedLFQA benchmark ran. These are pipeline checks, \textbf{not results}\\
+Size & 23{,}686{,}785 parameters, measured\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{A bug the checks found (T65)}
+
+\begin{plain}
+In the first laptop runs the fact-checker gave a perfect score (100\,\% of the facts,
+0\,\% contradictions) to answers of only 24 words --- impossible. The cause: the
+fact-checker's word list had not been downloaded completely, and the software
+quietly built an \emph{empty} one, so it read every word as ``unknown'' and said
+``yes, this fact is in the answer'' to everything. The loader now refuses an
+incomplete word list and downloads it properly. The same answers are now scored
+47.2\,\% and 11.1\,\%, which is believable.
+\end{plain}
+
+\begin{tech}
+\textbf{Cause.} The project loads models ``offline first'': it tries the local Hugging Face
+cache and goes online only if that raises an error. For the judge, only
+\code{config.json} was in the cache (it had been downloaded to read the label names). With
+\code{transformers} 5, loading the tokenizer in this state does \emph{not} raise: it silently
+builds a tokenizer with 5 entries, so every word became \code{[UNK]} and the NLI model
+answered ``entailment'' for every pair. This was reproduced in a fresh, empty cache.
+
+\textbf{Fix.} \code{load\_complete\_tokenizer} checks the vocabulary size after loading;
+below a minimum (1{,}000 for SmolLM2, half the model's vocabulary for the judge) it makes
+one online attempt and raises an error if the tokenizer is still incomplete --- an
+incomplete tokenizer can no longer produce a silent result. Two tests cover the retry and
+the error.
+
+\textbf{Judge check.} Before relying on the judge, it was run on 12 hand-labelled medical
+pairs (4 entailment, 5 neutral, 3 contradiction, including negations such as ``never
+causes bleeding''): PubMedBERT-MNLI-MedNLI labelled 12/12 correctly; two general NLI
+models (\code{cross-encoder/nli-deberta-v3-base},
+\code{MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli}) 8/12 each. Twelve pairs are a
+sanity check, not a validation; the judge's scores are only compared between arms under
+identical conditions.
+\end{tech}
+
+% =====================================================================
+\section{The experiment plan}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}p{2.6cm}Yp{4.4cm}@{}}
+\toprule
+\textbf{Phase} & \textbf{What} & \textbf{Decision rule}\\
+\midrule
+3 sanity & one seed; baseline, sandbox at the end and after layer 20; SmolLM2 frozen for the first 2{,}000 steps & no non-finite steps; every role gets gradient; judge not stuck on one candidate; candidates not identical\\
+4 placement & one sandbox per run after layers 5, 10, 15, 20, 25 or at the end; same seed, data and flags; no warm-up (as the baseline); then three seeds for the best two & perplexity CI and a factuality CI against the baseline both exclude 0\\
+5 role objectives & at the best depth: R3 correctness, candidate loss, early exploration --- each alone against the same run without it & the objective improves factuality or prevents collapse, with a CI that excludes 0\\
+6 later & hard selection, more rounds, several insertion points & only if 4--5 show a gain\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Every run ends with the L2-off test (the same model with the sandbox switched off)
+and the candidate test (\code{gen\_eval candidates}: each of the five candidates
+forced in turn). Together they show whether the model actually depends on the
+sandbox and which reviewer carries the change. Commands: \code{run.md} A3t.
+
+% =====================================================================
+\section{Risks and open questions}
+
+\begin{plain}
+\begin{itemize}
+\item \textbf{The reviewers may not become what their names say.} Their inputs and
+rules are fixed, but what they learn depends on training. Whether R1 really explores
+and R2 really checks is a result to measure, not a promise.
+\item \textbf{One reviewer may take over} (the feedback loop above). The role
+objectives exist to prevent this, and the logs show it early.
+\item \textbf{The judge may learn slowly.} In the laptop runs its learning signal was
+far smaller than the reviewers', and it stayed undecided over 14--22 steps. That is
+expected for such short runs; if it persists in Phase 3, the judge gets its own,
+higher learning rate (as the old gate had).
+\item \textbf{No new knowledge.} The sandbox can only use what SmolLM2 knows better.
+\item \textbf{The fact-checker is a model too.} It passed a small hand check; its
+scores are compared between arms under identical conditions, not read as absolute truth.
+\end{itemize}
+\end{plain}
+
+% =====================================================================
+\section{Summary}
+
+\begin{keybox}[title={Summary}]
+\begin{itemize}[leftmargin=1.2em]
+\item The first sandbox did not improve reasoning; its gain was a ``yes'' preference.
+\item \textbf{Ekdant v0.1.0} rebuilds it as a team of four role agents inside the model ---
+explore, check consistency, express uncertainty, build the best-supported alternative ---
+plus the model's own state and a learned judge that decides per word and records why.
+\item Each reviewer learns during training; three optional objectives push the roles
+towards their jobs and protect against one reviewer taking over.
+\item The benchmark is now written answers checked for medical facts (MedLFQA).
+\item Built, tested and checked end-to-end; \textbf{training starts when a GPU is available}
+--- first the sanity run, then the placement study, then the role objectives one at a time.
+\end{itemize}
+\end{keybox}
+
+% =====================================================================
+\appendix
+\section{Glossary}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{4.2cm}Y@{}}
+\toprule
+State ($h$) & the 576 numbers SmolLM2 holds for a word at a given layer\\
+Candidate & one of five versions of a word's state: the original ($C_0$) or a reviewer's proposal ($C_1..C_4$)\\
+Role generator / reviewer & a small network that proposes a change $\Delta_i$ to the state, with its own inputs and rule\\
+Judge / selection gate & a small network that scores the five candidates per word; softmax turns scores into weights\\
+Soft selection & the new state is the weighted mix of the candidates (trainable directly)\\
+Insertion point & the layer after which the sandbox runs (\code{--addon-layer})\\
+Collapse & one candidate wins everywhere or all candidates become the same\\
+Entailment / contradiction & the answer implies / denies a statement (judged by the NLI model)\\
+Comprehensiveness & \% of the must-have statements an answer entails\\
+Hallucination & \% of all statements an answer contradicts\\
+Perplexity & how surprised the model is by the reference answer (lower is better)\\
+L2-off test & the same trained model with the sandbox switched off\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Reproducibility}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.6cm}Y@{}}
+\toprule
+Specification and explanation & \code{04-Model-DeepDive/30\_L2\_v6\_Roles\_Spec.md}\\
+Implementation plan & \code{04-Model-DeepDive/30a\_L2\_v6\_Roles\_Plan.md}\\
+Code & \code{09-Code/src/ekdant/sandbox.py} (\code{SandboxV01}), \code{model.py}, \code{train\_gen.py}, \code{gen\_data.py}, \code{gen\_eval.py}\\
+Configuration (both arms) & \code{09-Code/configs/ekdant\_v0.1.0.json}\\
+Tests & \code{09-Code/tests/test\_sandbox\_v01.py} (43) and additions in \code{test\_gen\_data.py}, \code{test\_gen\_eval.py}, \code{test\_backbone.py}\\
+Run commands & \code{run.md} A3t; issues T64, T65 in \code{07-Management/10\_Known\_Issues.md}\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\end{document}

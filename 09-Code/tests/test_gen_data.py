@@ -116,3 +116,85 @@ def test_rows_stored_compactly():
     ds = GenDataset([GenExample("q", "a b")], WordTok())
     assert isinstance(ds.rows[0][0], array) and ds.rows[0][0].typecode == "i"
     assert ds[0]["input_ids"].dtype == torch.long
+
+
+# ---------------------------------------------------------------------------
+# Ekdant v0.1.0 protocol: reasoning text (stage 1) and MedLFQA (benchmark)
+# ---------------------------------------------------------------------------
+
+import datasets  # noqa: E402
+import pytest  # noqa: E402
+
+import ekdant.gen_data as GD  # noqa: E402
+import ekdant.train_gen as G  # noqa: E402
+
+
+def _fake_load(rows_by_name):
+    def load(name, *args, split=None, **kw):
+        return rows_by_name[name]
+    return load
+
+
+def test_reasoning_rows_become_reasoning_then_final_answer(monkeypatch):
+    rows = [{"Question": "Why fever?", "Complex_CoT": "Infection raises the set point.",
+             "Response": "Because of pyrogens."},
+            {"Question": "", "Complex_CoT": "x", "Response": "y"}]
+    monkeypatch.setattr(datasets, "load_dataset", _fake_load({GD.REASONING[0]: rows}))
+    ex = GD.load_reasoning()
+    assert len(ex) == 1
+    assert ex[0].question == "Why fever?"
+    assert ex[0].answer == "Infection raises the set point.\nFinal answer: Because of pyrogens."
+    assert ex[0].context == ""
+
+
+def test_reasoning_rows_too_long_are_dropped_not_cut():
+    tok = WordTok()
+    short = GenExample("q one", "a b c")
+    long = GenExample("q two", " ".join(["w"] * 20))
+    ds = GenDataset([short, long], tok, max_len=64, max_answer=10, cut_long=False)
+    assert len(ds) == 1 and ds.example(0) is short
+    assert ds.dropped_long == 1 and ds.dropped == 1
+    cut = GenDataset([short, long], tok, max_len=64, max_answer=10)
+    assert len(cut) == 2 and cut.dropped_long == 0
+
+
+def test_medlfqa_rows_keep_their_statements(monkeypatch):
+    rows = [{"Question": "Are boils curable?", "Free_form_answer": "Yes, usually.",
+             "Must_have": ["Boils are skin infections."], "Nice_to_have": ["Warm compresses help."]}]
+    monkeypatch.setattr(datasets, "load_dataset", _fake_load({GD.MEDLFQA: rows}))
+    ex = GD.load_medlfqa()
+    assert ex[0].answer == "Yes, usually."
+    assert ex[0].must_have == ("Boils are skin infections.",)
+    assert ex[0].nice_to_have == ("Warm compresses help.",)
+
+
+def test_medlfqa_questions_never_reach_training():
+    train = [GenExample("What is X?", "a"), GenExample("what is x? ", "b"),
+             GenExample("What is Y?", "c")]
+    bench = [GenExample("What is X?", "ref")]
+    kept, removed = GD.exclude_questions(train, {question_key(e.question) for e in bench})
+    assert [e.question for e in kept] == ["What is Y?"]
+    assert removed == 2
+
+
+def test_rows_to_examples_keeps_every_field():
+    rows = [{"q": "q", "a": "a"}]
+    ex = _rows_to_examples(rows, lambda r: GenExample(
+        r["q"], r["a"], qtype="t", label="yes", pair=4, must_have=("m",), nice_to_have=("n",)))
+    e = ex[0]
+    assert (e.qtype, e.label, e.pair, e.must_have, e.nice_to_have) == ("t", "yes", 4, ("m",), ("n",))
+
+
+def test_stage1_flag_defaults_to_pubmedqa():
+    args = G.build_parser().parse_args(["--variant", "baseline", "--out", "x"])
+    assert args.stage1 == "pubmedqa" and args.medlfqa is False
+    args = G.build_parser().parse_args(["--variant", "baseline", "--out", "x",
+                                        "--stage1", "reasoning", "--medlfqa"])
+    assert args.stage1 == "reasoning" and args.medlfqa is True
+
+
+def test_evidence_needs_pubmedqa_stage1(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        G.main(["--variant", "baseline", "--out", str(tmp_path / "r"),
+                "--stage1", "reasoning", "--evidence"])
+    assert e.value.code == 1            # our check, not an argparse error (2)

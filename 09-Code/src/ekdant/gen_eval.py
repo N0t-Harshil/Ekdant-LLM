@@ -8,7 +8,14 @@
                       resampling questions (rows sharing a question move
                       together)
 
+    factuality_scores MedLFQA (Ekdant v0.1.0): comprehensiveness = share of
+                      the must-have statements the answer entails;
+                      hallucination = share of all statements it contradicts
+                      (Manes et al. 2024, OLAPH), judged by ``NLIJudge``
+
 CLI:  python -m ekdant.gen_eval compare runs/v2_baseline runs/v2_sandbox ...
+      python -m ekdant.gen_eval candidates runs/<v0.1.0 run> (sandbox v0.1.0:
+      the MedLFQA perplexity with each candidate forced)
       python -m ekdant.gen_eval mcq runs/v25_baseline runs/v25_end ... (T46,
       multiple-choice accuracy; see ``MCQ_DOC``)
       python -m ekdant.gen_eval reason --baseline ... --model NAME ... (T59,
@@ -29,7 +36,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
 
-from ekdant.backbone import _offline_first, apply_hf_token, load_backbone, load_tokenizer
+from ekdant.backbone import (_offline_first, apply_hf_token, load_backbone,
+                             load_complete_tokenizer, load_tokenizer)
 from ekdant.data import LETTERS, load_examples
 from ekdant.model import EkdantLM, V2Config
 
@@ -260,6 +268,100 @@ def paired_bootstrap(a: List[float], b: List[float], groups: List[str],
             "lo": stats[int(0.025 * (n - 1))], "hi": stats[int(0.975 * (n - 1))]}
 
 
+# ---------------------------------------------------------------------------
+# MedLFQA factuality (Ekdant v0.1.0)
+# ---------------------------------------------------------------------------
+
+# a biomedical NLI classifier (PubMedBERT fine-tuned on MNLI + MedNLI), used
+# only to score answers, never trained (approved by the author 2026-11-18)
+NLI_MODEL = "pritamdeka/PubMedBERT-MNLI-MedNLI"
+NLI_LABELS = ("entailment", "neutral", "contradiction")
+
+
+class NLIJudge:
+    """``judge(premises, hypotheses)`` -> one of ``NLI_LABELS`` per pair.  The
+    label names are read from the model's ``id2label``; a model without an
+    entailment and a contradiction label is refused.  The premise (the
+    generated answer) is truncated first, to 512 tokens."""
+
+    def __init__(self, model_id: str = NLI_MODEL, device="cpu", batch_size: int = 32,
+                 model=None, tokenizer=None):
+        if model is None:
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+            model = _offline_first(
+                lambda: AutoModelForSequenceClassification.from_pretrained(model_id))
+            # T65: never judge with an incomplete (all-[UNK]) tokenizer
+            tokenizer = load_complete_tokenizer(
+                lambda: AutoTokenizer.from_pretrained(model_id),
+                max(100, model.config.vocab_size // 2))
+        self.model = model.to(device).eval()
+        self.tok, self.device, self.batch_size = tokenizer, device, batch_size
+        self.labels: Dict[int, str] = {}
+        for i, name in model.config.id2label.items():
+            n = str(name).lower()
+            for want in NLI_LABELS:
+                if n.startswith(want[:6]):
+                    self.labels[int(i)] = want
+        if not {"entailment", "contradiction"} <= set(self.labels.values()):
+            raise ValueError(f"NLI model labels {dict(model.config.id2label)} name no "
+                             f"entailment / contradiction class")
+
+    @torch.no_grad()
+    def __call__(self, premises: List[str], hypotheses: List[str]) -> List[str]:
+        out: List[str] = []
+        for s in range(0, len(premises), self.batch_size):
+            enc = self.tok(premises[s:s + self.batch_size], hypotheses[s:s + self.batch_size],
+                           truncation="only_first", max_length=512, padding=True,
+                           return_tensors="pt").to(self.device)
+            pred = self.model(**enc).logits.argmax(-1).tolist()
+            out += [self.labels.get(int(k), "neutral") for k in pred]
+        return out
+
+
+def factuality_scores(preds: List[str], examples: Sequence, judge) -> Dict:
+    """MedLFQA factuality of generated answers (premise = the answer,
+    hypothesis = a statement).  Per row: comprehensiveness = % of the
+    must-have statements entailed; hallucination = % of all statements
+    (must-have + nice-to-have) contradicted.  A row without statements has
+    None and is left out of the means."""
+    prem, hyp, owner, must = [], [], [], []
+    for r, (p, e) in enumerate(zip(preds, examples)):
+        for st in e.must_have:
+            prem.append(p); hyp.append(st); owner.append(r); must.append(True)
+        for st in e.nice_to_have:
+            prem.append(p); hyp.append(st); owner.append(r); must.append(False)
+    labels = judge(prem, hyp) if prem else []
+    comp = [[0, 0] for _ in preds]
+    hall = [[0, 0] for _ in preds]
+    for lab, r, m in zip(labels, owner, must):
+        if m:
+            comp[r][0] += lab == "entailment"
+            comp[r][1] += 1
+        hall[r][0] += lab == "contradiction"
+        hall[r][1] += 1
+    row_comp = [100.0 * a / n if n else None for a, n in comp]
+    row_hall = [100.0 * a / n if n else None for a, n in hall]
+    mean = lambda xs: (sum(x for x in xs if x is not None)  # noqa: E731
+                       / max(1, sum(x is not None for x in xs)))
+    return {"comprehensiveness": mean(row_comp), "hallucination": mean(row_hall),
+            "row_comp": row_comp, "row_hall": row_hall, "n": len(preds),
+            "n_statements": len(prem)}
+
+
+def _paired_rows(a: Dict, b: Dict, key: str) -> Optional[Dict]:
+    """Paired bootstrap of a per-generated-row score (``row_comp`` /
+    ``row_hall``) between two MedLFQA results, grouped by question."""
+    ia = {i: (v, g) for i, v, g in zip(a["gen_idx"], a[key], a.get("gen_group", a["gen_idx"]))
+          if v is not None}
+    ib = {i: v for i, v in zip(b["gen_idx"], b[key]) if v is not None}
+    keys = sorted(set(ia) & set(ib))
+    if not keys:
+        return None
+    return paired_bootstrap([ia[k][0] for k in keys], [ib[k] for k in keys],
+                            [str(ia[k][1]) for k in keys])
+
+
 def _rows(t: Dict) -> Dict[int, tuple]:
     return {i: (s, k) for i, s, k in
             zip(t["row_idx"], t["row_nll"], t["row_tokens"])}
@@ -295,6 +397,28 @@ def compare(run_dirs: List[str]) -> None:
               f"{os.path.basename(ref_d.rstrip('/'))}: per-token NLL "
               f"{ci['diff']:+.4f}  95% CI [{ci['lo']:+.4f}, {ci['hi']:+.4f}]  "
               f"({verdict}; negative = better)")
+    # Ekdant v0.1.0: the MedLFQA benchmark, when both runs have it
+    lf_ref = ref["test"].get("medlfqa")
+    for d, r in runs[1:] if lf_ref else []:
+        lf = r["test"].get("medlfqa")
+        if not lf:
+            continue
+        name = (f"{os.path.basename(d.rstrip('/'))} - "
+                f"{os.path.basename(ref_d.rstrip('/'))} medlfqa:")
+        la, lb = _rows(lf_ref), _rows(lf)
+        g = dict(zip(lf_ref["row_idx"], lf_ref["row_group"]))
+        keys = sorted(set(la) & set(lb))
+        ci = paired_bootstrap([la[k][0] for k in keys], [lb[k][0] for k in keys],
+                              [g[k] for k in keys], weights=[la[k][1] for k in keys])
+        print(f"{name} per-token NLL {ci['diff']:+.4f}  95% CI [{ci['lo']:+.4f}, "
+              f"{ci['hi']:+.4f}] (negative = better)")
+        for key, title, better in (("row_comp", "comprehensiveness", "positive"),
+                                   ("row_hall", "hallucination", "negative")):
+            c = _paired_rows(lf_ref, lf, key) if key in lf_ref and key in lf else None
+            if c:
+                verdict = "real difference" if c["lo"] > 0 or c["hi"] < 0 else "tie"
+                print(f"{name} {title} {c['diff']:+.2f}  95% CI [{c['lo']:+.2f}, "
+                      f"{c['hi']:+.2f}] ({verdict}; {better} = better)")
     # T44: how much each trained model depends on its L2
     for d, r in runs:
         off = r["test"].get("l2_off")
@@ -1961,6 +2085,60 @@ def reason_main(argv: Optional[List[str]] = None) -> None:
         print(f"written to {args.markdown}")
 
 
+def candidates_main(argv: Optional[List[str]] = None) -> None:
+    """Sandbox v0.1.0 candidate ablation (spec 8.2): the MedLFQA reference-
+    answer perplexity of a finished run with the gate as trained (soft) and
+    with each candidate forced (h, R1-R4).  Writes ``candidates.json`` in the
+    run; ``results.json`` is never changed."""
+    ap = argparse.ArgumentParser(prog="python -m ekdant.gen_eval candidates")
+    ap.add_argument("run")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="MedLFQA rows (default: as the run was trained)")
+    ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--gpu", default="cpu", help="cpu or a CUDA index")
+    args = ap.parse_args(argv)
+    last = torch.load(os.path.join(args.run, "last.pt"), map_location="cpu",
+                      weights_only=False)
+    cfg = V2Config.from_dict(last["cfg"])
+    if cfg.addon != "sandbox" or cfg.sandbox_version != "0.1.0":
+        _log(f"error: {args.run} is not a sandbox 0.1.0 run - candidates are a "
+             f"sandbox 0.1.0 test")
+        raise SystemExit(1)
+    from ekdant.gen_data import GenDataset, load_medlfqa, question_key
+    from ekdant.sandbox import CANDIDATES
+
+    run_args = last.get("run_args", {})
+    seed = int(run_args.get("seed", 17))
+    limit = args.limit if args.limit is not None else run_args.get("limit")
+    device = torch.device("cpu" if args.gpu == "cpu" else f"cuda:{args.gpu}")
+    cfg, weights, chosen = load_run_weights(args.run, last, cfg)
+    apply_hf_token(cfg.hf_token_file)
+    tok = load_tokenizer(cfg.backbone)
+    model = EkdantLM(cfg, load_backbone(cfg.backbone)).to(device)
+    model.load_state_dict(weights)
+    model.eval()
+    ex = load_medlfqa(limit, seed)
+    ds = GenDataset(ex, tok, cfg.max_seq_len, cfg.max_answer)
+    groups = [question_key(e.question) for e in ex]
+    pad = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+    soft = bench_nll(model, ds, pad, device, args.batch_size)
+    out = {"checkpoint": chosen, "soft": {"nll": soft["nll"], "ppl": soft["ppl"]}}
+    ra = _rows(soft)
+    for i, name in enumerate(CANDIDATES):
+        with model.force_candidate(i):
+            r = bench_nll(model, ds, pad, device, args.batch_size)
+        rb = _rows(r)
+        keys = sorted(set(ra) & set(rb))
+        ci = paired_bootstrap([ra[k][0] for k in keys], [rb[k][0] for k in keys],
+                              [groups[k] for k in keys], weights=[ra[k][1] for k in keys])
+        out[name] = {"nll": r["nll"], "ppl": r["ppl"], "vs_soft": ci}
+        _log(f"  forced {name:15s} ppl {r['ppl']:.3f} (soft {soft['ppl']:.3f}): "
+             f"per-token NLL {ci['diff']:+.4f} [{ci['lo']:+.4f}, {ci['hi']:+.4f}]")
+    with open(os.path.join(args.run, "candidates.json"), "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=1)
+    _log(f"wrote {os.path.join(args.run, 'candidates.json')}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "gain":
         gain_main(sys.argv[2:])
@@ -1968,11 +2146,14 @@ if __name__ == "__main__":
         reason_main(sys.argv[2:])
     elif len(sys.argv) >= 2 and sys.argv[1] == "mcq":
         mcq_main(sys.argv[2:])
+    elif len(sys.argv) >= 2 and sys.argv[1] == "candidates":
+        candidates_main(sys.argv[2:])
     elif len(sys.argv) >= 4 and sys.argv[1] == "compare":
         compare(sys.argv[2:])
     else:
         print("usage: python -m ekdant.gen_eval compare <run> <run> [...]\n"
               "       python -m ekdant.gen_eval mcq <run> [...] [--zero-shot]\n"
               "       python -m ekdant.gen_eval gain --baseline <runs> --model NAME <runs> [...]\n"
-              "       python -m ekdant.gen_eval reason --baseline <runs> --model NAME <runs> [...]")
+              "       python -m ekdant.gen_eval reason --baseline <runs> --model NAME <runs> [...]\n"
+              "       python -m ekdant.gen_eval candidates <sandbox 0.1.0 run>")
         raise SystemExit(2)

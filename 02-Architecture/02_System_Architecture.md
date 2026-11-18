@@ -262,6 +262,10 @@ Shipped tests live at `09-Code/tests/` (`test_model`, `test_sandbox`, `test_tran
 | Variance/spread floor (collapse = fail) | Honesty guards |
 | Smoke run per arm: train → resume → eval-only | [07](../06-Training-Eval/07_Training_Pipeline.md) §5 |
 
+## 13a. Ekdant v0.1.0 — the sandbox v0.1.0 (built 2026-11-18, not trained)
+
+The sandbox of v1–v5 (v0.0.x, §5 and [26c](../04-Model-DeepDive/26c_Internal_Sandbox_Build.md)) stays in the code as the default. **Ekdant v0.1.0** adds the sandbox v0.1.0 (`SandboxV01`, `sandbox_version: "0.1.0"`, `configs/ekdant_v0.1.0.json`): at one configurable depth it keeps the model's own state as candidate 0, builds four role proposals (R1 explore — orthogonal to the state; R2 consistency — reads the earlier tokens; R4 best-supported — reads the earlier tokens and R1, R2; R3 uncertainty — reads their disagreement), lets them read each other once, and a learned gate weighs the five per token: `h' = h + rms(h) · Σ p_i Δ_i`, a no-op at step 0. 23,686,785 parameters. The full explanation, in plain words and technically, is in [30_L2_v6_Roles_Spec.md](../04-Model-DeepDive/30_L2_v6_Roles_Spec.md); the benchmark of v0.1.0 is MedLFQA (text generation with factuality scores), not multiple choice.
+
 ## 14. Internal-only build rule
 
 **Internal-first:** L1, T, and L2 are implemented in-house with PyTorch core ops only — no third-party kernels or agent frameworks. Why: the official `mamba-ssm` stack needs Linux + NVIDIA GPU + CUDA + a `causal-conv1d` compiler build (kills single-machine debugging, MPS/CPU smoke runs, reproducibility); external multi-agent frameworks (AutoGen, CrewAI, LangGraph) run debate as text transcripts between separate models — the opposite of the in-graph, cost-matched design. Defense rule: if the examiner asks "show me the scan / the debate step," the answer is a file in this repo, not a package version. L1 recipe (project Δ/B/C → discretize → cumsum scan / state recur → gate+residual+norm) verified against Mamba Algorithm 2 shapes, not package numerics — [26a](../04-Model-DeepDive/26a_Internal_SSM_Build.md).

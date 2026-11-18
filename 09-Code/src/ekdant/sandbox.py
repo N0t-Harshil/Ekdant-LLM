@@ -472,3 +472,196 @@ class Sandbox(nn.Module):
             traj = layer(traj, mem)
             states.append(traj)
         return states
+
+
+# ---------------------------------------------------------------------------
+# The sandbox, v0.1.0 (Ekdant v0.1.0, spec 04-Model-DeepDive/30)
+# ---------------------------------------------------------------------------
+
+# candidate 0 is the model's own state, kept unchanged; 1-4 are the roles
+CANDIDATES = ("h", "R1_explore", "R2_consistency", "R3_uncertainty", "R4_supported")
+
+
+def _generator(d_in: int, hidden: int, d_out: int) -> nn.Sequential:
+    """A role's learnable transformation.  The last layer starts at zero, so
+    an untrained role proposes no change (every arm = the backbone at step 0)."""
+    net = nn.Sequential(nn.Linear(d_in, hidden), nn.SiLU(), nn.Linear(hidden, d_out))
+    nn.init.zeros_(net[2].weight)
+    nn.init.zeros_(net[2].bias)
+    return net
+
+
+class CandidateRound(nn.Module):
+    """One communication / refinement round: every candidate reads the other
+    four (``CrossRead``, never itself); each role then takes as much of what it
+    read as its own repair gate allows (as ``DebateRound``), through its own
+    output projection, so the roles stay distinct.  Candidate 0 (h) is read
+    but never changed.  Output projections start at zero: an untrained round
+    changes nothing."""
+
+    def __init__(self, dim: int, roles: int = 4):
+        super().__init__()
+        self.norm = RMSNorm(dim)
+        self.read = CrossRead(dim)
+        self.gate = nn.ModuleList([nn.Linear(2 * dim, dim) for _ in range(roles)])
+        self.out = nn.ModuleList([nn.Linear(dim, dim) for _ in range(roles)])
+        for g, o in zip(self.gate, self.out):
+            nn.init.constant_(g.bias, -2.0)
+            nn.init.zeros_(o.weight)
+            nn.init.zeros_(o.bias)
+
+    def forward(self, x: torch.Tensor, deltas: torch.Tensor) -> torch.Tensor:
+        """x [B,T,D]; deltas [R,B,T,D] -> refined deltas."""
+        cand = torch.cat([x.unsqueeze(0), x.unsqueeze(0) + deltas], dim=0)
+        n = self.norm(cand)
+        cross = self.read(n)
+        new = []
+        for i in range(deltas.shape[0]):
+            gamma = torch.sigmoid(self.gate[i](torch.cat([n[i + 1], cross[i + 1]], dim=-1)))
+            new.append(deltas[i] + gamma * self.out[i](cross[i + 1]))
+        return torch.stack(new, dim=0)
+
+
+class SandboxV01(nn.Module):
+    """The sandbox v0.1.0: five candidate states per token - the model's own
+    state h and four role proposals R_i = h + delta_i - one communication
+    round, then a learned gate that weighs the five per token.
+
+        R1 explore       delta orthogonal to h: an alternative reading, never
+                         a copy or a rescaling of h
+        R2 consistency   reads the earlier tokens (causal) with its own query
+        R4 supported     reads the earlier tokens with its own query and the
+                         proposals of R1 and R2: the best-supported alternative
+        R3 uncertainty   reads how much R1, R2 and R4 disagree (per-channel
+                         spread) next to h
+
+    ``consensus`` is the selected change sum_i p_i delta_i (delta_0 = 0 for h)
+    in the units of the normalised input; ``GatedAddOn`` sizes it to the
+    stream.  ``force`` = i makes the gate pick candidate i (the candidate
+    ablation)."""
+
+    def __init__(self, dim: int, heads: int = 0, hidden_ratio: float = 4.0,
+                 rounds: int = 1, gate_hidden: int = 256, r3_probe: bool = False):
+        super().__init__()
+        heads = heads or max(1, dim // 64)
+        if dim % heads:
+            raise ValueError(f"sandbox_heads {heads} must divide dim {dim}")
+        if rounds < 0:
+            raise ValueError(f"rounds must be >= 0, got {rounds}")
+        self.dim, self.heads = dim, heads
+        hidden = int(dim * hidden_ratio)
+        # the text the roles read: the model's own states (as Sandbox, T51)
+        self.mem_norm = RMSNorm(dim)
+        self.mem_key = nn.Linear(dim, dim, bias=False)
+        self.q2 = nn.Linear(dim, dim, bias=False)
+        self.q4 = nn.Linear(dim, dim, bias=False)
+        self.r1 = _generator(dim, hidden, dim)
+        self.r2 = _generator(2 * dim, hidden, dim)
+        self.r3 = _generator(2 * dim, hidden, dim)
+        self.r4 = _generator(4 * dim, hidden, dim)
+        self.rounds = nn.ModuleList([CandidateRound(dim) for _ in range(rounds)])
+        self.cand_norm = RMSNorm(dim)
+        self.gate = nn.Sequential(nn.Linear(3 * dim, gate_hidden), nn.SiLU(),
+                                  nn.Linear(gate_hidden, 1))
+        nn.init.zeros_(self.gate[2].weight)
+        nn.init.zeros_(self.gate[2].bias)
+        self.force: Optional[int] = None
+        # Role objectives (Phase 5, spec 8.3), all off by default:
+        # R3's probe predicts from R3's proposal whether the model's next
+        # token is right (EkdantLM adds the BCE); explore_weight > 0 keeps the
+        # gate's entropy (with gradient) for the early-exploration bonus.
+        self.r3_probe = nn.Linear(dim, 1) if r3_probe else None
+        self.explore_weight = 0.0
+        self.last_r3_logit: Optional[torch.Tensor] = None
+        self.last_entropy: Optional[torch.Tensor] = None
+        # what EkdantLM.think / GatedAddOn expect of a sandbox
+        self.debate_passes = 1
+        self.steps = 0
+
+    memory = Sandbox.memory
+
+    def draw_passes(self) -> Optional[int]:
+        return None
+
+    def _read(self, q: nn.Linear, x: torch.Tensor, mem: TextMemory) -> torch.Tensor:
+        B, T, D = x.shape
+        H = self.heads
+        qh = q(x).view(B, T, H, D // H).transpose(1, 2)
+        o = F.scaled_dot_product_attention(qh, mem.keys.type_as(qh),
+                                           mem.values.type_as(qh), attn_mask=mem.allowed)
+        return o.transpose(1, 2).reshape(B, T, D)
+
+    def role_parameters(self) -> Dict[str, List[nn.Parameter]]:
+        return {"R1_explore": list(self.r1.parameters()),
+                "R2_consistency": list(self.r2.parameters()) + list(self.q2.parameters()),
+                "R3_uncertainty": list(self.r3.parameters()) + (
+                    list(self.r3_probe.parameters()) if self.r3_probe is not None else []),
+                "R4_supported": list(self.r4.parameters()) + list(self.q4.parameters()),
+                "gate": list(self.gate.parameters()) + list(self.cand_norm.parameters()),
+                "comm": (list(self.rounds.parameters()) + list(self.mem_norm.parameters())
+                         + list(self.mem_key.parameters()))}
+
+    def forward(self, hT: torch.Tensor,
+                mask: Optional[torch.Tensor] = None,
+                attn_mask: Optional[torch.Tensor] = None,
+                ctx: Optional[torch.Tensor] = None,
+                passes: Optional[int] = None) -> SandboxOutput:
+        x = hT
+        mem = self.memory(x if ctx is None else ctx, x.shape[1], attn_mask)
+        u = self.r1(x)
+        xn = x / x.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+        d1 = u - (u * xn).sum(-1, keepdim=True) * xn
+        d2 = self.r2(torch.cat([x, self._read(self.q2, x, mem)], dim=-1))
+        d4 = self.r4(torch.cat([x, self._read(self.q4, x, mem), d1, d2], dim=-1))
+        # sqrt(var + eps): the spread of three equal proposals is 0 at init,
+        # where a plain std would have an infinite gradient
+        spread = (torch.stack([d1, d2, d4]).float().var(0, unbiased=False) + 1e-6).sqrt()
+        d3 = self.r3(torch.cat([x, spread.type_as(x)], dim=-1))
+        deltas = torch.stack([d1, d2, d3, d4], dim=0)                     # [4,B,T,D]
+        for rnd in self.rounds:
+            deltas = rnd(x, deltas)
+        cand = torch.cat([x.unsqueeze(0), x.unsqueeze(0) + deltas], dim=0)  # [5,B,T,D]
+        ctx_feat = torch.cat([x, mem.history.type_as(x)], dim=-1)
+        s = self.gate(torch.cat([self.cand_norm(cand),
+                                 ctx_feat.unsqueeze(0).expand(5, *ctx_feat.shape)],
+                                dim=-1)).squeeze(-1).float()               # [5,B,T]
+        if self.force is not None:
+            p = F.one_hot(torch.full(s.shape[1:], int(self.force), dtype=torch.long,
+                                     device=s.device), 5).float().permute(2, 0, 1)
+        else:
+            p = s.softmax(dim=0)
+        consensus = (p[1:].unsqueeze(-1).type_as(deltas) * deltas).sum(0)
+        self.last_r3_logit = (self.r3_probe(deltas[2]).squeeze(-1)
+                              if self.r3_probe is not None else None)
+        self.last_entropy = None
+        if self.explore_weight > 0 and self.training and self.force is None:
+            ent = -(p * p.clamp_min(1e-12).log()).sum(0)                    # [B,T], grad
+            self.last_entropy = masked_mean_bt(ent, mask)
+        aux = self._diagnostics(p, cand, deltas, mask)
+        return SandboxOutput(consensus, cand, aux, None, p.permute(1, 2, 0).contiguous())
+
+    @staticmethod
+    @torch.no_grad()
+    def _diagnostics(p: torch.Tensor, cand: torch.Tensor, deltas: torch.Tensor,
+                     mask: Optional[torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Selection and collapse diagnostics over real tokens (spec §8.2)."""
+        p = p.float()
+        top = F.one_hot(p.argmax(0), 5).float().permute(2, 0, 1)            # [5,B,T]
+        ent = -(p * p.clamp_min(1e-12).log()).sum(0)                         # [B,T]
+        c = cand.float()
+        c = c / c.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+        cos = torch.einsum("ibtd,jbtd->ijbt", c, c)                          # [5,5,B,T]
+        rms = deltas.float().pow(2).mean(-1).sqrt()                          # [4,B,T]
+        return {"sel_p": masked_mean_bt(p, mask),
+                "sel_top": masked_mean_bt(top, mask),
+                "sel_entropy": masked_mean_bt(ent, mask),
+                "cand_cos": masked_mean_bt(cos, mask),
+                "delta_rms": masked_mean_bt(rms, mask)}
+
+
+def build_sandbox(dim: int, version: str = "0.0.5", **kw) -> nn.Module:
+    """The sandbox of a given version: 0.0.x = ``Sandbox`` (v1-v5),
+    0.1.0 = ``SandboxV01``."""
+    if version == "0.1.0":
+        return SandboxV01(dim, **kw)
+    return Sandbox(dim, **kw)
